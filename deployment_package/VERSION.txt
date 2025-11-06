@@ -1,0 +1,255 @@
+═══════════════════════════════════════════════════════════════
+  Allied Telesis Backup Configuration Manager v3.0.0
+═══════════════════════════════════════════════════════════════
+
+Build Date:     October 31, 2025 4:10 PM  
+Build Type:     Production Release (CRITICAL FIXES - Stable)
+Platform:       Windows x64
+Executable:     Allied_Telesis_Backup_Manager_v3.0.exe
+Size:           31.52 MB
+Build Number:   3.0.0-20251031-1610
+
+═══════════════════════════════════════════════════════════════
+  NEW FEATURES & ENHANCEMENTS (v3.0.0)
+═══════════════════════════════════════════════════════════════
+
+✅ SCHEDULED TASKS AUTO-START (Entry #19)
+   - Background service runs 24/7 via Task Scheduler
+   - Unlimited auto-restart on failure (999x retries)
+   - 30-second boot delay for network readiness
+   - Service heartbeat every 30 minutes
+   - Auto-start immediately after setup
+
+✅ SCHEDULE SYNCHRONIZATION (Entry #20)
+   - GUI and background service run independently
+   - Schedule times (hour/minute) preserved across restarts
+   - Enable/Disable handles missing jobs gracefully
+   - All schedule data persists to database
+
+✅ BUILD DEPENDENCIES UPDATED (Entry #21)
+   - APScheduler triggers (interval, cron, date) included
+   - pywin32 modules for Windows service support
+   - Export/Import fully compatible with new fields
+
+✅ BACKGROUND JOB TRACKING (Entry #22)
+   - All executions recorded with backup_type='automatic'
+   - GUI auto-refresh shows latest status (10-30s intervals)
+   - Clear indicators: 🤖 Auto / 👤 Manual
+   - Detailed [BACKGROUND-JOB] logging
+
+✅ USER-FRIENDLY ERROR HANDLING (Entry #23)
+   - 13 comprehensive error categories
+   - Actionable suggestions in Bahasa Indonesia
+   - Clear error messages with recovery steps
+   - Categories: CONNECTION_TIMEOUT, AUTHENTICATION_ERROR,
+                 SSH_PROTOCOL_ERROR, NETWORK_ERROR, etc.
+
+✅ TASK SCHEDULER INTEGRATION FIX
+   - Open Task Scheduler button fixed (shell=True)
+   - Better error messages with manual instructions
+   - Improved Windows compatibility
+
+✅ ENHANCED LOGGING & TROUBLESHOOTING (Entry #24)
+   - Comprehensive schedule service logging
+   - Clear visibility saat service start
+   - Per-job loading details dengan status
+   - Warning untuk missing/disabled schedules
+   - 2 detailed troubleshooting guides included:
+     • SOLUTION_SCHEDULE_TIDAK_JALAN.txt
+     • TROUBLESHOOTING_SCHEDULES.txt
+
+✅ ADMINISTRATOR MODE (Entry #26) - FINAL & STABLE!
+   - Reverted to Administrator-only mode (proven reliable)
+   - Uses SYSTEM account for 24/7 operation
+   - ONSTART trigger with 30-second boot delay
+   - Requires "Run as Administrator" for setup
+   - Clear error messages jika tidak ada admin privileges
+   - Perfect integration: GUI ↔ Database ↔ Background Service
+   - Background service reads schedules from database
+   - All status updates persisted to database
+   - GUI auto-refresh shows real-time status
+
+✅ BACKUP HISTORY TRACKING PER JOB (Entry #27) - NEW!
+   - Added job_id column to backups table
+   - Database migration auto-runs on startup
+   - Schedule service passes job_id when executing backup
+   - History view shows "Job/Schedule" column
+   - Displays job info: "Job #1 (Daily)", "Job #2 (15 min)", etc.
+   - Easy tracking: which schedule generated which backup
+   - Perfect traceability untuk troubleshooting
+
+✅ GUI AUTO-START SCHEDULE SERVICE (Entry #27) - RESTORED!
+   - Schedule service always auto-starts when GUI opens
+   - No need to wait for Task Scheduler
+   - Immediate schedule execution capability
+   - Both GUI and Task Scheduler services can coexist
+   - Share same database for perfect sync
+   - User-friendly: open app = schedules ready
+
+🔥 CRITICAL FIXES (Entry #28) - STABLE RELEASE!
+   ❗ FIX #1: Schedule service continues after GUI closes
+   - Background service NO LONGER stops when GUI closes
+   - If Task Scheduler configured: GUI services stop safely
+   - If NOT configured: GUI services stay alive + warning shown
+   - Schedules WILL execute even with GUI closed
+   - This fixes the 15:56 schedule not running issue!
+   
+   ✅ FIX #2: Custom minute intervals in schedules
+   - Added "Custom minutes" option in Add Schedule
+   - Can set ANY interval from 1-1440 minutes
+   - Example: 5 min, 45 min, 90 min, etc.
+   - Validation ensures 1-1440 range
+   - Flexible scheduling for all use cases
+   
+   ✅ FIX #3: Auto-Login feature (Settings tab)
+   - New "Auto-Login" section in Settings
+   - Save passphrase with encryption (XOR + Base64)
+   - Skip passphrase prompt on startup
+   - One-click enable/disable
+   - Status indicator shows current state
+   - No more popup dialog if auto-login enabled
+   - Security warning: only for trusted computers
+
+═══════════════════════════════════════════════════════════════
+  SYSTEM REQUIREMENTS
+═══════════════════════════════════════════════════════════════
+
+Operating System:   Windows 10 or later (x64)
+Memory:             Minimum 2 GB RAM (4 GB recommended)
+Disk Space:         500 MB free space
+Network:            Network access to managed switches
+Permissions:        Standard user (Admin for Task Scheduler setup)
+
+═══════════════════════════════════════════════════════════════
+  QUICK START GUIDE
+═══════════════════════════════════════════════════════════════
+
+1. Extract all files to desired location
+2. Run Allied_Telesis_Backup_Manager_v3.0.exe
+3. Set master password on first launch
+4. Add credentials in Credentials tab
+5. Add switches in Inventory tab
+6. Create schedules in Schedules tab
+7. Setup auto-start in Settings tab (optional)
+
+═══════════════════════════════════════════════════════════════
+  AUTO-START SERVICE (NEW!)
+═══════════════════════════════════════════════════════════════
+
+To enable scheduled backups 24/7:
+1. Open application → Settings tab
+2. Click "Setup Auto-Start"
+3. Enter master passphrase
+4. Service starts IMMEDIATELY (no reboot needed)
+5. Close GUI - schedules keep running!
+
+Features:
+- Runs in background via Windows Task Scheduler
+- Auto-start on Windows boot (30s delay)
+- Unlimited restart attempts on failure
+- Service heartbeat logging every 30 minutes
+- Independent from GUI (can close anytime)
+
+═══════════════════════════════════════════════════════════════
+  DIRECTORY STRUCTURE
+═══════════════════════════════════════════════════════════════
+
+Allied_Telesis_Backup_Manager_v3.0.exe   - Main application
+SOLUTION_SCHEDULE_TIDAK_JALAN.txt        - Quick solution guide (NEW!)
+TROUBLESHOOTING_SCHEDULES.txt            - Complete troubleshooting (NEW!)
+VERSION.txt                               - This file
+README.txt                                - General readme
+data/                                     - Database & settings
+  ├── app.db                              - SQLite database
+  ├── master.key                          - Encryption key
+  └── .service_passphrase                 - Service password
+backups/                                  - Backup storage
+  └── [switch_name]/
+      └── [YYYY-MM-DD]/
+          └── [HHmmss]_running-config.txt
+logs/                                     - Application logs
+  └── app_[date].log
+
+═══════════════════════════════════════════════════════════════
+  ERROR HANDLING (NEW!)
+═══════════════════════════════════════════════════════════════
+
+When backup fails, you'll see user-friendly messages:
+
+Example: Connection Timeout
+  "❌ Connection Timeout: Switch tidak merespons..."
+  Suggestions:
+    • Periksa switch online (ping IP address)
+    • Periksa koneksi jaringan ke switch
+    • Coba tingkatkan timeout di settings
+
+13 Error Categories Supported:
+- CONNECTION_TIMEOUT
+- CONNECTION_REFUSED  
+- HOST_UNREACHABLE
+- AUTHENTICATION_ERROR
+- PERMISSION_DENIED
+- NETWORK_ERROR
+- SSH_PROTOCOL_ERROR
+- TELNET_PROTOCOL_ERROR
+- COMMAND_ERROR
+- PAGING_ERROR
+- ENCRYPTION_ERROR
+- DATABASE_ERROR
+- FILESYSTEM_ERROR
+
+═══════════════════════════════════════════════════════════════
+  TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════
+
+Issue: Application won't start
+Fix: Check logs/app.log for errors
+     Run as Administrator if needed
+
+Issue: Can't connect to switches
+Fix: Verify network connectivity (ping)
+     Check firewall settings
+     Verify credentials in Credentials tab
+
+Issue: Schedules not running after GUI closed
+Fix: Check Task Scheduler - "AlliedTelesisBackup" should run
+     Check logs for [BACKGROUND-JOB] entries
+     Verify service auto-start is configured
+
+Issue: Forgot master password
+Fix: Delete data/app.db (WARNING: loses all data)
+     Or use Factory Reset in Settings tab
+
+═══════════════════════════════════════════════════════════════
+  MONITORING
+═══════════════════════════════════════════════════════════════
+
+Check Background Service:
+1. Win+R → taskschd.msc
+2. Find "AlliedTelesisBackup"
+3. Status should show "Running"
+
+Check Logs:
+1. Open logs/app.log
+2. Look for [BACKGROUND-JOB] entries
+3. Service heartbeat every 30 minutes
+
+Check GUI:
+- Schedules tab: Shows "Last Run" timestamp
+- History tab: Shows backups with 🤖 Auto indicator  
+- Dashboard: Shows statistics
+
+═══════════════════════════════════════════════════════════════
+  SUPPORT & DOCUMENTATION
+═══════════════════════════════════════════════════════════════
+
+For detailed documentation, see:
+- memory.md - Complete change log and technical details
+- README.md - General overview and usage guide
+
+Build Information:
+- Python Version: 3.13
+- Dependencies: All updated with latest security patches
+- PyInstaller: One-file executable with UPX compression
+
+═══════════════════════════════════════════════════════════════

@@ -1,0 +1,251 @@
+═══════════════════════════════════════════════════════════════
+  SETUP AUTO-START - PANDUAN UNTUK USER BIASA
+═══════════════════════════════════════════════════════════════
+
+GOOD NEWS! ✅
+Versi terbaru sudah FIXED! Sekarang Anda bisa setup auto-start dari
+account user biasa TANPA perlu Administrator privileges!
+
+═══════════════════════════════════════════════════════════════
+  APA YANG BERUBAH? (v3.0.0-20251031-1256)
+═══════════════════════════════════════════════════════════════
+
+SEBELUM (v1):
+❌ Memerlukan Administrator account
+❌ Task dibuat dengan SYSTEM account (S-1-5-18)
+❌ User biasa tidak bisa setup
+❌ Task tidak visible di user account
+
+SEKARANG (v2):
+✅ Bisa setup dari account user biasa
+✅ Task dibuat dengan current user account
+✅ Menggunakan LIMITED privilege level
+✅ Task visible dan accessible di user account
+✅ TIDAK PERLU admin privileges!
+
+═══════════════════════════════════════════════════════════════
+  CARA SETUP (MUDAH!)
+═══════════════════════════════════════════════════════════════
+
+LANGKAH 1: LOGIN DENGAN ACCOUNT USER BIASA
+───────────────────────────────────────────
+• Login ke Windows dengan account user Anda
+• TIDAK PERLU login sebagai Administrator
+• Gunakan account yang akan pakai aplikasi
+
+LANGKAH 2: BUKA APLIKASI
+─────────────────────────
+• Jalankan: Allied_Telesis_Backup_Manager_v3.0.exe
+• Dari lokasi: D:\EPOP\deployment_final\
+• Atau dari shortcut desktop
+
+LANGKAH 3: SETUP AUTO-START
+────────────────────────────
+1. Klik tab "Settings" (paling bawah di sidebar)
+2. Scroll ke section "🚀 Auto-Start Service Control"
+3. Klik button "📦 Setup Auto-Start"
+4. Masukkan MASTER PASSPHRASE Anda
+5. Klik OK
+6. Tunggu beberapa detik...
+7. Muncul pesan "Auto-Start configured successfully!"
+
+LANGKAH 4: VERIFIKASI
+──────────────────────
+1. Masih di Settings tab
+2. Lihat "Task Status:" harus menunjukkan "✅ Configured"
+3. Klik "🔄 Refresh Status"
+4. Status service harus "✅ Running"
+5. Done! ✅
+
+═══════════════════════════════════════════════════════════════
+  INFORMASI PENTING
+═══════════════════════════════════════════════════════════════
+
+TASK DETAILS:
+─────────────
+• Task Name: AlliedTelesisBackup
+• Created By: [Your Username]
+• Run Level: LIMITED (tidak perlu admin)
+• Trigger: At system startup (30 seconds delay)
+• Also triggers: When you login
+
+BAGAIMANA TASK JALAN:
+──────────────────────
+1. Anda login ke Windows dengan account user Anda
+2. Task "AlliedTelesisBackup" auto-start setelah 30 detik
+3. Background service jalan di background
+4. Schedules execute otomatis sesuai waktu
+5. Anda bisa tutup GUI kapan saja
+6. Background service tetap jalan!
+
+FILE LOCATIONS:
+───────────────
+Passphrase: data/.service_passphrase
+Logs: logs/app.log
+Database: data/app.db
+
+═══════════════════════════════════════════════════════════════
+  TESTING
+═══════════════════════════════════════════════════════════════
+
+TEST 1: IMMEDIATE EXECUTION
+────────────────────────────
+1. Setup auto-start (ikuti langkah di atas)
+2. Status harus "✅ Running"
+3. Buat test schedule (interval 2 menit)
+4. Enable schedule tersebut
+5. TUTUP aplikasi (close window)
+6. Tunggu 2-3 menit
+7. Buka aplikasi lagi
+8. Tab History harus muncul backup baru dengan tag "🤖 Auto"
+
+TEST 2: AFTER REBOOT
+────────────────────
+1. Setup auto-start
+2. Restart Windows
+3. Login dengan account user biasa
+4. Tunggu 30 detik
+5. Buka aplikasi
+6. Settings tab → "Refresh Status"
+7. Status harus "✅ Running"
+
+═══════════════════════════════════════════════════════════════
+  TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════
+
+MASALAH: Setup gagal "Access Denied"
+────────────────────────────────────
+PENYEBAB: Folder aplikasi read-only atau no write permission
+SOLUSI:
+1. Klik kanan folder aplikasi
+2. Properties → Security
+3. Pastikan user Anda punya "Modify" permission
+4. Coba lagi
+
+MASALAH: Task Status tetap "Not Configured"
+───────────────────────────────────────────
+PENYEBAB: Task creation gagal
+SOLUSI:
+1. Buka Task Scheduler manual (Win+R → taskschd.msc)
+2. Cari task "AlliedTelesisBackup"
+3. Jika tidak ada, setup ulang
+4. Jika error, cek logs/app.log
+
+MASALAH: Service status "Not Running"
+─────────────────────────────────────
+PENYEBAB: Task created tapi belum di-start
+SOLUSI:
+1. Settings tab → "▶️ Start Service Now"
+2. Atau restart Windows
+3. Check status dengan "Refresh Status"
+
+MASALAH: Schedule tidak jalan
+──────────────────────────────
+CHECKLIST:
+□ Auto-start sudah di-setup? (Task Status: Configured)
+□ Service running? (Refresh Status → Running)
+□ Schedule enabled? (Schedules tab → cek kolom Enabled)
+□ File passphrase ada? (data/.service_passphrase)
+
+═══════════════════════════════════════════════════════════════
+  KEUNTUNGAN SETUP DARI USER ACCOUNT
+═══════════════════════════════════════════════════════════════
+
+✅ MUDAH
+   • Tidak perlu admin privileges
+   • Tidak perlu login ke Administrator
+   • Setup langsung dari account user
+
+✅ AMAN
+   • Task hanya accessible oleh user Anda
+   • Passphrase tersimpan di folder user Anda
+   • Tidak ada konflik dengan user lain
+
+✅ RELIABLE
+   • Auto-start saat Anda login
+   • Jalan di background 24/7
+   • Auto-restart jika crash
+
+✅ ISOLATED
+   • Setiap user punya task sendiri
+   • Data terpisah per user
+   • Tidak ada interference
+
+═══════════════════════════════════════════════════════════════
+  FAQ
+═══════════════════════════════════════════════════════════════
+
+Q: Apakah perlu admin privileges?
+A: TIDAK! Versi baru sudah tidak perlu admin.
+
+Q: Apakah task jalan saat saya tidak login?
+A: TIDAK. Task jalan ketika Anda login ke Windows.
+   Jika Anda logout, task akan stop.
+   
+Q: Bagaimana jika ada multiple users?
+A: Setiap user harus setup auto-start sendiri.
+   Task tidak shared between users.
+
+Q: Apakah bisa jalan di background tanpa login?
+A: Untuk itu, task harus dibuat sebagai SYSTEM service
+   dengan admin privileges (setup dari Administrator).
+   Tapi untuk kebanyakan use case, user-level task
+   sudah cukup.
+
+Q: File passphrase aman?
+A: File tersimpan di folder aplikasi Anda.
+   Hanya readable oleh user Anda.
+   Tidak ada user lain yang bisa akses.
+
+═══════════════════════════════════════════════════════════════
+  PERINTAH VERIFIKASI
+═══════════════════════════════════════════════════════════════
+
+Cek task dari command line (PowerShell):
+
+# Check jika task exist
+Get-ScheduledTask -TaskName "AlliedTelesisBackup"
+
+# Check task info
+Get-ScheduledTask -TaskName "AlliedTelesisBackup" | 
+  Get-ScheduledTaskInfo | 
+  Select-Object LastRunTime,LastTaskResult,NextRunTime
+
+# Check task details
+Get-ScheduledTask -TaskName "AlliedTelesisBackup" | 
+  Select-Object TaskName,State,TaskPath,Author
+
+# Start task manually
+Start-ScheduledTask -TaskName "AlliedTelesisBackup"
+
+# Check running processes
+Get-Process | Where-Object {$_.ProcessName -like "*Allied*"}
+
+═══════════════════════════════════════════════════════════════
+  RINGKASAN
+═══════════════════════════════════════════════════════════════
+
+✅ FIXED! User biasa sekarang bisa setup auto-start
+✅ Tidak perlu admin privileges
+✅ Task dibuat dengan current user account
+✅ Setup mudah, 4 langkah saja
+✅ Task auto-start saat login
+✅ Background service jalan 24/7
+✅ Schedule execute otomatis
+
+NEXT STEPS:
+1. Update aplikasi ke versi terbaru (Build 3.0.0-20251031-1256)
+2. Login dengan account user biasa
+3. Setup auto-start (Settings → Setup Auto-Start)
+4. Test schedule (buat test 2 menit, tutup GUI, tunggu)
+5. Enjoy automated backups! 🚀
+
+═══════════════════════════════════════════════════════════════
+
+Untuk troubleshooting lengkap, baca:
+- SOLUTION_SCHEDULE_TIDAK_JALAN.txt
+- TROUBLESHOOTING_SCHEDULES.txt
+
+Last Updated: October 31, 2025 at 12:56 PM
+
+═══════════════════════════════════════════════════════════════

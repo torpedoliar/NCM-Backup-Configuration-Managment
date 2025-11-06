@@ -1,0 +1,821 @@
+# ============================================================================
+# Allied Telesis Backup Manager - Production Build Script
+# Version: 1.0
+# Best Practice Deployment Workflow
+# ============================================================================
+
+param(
+    [switch]$SkipTests,
+    [switch]$SkipClean,
+    [string]$Version = "3.5.4",
+    [string]$IconPath = ""
+)
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+$AppName = "AlliedTelesisBackup"
+$BuildDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+$DeploymentDir = "deployment_package"
+$DistDir = "dist"
+$BuildDir = "build"
+
+# ============================================================================
+# FUNCTIONS
+# ============================================================================
+
+function Write-Step {
+    param([string]$Message)
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "  $Message" -ForegroundColor Yellow
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+}
+
+function Write-Success {
+    param([string]$Message)
+    Write-Host "✓ $Message" -ForegroundColor Green
+}
+
+function Write-Info {
+    param([string]$Message)
+    Write-Host "  $Message" -ForegroundColor White
+}
+
+function Write-Warning {
+    param([string]$Message)
+    Write-Host "⚠ $Message" -ForegroundColor Yellow
+}
+
+function Write-Error-Custom {
+    param([string]$Message)
+    Write-Host "✗ $Message" -ForegroundColor Red
+}
+
+function Test-Command {
+    param([string]$Command)
+    return ($null -ne (Get-Command $Command -ErrorAction SilentlyContinue))
+}
+
+# ============================================================================
+# BANNER
+# ============================================================================
+
+Clear-Host
+Write-Host ""
+Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║                                                            ║" -ForegroundColor Cyan
+Write-Host "║   Allied Telesis Backup Configuration Manager             ║" -ForegroundColor Green
+Write-Host "║   Production Build System v$Version                            ║" -ForegroundColor Green
+Write-Host "║                                                            ║" -ForegroundColor Cyan
+Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
+Write-Info "Build Date: $BuildDate"
+Write-Info "Build Mode: Production"
+Write-Host ""
+
+# ============================================================================
+# STEP 1: PRE-BUILD VALIDATION
+# ============================================================================
+
+Write-Step "STEP 1: Pre-Build Validation"
+
+# Check Python
+Write-Info "Checking Python installation..."
+if (-not (Test-Command python)) {
+    Write-Error-Custom "Python not found in PATH!"
+    exit 1
+}
+$pythonVersion = python --version 2>&1
+Write-Success "Python found: $pythonVersion"
+
+# Check pip
+Write-Info "Checking pip..."
+if (-not (Test-Command pip)) {
+    Write-Error-Custom "pip not found!"
+    exit 1
+}
+Write-Success "pip is available"
+
+# Check required files
+Write-Info "Checking required files..."
+$requiredFiles = @(
+    "app/main.py",
+    "app/config/appsettings.yaml",
+    "requirements.txt"
+)
+
+foreach ($file in $requiredFiles) {
+    if (-not (Test-Path $file)) {
+        Write-Error-Custom "Required file missing: $file"
+        exit 1
+    }
+}
+Write-Success "All required files present"
+
+# Check dependencies
+Write-Info "Checking dependencies..."
+$pipList = pip list --format=freeze
+$requiredPackages = @(
+    "ttkbootstrap",
+    "paramiko",
+    "sqlalchemy",
+    "cryptography",
+    "apscheduler",
+    "pyinstaller",
+    "pillow"
+)
+
+$missingPackages = @()
+foreach ($package in $requiredPackages) {
+    if ($pipList -notmatch "^$package==") {
+        $missingPackages += $package
+    }
+}
+
+if ($missingPackages.Count -gt 0) {
+    Write-Warning "Missing packages: $($missingPackages -join ', ')"
+    Write-Info "Installing missing packages..."
+    pip install -r requirements.txt --quiet
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Custom "Failed to install dependencies!"
+        exit 1
+    }
+    Write-Success "Dependencies installed"
+} else {
+    Write-Success "All dependencies satisfied"
+}
+
+# ============================================================================
+# STEP 2: CODE VALIDATION (OPTIONAL TESTS)
+# ============================================================================
+
+if (-not $SkipTests) {
+    Write-Step "STEP 2: Code Validation"
+    
+    Write-Info "Running syntax validation..."
+    python -m py_compile app/main.py
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Python syntax validation passed"
+    } else {
+        Write-Error-Custom "Syntax errors found!"
+        exit 1
+    }
+    
+    # Check for common issues
+    Write-Info "Checking for common issues..."
+    $mainContent = Get-Content "app/main.py" -Raw
+    if ($mainContent -match "print\(") {
+        Write-Warning "Found print() statements - consider using logging"
+    }
+    Write-Success "Code validation complete"
+} else {
+    Write-Warning "Skipping code validation (--SkipTests specified)"
+}
+
+# ============================================================================
+# STEP 3: CLEAN PREVIOUS BUILDS
+# ============================================================================
+
+Write-Step "STEP 3: Clean Previous Builds"
+
+if (-not $SkipClean) {
+    $cleanDirs = @($BuildDir, $DistDir, $DeploymentDir)
+    foreach ($dir in $cleanDirs) {
+        if (Test-Path $dir) {
+            Write-Info "Removing $dir..."
+            Remove-Item -Recurse -Force $dir
+        }
+    }
+    
+    # Remove old spec files
+    Get-ChildItem -Filter "*.spec" | Remove-Item -Force -ErrorAction SilentlyContinue
+    
+    Write-Success "Cleanup complete"
+} else {
+    Write-Warning "Skipping cleanup (--SkipClean specified)"
+}
+
+# ============================================================================
+# STEP 4: BUILD EXECUTABLE
+# ============================================================================
+
+Write-Step "STEP 4: Build Executable"
+
+Write-Info "Configuring PyInstaller..."
+Write-Info "  Mode: One-file executable"
+Write-Info "  Window: Windowed (no console)"
+Write-Info "  Optimization: Enabled"
+Write-Host ""
+
+# Resolve icon for build if provided
+$IconSpec = "None"
+if ($IconPath -and $IconPath.Trim() -ne "") {
+    $resolvedIcon = Resolve-Path -Path $IconPath -ErrorAction SilentlyContinue
+    if (-not $resolvedIcon) {
+        Write-Error-Custom "Icon file not found: $IconPath"
+        exit 1
+    }
+    $resolvedIcon = $resolvedIcon.Path
+    $ext = [System.IO.Path]::GetExtension($resolvedIcon).ToLower()
+    if ($ext -eq ".ico") {
+        $iconIcoPath = $resolvedIcon
+    } elseif ($ext -eq ".png") {
+        # Convert PNG to ICO using Python Pillow
+        $iconIcoPath = Join-Path (Get-Location) "build_app_icon.ico"
+        Write-Info "Converting PNG to ICO: $resolvedIcon -> $iconIcoPath"
+        $pyCmd = @"
+from PIL import Image
+import sys
+src = r'''$resolvedIcon'''
+dst = r'''$iconIcoPath'''
+img = Image.open(src).convert('RGBA')
+# save multiple sizes for Windows icon
+sizes = [(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)]
+img.save(dst, sizes=sizes)
+print('OK')
+"@
+        $tempPy = Join-Path $env:TEMP ("convert_icon_" + (Get-Random) + ".py")
+        $pyCmd | Out-File -FilePath $tempPy -Encoding ASCII
+        $out = python "$tempPy" 2>&1
+        $exitCode = $LASTEXITCODE
+        Remove-Item $tempPy -Force -ErrorAction SilentlyContinue
+        if ($exitCode -ne 0 -or ($out -notmatch 'OK')) {
+            Write-Error-Custom "Failed to convert PNG to ICO. Ensure Pillow is installed. Output: $out"
+            exit 1
+        }
+    } else {
+        Write-Error-Custom "Unsupported icon format: $ext. Use .ico or .png"
+        exit 1
+    }
+    # Use forward slashes to avoid Python backslash escapes
+    $iconForSpec = $iconIcoPath -replace "\\", "/"
+    $IconSpec = "'$iconForSpec'"
+    Write-Success "Using application icon: $iconIcoPath"
+}
+
+# Prepare optional version resource
+$VersionSpecLine = "    version='version_info.txt',"
+if (-not (Test-Path "version_info.txt")) {
+    Write-Warning "version_info.txt not found; skipping Windows version resource embedding"
+    $VersionSpecLine = ""
+}
+
+# Create optimized spec file for better control
+$specContent = @"
+# -*- mode: python ; coding: utf-8 -*-
+
+block_cipher = None
+
+a = Analysis(
+    ['app/main.py'],
+    pathex=[],
+    binaries=[],
+    datas=[
+        ('app/config/appsettings.yaml', 'app/config'),
+        ('memory.md', '.'),
+    ],
+    hiddenimports=[
+        'ttkbootstrap',
+        'ttkbootstrap.themes',
+        'paramiko',
+        'telnetlib3',
+        'apscheduler',
+        'apscheduler.schedulers',
+        'apscheduler.schedulers.background',
+        'apscheduler.triggers',
+        'apscheduler.triggers.interval',
+        'apscheduler.triggers.cron',
+        'apscheduler.triggers.date',
+        'sqlalchemy',
+        'sqlalchemy.ext',
+        'sqlalchemy.ext.declarative',
+        'cryptography',
+        'cryptography.fernet',
+        'yaml',
+        'ntplib',
+        'PIL',
+        'PIL._tkinter_finder',
+        'win32serviceutil',
+        'win32service',
+        'win32event',
+        'servicemanager',
+        'win32timezone',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'matplotlib',
+        'numpy',
+        'pandas',
+        'scipy',
+        'pytest',
+        'sphinx',
+    ],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+# Collect all ttkbootstrap themes and resources
+a.datas += Tree('$((Get-Command python).Source | Split-Path | Split-Path)/Lib/site-packages/ttkbootstrap', prefix='ttkbootstrap')
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='$AppName',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,  # No console window
+    disable_windowed_traceback=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    $VersionSpecLine
+    icon=$IconSpec,
+)
+"@
+
+$specContent | Out-File "$AppName.spec" -Encoding UTF8
+
+Write-Info "Starting PyInstaller build (this may take several minutes)..."
+$buildStartTime = Get-Date
+
+pyinstaller "$AppName.spec" --clean --noconfirm 2>&1 | Out-Null
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error-Custom "Build failed!"
+    Write-Info "Check build logs for details"
+    exit 1
+}
+
+$buildEndTime = Get-Date
+$buildDuration = ($buildEndTime - $buildStartTime).TotalSeconds
+
+Write-Success "Build completed in $([math]::Round($buildDuration, 1)) seconds"
+
+# Verify executable was created
+if (-not (Test-Path "$DistDir\$AppName.exe")) {
+    Write-Error-Custom "Executable not found after build!"
+    exit 1
+}
+
+$exeSize = (Get-Item "$DistDir\$AppName.exe").Length / 1MB
+Write-Info "  Executable size: $([math]::Round($exeSize, 2)) MB"
+
+# ============================================================================
+# STEP 5: CREATE DEPLOYMENT PACKAGE
+# ============================================================================
+
+Write-Step "STEP 5: Create Deployment Package"
+
+# Create deployment directory structure
+Write-Info "Creating directory structure..."
+New-Item -ItemType Directory -Path $DeploymentDir -Force | Out-Null
+New-Item -ItemType Directory -Path "$DeploymentDir\data" -Force | Out-Null
+New-Item -ItemType Directory -Path "$DeploymentDir\backups" -Force | Out-Null
+New-Item -ItemType Directory -Path "$DeploymentDir\logs" -Force | Out-Null
+
+# Copy executable
+Write-Info "Copying executable..."
+Copy-Item "$DistDir\$AppName.exe" $DeploymentDir
+
+# Copy documentation
+Write-Info "Copying documentation..."
+$docsToInclude = @(
+    "README.md",
+    "IMPLEMENTATION_GUIDE.md",
+    "DEPLOYMENT_BEST_PRACTICES.md",
+    "CODE_REVIEW_SUMMARY.md",
+    "TESTING_GUIDE.md",
+    "memory.md"
+)
+
+foreach ($doc in $docsToInclude) {
+    if (Test-Path $doc) {
+        Copy-Item $doc "$DeploymentDir\docs\" -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Write-Success "Deployment structure created"
+
+# ============================================================================
+# STEP 6: GENERATE DEPLOYMENT FILES
+# ============================================================================
+
+Write-Step "STEP 6: Generate Deployment Files"
+
+# Create VERSION.txt
+Write-Info "Creating VERSION.txt..."
+$versionInfo = @"
+═══════════════════════════════════════════════════════════════
+  Allied Telesis Backup Configuration Manager
+═══════════════════════════════════════════════════════════════
+
+Version:        $Version
+Build Date:     $BuildDate
+Build Type:     Production Release
+Platform:       Windows x64
+Executable:     $AppName.exe
+
+═══════════════════════════════════════════════════════════════
+  SYSTEM REQUIREMENTS
+═══════════════════════════════════════════════════════════════
+
+Operating System:   Windows 10 or later (x64)
+Memory:             Minimum 2 GB RAM (4 GB recommended)
+Disk Space:         500 MB free space
+Network:            Network access to managed switches
+Permissions:        Standard user (Admin for Windows Service)
+
+═══════════════════════════════════════════════════════════════
+  QUICK START GUIDE
+═══════════════════════════════════════════════════════════════
+
+1. Extract the deployment package to desired location
+2. Run AlliedTelesisBackup.exe or Start.bat
+3. Set master password on first launch
+4. Navigate to Credentials tab and add device credentials
+5. Navigate to Inventory tab and add switches
+6. Start backing up configurations!
+
+═══════════════════════════════════════════════════════════════
+  DIRECTORY STRUCTURE
+═══════════════════════════════════════════════════════════════
+
+AlliedTelesisBackup.exe   - Main application
+Start.bat                 - Quick launcher
+data/                     - Database and application data
+backups/                  - Backup configuration files
+logs/                     - Application logs
+docs/                     - Documentation files
+
+═══════════════════════════════════════════════════════════════
+  SUPPORT & TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════
+
+- Check logs/ folder for error details
+- Ensure network connectivity to switches
+- Verify credentials are correct
+- See IMPLEMENTATION_GUIDE.md for detailed help
+
+Build Information:
+- Python Version: $pythonVersion
+- Build Duration: $([math]::Round($buildDuration, 1))s
+- Executable Size: $([math]::Round($exeSize, 2)) MB
+
+═══════════════════════════════════════════════════════════════
+"@
+
+$versionInfo | Out-File "$DeploymentDir\VERSION.txt" -Encoding UTF8
+Write-Success "VERSION.txt created"
+
+# Create Start.bat
+Write-Info "Creating Start.bat..."
+$startScript = @"
+@echo off
+title Allied Telesis Backup Manager
+color 0A
+
+echo.
+echo ═══════════════════════════════════════════════════════════════
+echo   Allied Telesis Backup Configuration Manager v$Version
+echo ═══════════════════════════════════════════════════════════════
+echo.
+echo   Starting application...
+echo.
+echo   Build Date: $BuildDate
+echo.
+echo ═══════════════════════════════════════════════════════════════
+echo.
+
+REM Check if executable exists
+if not exist "%~dp0$AppName.exe" (
+    echo ERROR: $AppName.exe not found!
+    echo Please ensure you extracted all files correctly.
+    pause
+    exit /b 1
+)
+
+REM Create directories if they don't exist
+if not exist "%~dp0data" mkdir "%~dp0data"
+if not exist "%~dp0backups" mkdir "%~dp0backups"
+if not exist "%~dp0logs" mkdir "%~dp0logs"
+
+REM Start application
+start "" "%~dp0$AppName.exe"
+
+REM Wait a moment then close this window
+timeout /t 2 /nobreak >nul
+exit
+"@
+
+$startScript | Out-File "$DeploymentDir\Start.bat" -Encoding ASCII
+Write-Success "Start.bat created"
+
+# Create INSTALLATION.txt
+Write-Info "Creating INSTALLATION.txt..."
+$installGuide = @"
+═══════════════════════════════════════════════════════════════
+  INSTALLATION GUIDE
+  Allied Telesis Backup Configuration Manager v$Version
+═══════════════════════════════════════════════════════════════
+
+INSTALLATION STEPS:
+═══════════════════════════════════════════════════════════════
+
+1. EXTRACT FILES
+   - Extract the entire deployment package to your desired location
+   - Recommended: C:\Program Files\AlliedTelesisBackup
+   - Or any location with write permissions
+
+2. VERIFY CONTENTS
+   Ensure the following files/folders exist:
+   ✓ $AppName.exe
+   ✓ Start.bat
+   ✓ VERSION.txt
+   ✓ data\ (folder)
+   ✓ backups\ (folder)
+   ✓ logs\ (folder)
+
+3. FIRST RUN
+   - Double-click Start.bat or $AppName.exe
+   - Set master password when prompted
+   - Master password encrypts all stored credentials
+
+4. CONFIGURE APPLICATION
+   a) Add Credentials:
+      - Click Credentials tab
+      - Add switch login credentials
+      - Enable password optional
+   
+   b) Add Switches:
+      - Click Inventory tab
+      - Add switches to manage
+      - Specify IP, protocol (SSH/Telnet), credentials
+   
+   c) Test Connectivity:
+      - Select a switch
+      - Click "Get Data" to test backup
+   
+   d) Setup Schedules (Optional):
+      - Click Schedules tab
+      - Create automatic backup schedules
+      - Enable schedules
+
+═══════════════════════════════════════════════════════════════
+  CONFIGURATION
+═══════════════════════════════════════════════════════════════
+
+DATA LOCATION:
+- Database: data\backups.db
+- Backups: backups\[switch_name]\
+- Logs: logs\app_[date].log
+
+BACKUP RETENTION:
+- Default: 30 days
+- Configurable in Settings tab
+
+NETWORK REQUIREMENTS:
+- SSH: Port 22 (default)
+- Telnet: Port 23 (default)
+- Custom ports supported
+
+═══════════════════════════════════════════════════════════════
+  WINDOWS SERVICE (OPTIONAL)
+═══════════════════════════════════════════════════════════════
+
+To run scheduled backups as Windows Service:
+
+1. Open PowerShell as Administrator
+2. Navigate to installation directory
+3. Run: install_service.ps1 (if provided)
+
+Note: Service requires administrator privileges
+
+═══════════════════════════════════════════════════════════════
+  UPGRADING
+═══════════════════════════════════════════════════════════════
+
+To upgrade to a newer version:
+
+1. Backup your data\ folder (important!)
+2. Extract new version to same location
+3. Overwrite $AppName.exe when prompted
+4. Keep existing data\, backups\, logs\ folders
+5. Run application - data will be preserved
+
+═══════════════════════════════════════════════════════════════
+  UNINSTALLATION
+═══════════════════════════════════════════════════════════════
+
+1. Stop application if running
+2. Stop Windows Service (if installed)
+3. Delete installation folder
+4. No registry changes to clean
+
+Note: Backup your data\ folder if you want to keep backup history
+
+═══════════════════════════════════════════════════════════════
+  TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════
+
+ISSUE: Application won't start
+FIX: Check logs\app_[date].log for errors
+     Ensure Windows 10 or later
+     Run as Administrator if permission issues
+
+ISSUE: Can't connect to switches
+FIX: Verify network connectivity (ping)
+     Check firewall settings
+     Verify credentials are correct
+     Ensure SSH/Telnet is enabled on switch
+
+ISSUE: Backups failing
+FIX: Check switch credentials
+     Verify "show running-config" command works
+     Check logs for specific errors
+
+ISSUE: Forgot master password
+FIX: Delete data\backups.db (WARNING: loses all data)
+     Application will prompt for new password
+     Re-add credentials and switches
+
+═══════════════════════════════════════════════════════════════
+  SUPPORT
+═══════════════════════════════════════════════════════════════
+
+For detailed documentation, see:
+- README.md - General overview
+- IMPLEMENTATION_GUIDE.md - Technical details
+- TESTING_GUIDE.md - Feature testing
+
+Build Information:
+- Version: $Version
+- Build Date: $BuildDate
+- Platform: Windows x64
+
+═══════════════════════════════════════════════════════════════
+"@
+
+$installGuide | Out-File "$DeploymentDir\INSTALLATION.txt" -Encoding UTF8
+Write-Success "INSTALLATION.txt created"
+
+# ============================================================================
+# STEP 7: GENERATE CHECKSUMS
+# ============================================================================
+
+Write-Step "STEP 7: Generate Checksums & Manifest"
+
+Write-Info "Calculating file checksums..."
+$manifestContent = @"
+═══════════════════════════════════════════════════════════════
+  BUILD MANIFEST
+  Allied Telesis Backup Configuration Manager v$Version
+═══════════════════════════════════════════════════════════════
+
+Build Date:     $BuildDate
+Build Type:     Production Release
+Python Version: $pythonVersion
+Build Duration: $([math]::Round($buildDuration, 1)) seconds
+
+═══════════════════════════════════════════════════════════════
+  FILE CHECKSUMS (SHA256)
+═══════════════════════════════════════════════════════════════
+
+"@
+
+# Calculate checksums for important files
+$filesToHash = @(
+    "$AppName.exe",
+    "Start.bat",
+    "VERSION.txt",
+    "INSTALLATION.txt"
+)
+
+foreach ($file in $filesToHash) {
+    if (Test-Path "$DeploymentDir\$file") {
+        $hash = (Get-FileHash "$DeploymentDir\$file" -Algorithm SHA256).Hash
+        $size = (Get-Item "$DeploymentDir\$file").Length
+        $manifestContent += "$file`n"
+        $manifestContent += "  SHA256: $hash`n"
+        $manifestContent += "  Size: $size bytes`n`n"
+    }
+}
+
+$manifestContent += @"
+═══════════════════════════════════════════════════════════════
+  VERIFICATION
+═══════════════════════════════════════════════════════════════
+
+To verify package integrity:
+1. Compare checksums above with original build
+2. Ensure file sizes match
+3. Test executable launches without errors
+
+═══════════════════════════════════════════════════════════════
+"@
+
+$manifestContent | Out-File "$DeploymentDir\MANIFEST.txt" -Encoding UTF8
+Write-Success "MANIFEST.txt created"
+
+# ============================================================================
+# STEP 8: CREATE ZIP PACKAGE
+# ============================================================================
+
+Write-Step "STEP 8: Create Distribution Package"
+
+$zipName = "$($AppName)_v$($Version)_$((Get-Date).ToString('yyyyMMdd')).zip"
+Write-Info "Creating $zipName..."
+
+if (Test-Path $zipName) {
+    Remove-Item $zipName -Force
+}
+
+Compress-Archive -Path "$DeploymentDir\*" -DestinationPath $zipName -CompressionLevel Optimal
+
+if (Test-Path $zipName) {
+    $zipSize = (Get-Item $zipName).Length / 1MB
+    Write-Success "Distribution package created: $([math]::Round($zipSize, 2)) MB"
+} else {
+    Write-Error-Custom "Failed to create distribution package!"
+    exit 1
+}
+
+# ============================================================================
+# FINAL SUMMARY
+# ============================================================================
+
+Write-Host ""
+Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host "║                                                            ║" -ForegroundColor Green
+Write-Host "║                  BUILD SUCCESSFUL! ✓                       ║" -ForegroundColor Green
+Write-Host "║                                                            ║" -ForegroundColor Green
+Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+Write-Host ""
+
+Write-Info "═══════════════════════════════════════════════════════════════"
+Write-Info "  BUILD SUMMARY"
+Write-Info "═══════════════════════════════════════════════════════════════"
+Write-Host ""
+Write-Info "Version:          $Version"
+Write-Info "Build Date:       $BuildDate"
+Write-Info "Build Duration:   $([math]::Round($buildDuration, 1)) seconds"
+Write-Info "Executable Size:  $([math]::Round($exeSize, 2)) MB"
+Write-Info "Package Size:     $([math]::Round($zipSize, 2)) MB"
+Write-Host ""
+Write-Info "═══════════════════════════════════════════════════════════════"
+Write-Info "  OUTPUT LOCATIONS"
+Write-Info "═══════════════════════════════════════════════════════════════"
+Write-Host ""
+Write-Info "Deployment Folder:  $DeploymentDir\"
+Write-Info "Distribution ZIP:   $zipName"
+Write-Host ""
+Write-Info "Package Contents:"
+Write-Info "  ✓ $AppName.exe (main executable)"
+Write-Info "  ✓ Start.bat (quick launcher)"
+Write-Info "  ✓ VERSION.txt (version info)"
+Write-Info "  ✓ INSTALLATION.txt (installation guide)"
+Write-Info "  ✓ MANIFEST.txt (build manifest & checksums)"
+Write-Info "  ✓ data\ (database folder)"
+Write-Info "  ✓ backups\ (backup storage)"
+Write-Info "  ✓ logs\ (log files)"
+Write-Info "  ✓ docs\ (documentation)"
+Write-Host ""
+Write-Info "═══════════════════════════════════════════════════════════════"
+Write-Info "  NEXT STEPS"
+Write-Info "═══════════════════════════════════════════════════════════════"
+Write-Host ""
+Write-Info "1. Test the executable:"
+Write-Info "   cd $DeploymentDir"
+Write-Info "   .\Start.bat"
+Write-Host ""
+Write-Info "2. Distribute the package:"
+Write-Info "   Share: $zipName"
+Write-Host ""
+Write-Info "3. Users extract and run:"
+Write-Info "   - Extract ZIP to desired location"
+Write-Info "   - Run Start.bat or $AppName.exe"
+Write-Info "   - Follow INSTALLATION.txt guide"
+Write-Host ""
+Write-Info "═══════════════════════════════════════════════════════════════"
+Write-Host ""
+
+Write-Success "Build process completed successfully!"
+Write-Host ""

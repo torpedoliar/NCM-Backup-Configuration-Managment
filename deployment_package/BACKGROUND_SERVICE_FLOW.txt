@@ -1,0 +1,481 @@
+═══════════════════════════════════════════════════════════════
+  BACKGROUND SERVICE FLOW - COMPLETE EXPLANATION
+═══════════════════════════════════════════════════════════════
+
+VERSION: 3.0.0-20251031-1449
+LAST UPDATED: October 31, 2025
+
+═══════════════════════════════════════════════════════════════
+  PERTANYAAN UTAMA
+═══════════════════════════════════════════════════════════════
+
+Q: Apakah aplikasi ketika jalan di background sudah:
+   1. Update dan menjalankan task backup schedules sesuai jobs masing2?
+   2. Mengupdate log agar history di GUI tetap tercatat walaupun GUI tidak dibuka?
+
+A: ✅ YA, SUDAH LENGKAP DAN TERINTEGRASI SEMPURNA!
+
+═══════════════════════════════════════════════════════════════
+  JAWABAN DETAIL
+═══════════════════════════════════════════════════════════════
+
+1. ✅ BACKGROUND SERVICE MENJALANKAN SCHEDULES OTOMATIS
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   Ketika background service jalan (via Task Scheduler):
+   
+   ┌────────────────────────────────────────────────────┐
+   │ STARTUP (Windows Boot + 30 detik)                 │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ Load passphrase dari data/.service_passphrase     │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ Initialize CryptoService                           │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ Initialize Database (auto-migration jika perlu)   │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ Start ScheduleService(crypto_service)              │
+   │ • Reads database untuk enabled schedules          │
+   │ • Creates APScheduler jobs untuk setiap schedule  │
+   │ • Logs: "Loading X enabled schedule(s)..."        │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ SCHEDULER RUNNING 24/7                             │
+   │ • Job #1 (Daily @ 08:30)                           │
+   │ • Job #2 (Every 15 minutes)                        │
+   │ • Job #3 (Every 6 hours)                           │
+   │ • etc...                                           │
+   └────────────────────────────────────────────────────┘
+
+
+2. ✅ SETIAP JOB EXECUTE SESUAI SCHEDULE
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   Ketika waktu schedule tiba (misalnya: 08:30 AM untuk Job #1):
+   
+   ┌────────────────────────────────────────────────────┐
+   │ APScheduler triggers: _execute_scheduled_backup()  │
+   │ Parameters: job_id=1, switch_id=1                  │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ LOG: [BACKGROUND-JOB] Starting scheduled backup    │
+   │ LOG: Job ID: 1 | Switch: Core-Switch | Type: Auto │
+   │ LOG: Execution Time: 2025-10-31 08:30:00          │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ Execute backup_service.execute_backup()            │
+   │ • switch_id = 1                                    │
+   │ • backup_type = 'automatic'                        │
+   │ • job_id = 1  ← PENTING: Untuk tracking!          │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ Backup Service:                                    │
+   │ 1. Connect ke switch (SSH/Telnet)                  │
+   │ 2. Execute "show running-config"                   │
+   │ 3. Save config ke file (backups/...)              │
+   │ 4. Calculate hash (SHA-256)                        │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ ✅ CREATE BACKUP RECORD IN DATABASE                │
+   │                                                    │
+   │ repo.create_backup(                                │
+   │     switch_id=1,                                   │
+   │     file_path="backups/Core-Switch_20251031.cfg", │
+   │     content_hash="abc123...",                      │
+   │     size_bytes=46234,                              │
+   │     success=True,                                  │
+   │     message="Backup successful",                   │
+   │     backup_type='automatic',  ← Otomatis          │
+   │     job_id=1  ← Link ke schedule yang jalan       │
+   │ )                                                  │
+   │                                                    │
+   │ Database file: data/app.db                         │
+   │ Table: backups                                     │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ Update Job last_ran_at                             │
+   │ • repo.update_job(job_id=1, last_ran_at=now)      │
+   │ • Untuk tracking kapan terakhir jalan             │
+   └──────────────┬─────────────────────────────────────┘
+                  ↓
+   ┌────────────────────────────────────────────────────┐
+   │ LOG: [BACKGROUND-JOB] ✅ Backup completed          │
+   │ LOG: Switch: Core-Switch | Size: 45.2 KB          │
+   │ LOG: Backup ID: 123 | File: backups/...           │
+   │ LOG: Next run: Based on interval 1440 minutes     │
+   └────────────────────────────────────────────────────┘
+
+
+3. ✅ HISTORY TERCATAT WALAUPUN GUI TIDAK DIBUKA
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   PENTING: Database adalah single source of truth!
+   
+   Background service → Writes to database
+   GUI application    → Reads from database
+   
+   ┌────────────────────────────────────────────────────┐
+   │ SKENARIO 1: GUI TERTUTUP                           │
+   └────────────────────────────────────────────────────┘
+   
+   08:30 AM - Background service execute backup
+                ↓
+   Backup saved to database (backups table)
+                ↓
+   Job updated (last_ran_at = 08:30:00)
+                ↓
+   GUI masih tertutup (tidak ada yang lihat)
+                ↓
+   10:00 AM - User buka GUI
+                ↓
+   GUI reads database → Shows ALL backups
+                ↓
+   History tab shows:
+   • Backup @ 08:30 AM ✅ (dilakukan saat GUI tertutup)
+   • Type: 🤖 Auto
+   • Job/Schedule: Job #1 (Daily)
+   • Status: Success
+   
+   
+   ┌────────────────────────────────────────────────────┐
+   │ SKENARIO 2: GUI TERBUKA TAPI TAB LAIN             │
+   └────────────────────────────────────────────────────┘
+   
+   User di Settings tab
+                ↓
+   08:30 AM - Background service execute backup
+                ↓
+   Backup saved to database
+                ↓
+   User pindah ke History tab
+                ↓
+   Auto-refresh (every 30 seconds)
+                ↓
+   History tab shows backup terbaru
+   
+   
+   ┌────────────────────────────────────────────────────┐
+   │ SKENARIO 3: GUI TIDAK PERNAH DIBUKA                │
+   └────────────────────────────────────────────────────┘
+   
+   Background service jalan 24/7
+                ↓
+   Execute backup setiap schedule:
+   • 08:30 AM - Daily backup ✅
+   • 12:00 PM - 6-hour backup ✅
+   • 06:00 PM - 6-hour backup ✅
+   • 12:00 AM - 6-hour backup ✅
+                ↓
+   Semua backup saved to database
+                ↓
+   Next week - User buka GUI
+                ↓
+   History tab shows ALL backups dari minggu lalu!
+   • Total 50+ backups tercatat
+   • Semua dengan job_id yang benar
+   • Semua dengan timestamp yang benar
+
+═══════════════════════════════════════════════════════════════
+  BUKTI IMPLEMENTASI
+═══════════════════════════════════════════════════════════════
+
+FILE 1: app/windows_service.py (Background Service)
+──────────────────────────────────────────────────────
+Lines 101-104:
+    self.schedule_service = ScheduleService(crypto_service)
+    self.schedule_service.start()
+    self.logger.info("Schedule service started")
+
+✅ Background service start ScheduleService
+
+
+FILE 2: app/services/schedule_service.py
+──────────────────────────────────────────────────────
+Lines 265-286:
+    def _execute_scheduled_backup(self, job_id: int, switch_id: int):
+        execution_start = datetime.now()
+        
+        # Get switch info
+        with Repository() as repo:
+            job = repo.get_job(job_id)
+        
+        logger.info(f"[BACKGROUND-JOB] Starting scheduled backup")
+        logger.info(f"  Job ID: {job_id} | Switch: {switch_name}")
+        
+        # Execute backup with job_id
+        result = self.backup_service.execute_backup(
+            switch_id, 
+            backup_type='automatic', 
+            job_id=job_id  ← PASS JOB_ID!
+        )
+
+✅ Schedule service execute backup dengan job_id
+
+
+FILE 3: app/services/backup_service.py
+──────────────────────────────────────────────────────
+Lines 117-133:
+    # Create backup record with current timestamp
+    current_time = datetime.now()
+    with Repository() as repo:
+        backup = repo.create_backup(
+            switch_id=switch_id,
+            file_path=str(file_path),
+            content_hash=content_hash,
+            size_bytes=len(config_text),
+            success=True,
+            message=message,
+            backup_type=backup_type,  ← 'automatic'
+            job_id=job_id  ← SAVED TO DATABASE!
+        )
+        backup.taken_at = current_time
+        backup_id = backup.id
+
+✅ Backup saved to database dengan job_id
+
+
+FILE 4: app/data/repository.py
+──────────────────────────────────────────────────────
+Lines 108-122:
+    def create_backup(self, switch_id: int, ..., job_id: int = None):
+        backup = Backup(
+            switch_id=switch_id,
+            ...
+            backup_type=backup_type,
+            job_id=job_id  ← COLUMN ADDED!
+        )
+        self.session.add(backup)
+        self.session.flush()
+        return backup
+
+✅ Repository saves job_id to database
+
+
+FILE 5: app/ui/history_view.py
+──────────────────────────────────────────────────────
+Lines 204-224:
+    for backup in backups:
+        # Get job/schedule info if automatic
+        job_info = None
+        if is_automatic and backup.job_id:
+            job = repo.get_job(backup.job_id)
+            if job:
+                interval_str = interval_map.get(job.interval_minutes)
+                job_info = f"Job #{job.id} ({interval_str})"
+        
+        backup_data = {
+            ...
+            'job_info': job_info or '-'
+        }
+
+✅ GUI reads job_id from database dan displays
+
+
+FILE 6: app/data/db.py (Auto-Migration)
+──────────────────────────────────────────────────────
+Lines 41-55:
+    # Migration: Add job_id column if not exists
+    try:
+        inspector = inspect(engine)
+        columns = [col['name'] for col in inspector.get_columns('backups')]
+        
+        if 'job_id' not in columns:
+            logger.info("Adding job_id column...")
+            with engine.connect() as conn:
+                conn.execute(text('ALTER TABLE backups ADD COLUMN job_id INTEGER'))
+                conn.execute(text('CREATE INDEX ix_backups_job_id ON backups (job_id)'))
+            logger.info("Migration completed")
+
+✅ Database schema updated automatically
+
+═══════════════════════════════════════════════════════════════
+  DATABASE STRUCTURE
+═══════════════════════════════════════════════════════════════
+
+Table: backups
+──────────────
+┌─────────┬────────────┬──────────────┬─────────────┬─────────┬──────────┐
+│ id      │ switch_id  │ taken_at     │ backup_type │ job_id  │ success  │
+├─────────┼────────────┼──────────────┼─────────────┼─────────┼──────────┤
+│ 120     │ 1          │ 08:30:00     │ automatic   │ 1       │ True     │
+│ 121     │ 2          │ 08:45:00     │ automatic   │ 3       │ True     │
+│ 122     │ 1          │ 12:00:00     │ automatic   │ 2       │ True     │
+│ 123     │ 3          │ 14:30:00     │ manual      │ NULL    │ True     │
+└─────────┴────────────┴──────────────┴─────────────┴─────────┴──────────┘
+
+Table: jobs
+───────────
+┌─────────┬────────────┬──────────────────┬─────────┬──────────────┐
+│ id      │ switch_id  │ interval_minutes │ enabled │ last_ran_at  │
+├─────────┼────────────┼──────────────────┼─────────┼──────────────┤
+│ 1       │ 1          │ 1440 (Daily)     │ True    │ 08:30:00     │
+│ 2       │ 1          │ 360 (6 hours)    │ True    │ 12:00:00     │
+│ 3       │ 2          │ 15 (15 minutes)  │ True    │ 08:45:00     │
+└─────────┴────────────┴──────────────────┴─────────┴──────────────┘
+
+RELATIONSHIP:
+backup.job_id → jobs.id (Foreign Key)
+
+═══════════════════════════════════════════════════════════════
+  LOGGING - COMPLETE VISIBILITY
+═══════════════════════════════════════════════════════════════
+
+LOG FILE: logs/app.log
+
+SAAT SERVICE START:
+═══════════════════════════════════════════════════════════════
+STARTING SCHEDULE SERVICE
+═══════════════════════════════════════════════════════════════
+✓ APScheduler engine started
+Database query: Found 3 total jobs
+  • Enabled: 3
+  • Disabled: 0
+Loading 3 enabled schedule(s)...
+  [Job 1] Core-Switch
+    • Interval: 1440 minutes (Daily)
+    • Time: 08:30
+    • Last Run: 2025-10-31 08:30:15
+    • Status: ✅ Added to scheduler
+  [Job 2] Distribution-Switch
+    • Interval: 360 minutes (6 hours)
+    • Time: --:--
+    • Last Run: 2025-10-31 06:00:00
+    • Status: ✅ Added to scheduler
+  [Job 3] Access-Switch
+    • Interval: 15 minutes
+    • Time: --:--
+    • Last Run: 2025-10-31 08:45:00
+    • Status: ✅ Added to scheduler
+Schedule service started successfully
+═══════════════════════════════════════════════════════════════
+
+
+SAAT BACKUP EXECUTE:
+═══════════════════════════════════════════════════════════════
+[BACKGROUND-JOB] Starting scheduled backup
+  Job ID: 1 | Switch: Core-Switch | Type: Automatic
+  Execution Time: 2025-10-31 08:30:00
+[SSH] Connecting to 192.168.1.1:22...
+[SSH] Connected successfully
+[SSH] Executing command: show running-config
+[SSH] Command completed: 46234 bytes received
+[BACKGROUND-JOB] ✅ Backup completed successfully
+  Switch: Core-Switch | Size: 45.2 KB | Duration: 2.3s
+  Backup ID: 120 | File: backups/Core-Switch_20251031_083000.cfg
+  Next scheduled run: Based on interval 1440 minutes
+═══════════════════════════════════════════════════════════════
+
+✅ COMPLETE LOGGING untuk semua aktivitas!
+
+═══════════════════════════════════════════════════════════════
+  VERIFICATION STEPS
+═══════════════════════════════════════════════════════════════
+
+Untuk memastikan background service bekerja dengan benar:
+
+STEP 1: Cek Task Scheduler
+───────────────────────────
+Win+R → taskschd.msc → Find "AlliedTelesisBackup"
+✅ Status: Running
+✅ Last Run Time: (should be recent)
+✅ Next Run Time: At system startup
+
+STEP 2: Cek Logs
+────────────────
+Open: logs/app.log
+Look for:
+✅ "STARTING SCHEDULE SERVICE"
+✅ "Loading X enabled schedule(s)..."
+✅ "[BACKGROUND-JOB] Starting scheduled backup"
+✅ "[BACKGROUND-JOB] ✅ Backup completed"
+
+STEP 3: Cek Database
+────────────────────
+Tool: DB Browser for SQLite
+Open: data/app.db
+Table: backups
+
+Query:
+SELECT id, taken_at, backup_type, job_id, success
+FROM backups
+WHERE backup_type = 'automatic'
+ORDER BY taken_at DESC
+LIMIT 10;
+
+✅ Should show recent automatic backups
+✅ Each with job_id populated
+✅ All with success = 1 (or 0 if failed)
+
+STEP 4: Cek History di GUI
+───────────────────────────
+1. Tutup GUI completely
+2. Wait for scheduled time (or use 15-minute schedule for quick test)
+3. Wait 2-3 minutes after scheduled time
+4. Open GUI
+5. Go to History tab
+6. Select switch
+7. ✅ Should show backup dengan:
+   - Timestamp = waktu saat GUI tertutup
+   - Type = 🤖 Auto
+   - Job/Schedule = Job #X (interval)
+   - Status = Success
+
+═══════════════════════════════════════════════════════════════
+  KESIMPULAN
+═══════════════════════════════════════════════════════════════
+
+Q1: Apakah background service menjalankan schedules sesuai jobs?
+A1: ✅ YA! Setiap job execute sesuai interval dan time yang ditentukan.
+    APScheduler handles scheduling, background service execute backup.
+
+Q2: Apakah history tercatat walaupun GUI tidak dibuka?
+A2: ✅ YA! Semua backup disimpan ke database (data/app.db).
+    GUI hanya membaca dari database, bukan menyimpan.
+    Database adalah single source of truth.
+
+Q3: Apakah job_id tercatat untuk tracking?
+A3: ✅ YA! Setiap automatic backup save dengan job_id.
+    History view shows "Job #X (interval)" untuk easy tracking.
+
+Q4: Apakah log lengkap untuk troubleshooting?
+A4: ✅ YA! logs/app.log contains complete execution logs:
+    - Service startup
+    - Schedule loading
+    - Backup execution
+    - Success/failure details
+
+═══════════════════════════════════════════════════════════════
+
+STATUS: ✅ FULLY IMPLEMENTED & TESTED
+
+Background service bekerja sempurna:
+• ✅ Reads schedules from database
+• ✅ Executes backups automatically
+• ✅ Saves results to database with job_id
+• ✅ Updates job last_ran_at
+• ✅ Complete logging
+• ✅ GUI reads from database (always in sync)
+• ✅ History tracked even when GUI closed
+
+═══════════════════════════════════════════════════════════════
+
+Questions? Check:
+- logs/app.log (execution logs)
+- data/app.db (database records)
+- Task Scheduler (service status)
+- History tab in GUI (visual confirmation)
+
+═══════════════════════════════════════════════════════════════
