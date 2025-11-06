@@ -1,0 +1,380 @@
+═══════════════════════════════════════════════════════════════
+  ADMINISTRATOR MODE - SETUP & INTEGRATION GUIDE
+═══════════════════════════════════════════════════════════════
+
+VERSION: 3.0.0-20251031-1316 (FINAL - Administrator Mode)
+
+═══════════════════════════════════════════════════════════════
+  WHY ADMINISTRATOR MODE?
+═══════════════════════════════════════════════════════════════
+
+PROVEN RELIABILITY:
+✅ SYSTEM account runs 24/7 (independent dari user login)
+✅ Background service jalan bahkan saat tidak ada user login
+✅ Most stable and reliable method
+✅ Industry standard untuk Windows services
+✅ No permission issues atau account conflicts
+
+═══════════════════════════════════════════════════════════════
+  PERFECT INTEGRATION
+═══════════════════════════════════════════════════════════════
+
+GUI Application ← → Database ← → Background Service
+
+FLOW:
+1. GUI: Create/Edit schedule in Schedules tab
+   ↓
+2. Schedule saved to database (data/app.db)
+   ↓
+3. Background Service: Reads all enabled schedules from database
+   ↓
+4. Background Service: Executes backup at scheduled time
+   ↓
+5. Results saved back to database
+   ↓
+6. GUI: Auto-refresh shows updated status
+
+KEY POINTS:
+✅ Database adalah single source of truth
+✅ GUI dan Background Service fully synchronized
+✅ Close GUI anytime - schedules keep running
+✅ Open GUI anytime - see latest status
+✅ All changes in Schedules tab immediately persist to database
+✅ Background service reads database on startup
+✅ No manual intervention needed
+
+═══════════════════════════════════════════════════════════════
+  SETUP INSTRUCTIONS
+═══════════════════════════════════════════════════════════════
+
+STEP 1: RUN AS ADMINISTRATOR (ONE-TIME SETUP)
+──────────────────────────────────────────────
+1. Right-click: Allied_Telesis_Backup_Manager_v3.0.exe
+2. Select: "Run as Administrator"
+3. Application opens with elevated privileges
+
+⚠️  IMPORTANT: You MUST run as Administrator untuk setup auto-start!
+
+STEP 2: SETUP AUTO-START
+─────────────────────────
+1. Go to "Settings" tab
+2. Scroll to "🚀 Auto-Start Service Control"
+3. Click "📦 Setup Auto-Start"
+4. Read the confirmation dialog:
+   - Requires Administrator privileges ✓
+   - Creates SYSTEM account task ✓
+   - Runs 24/7 in background ✓
+   - Independent from GUI ✓
+5. Click "Yes" to confirm
+6. Enter MASTER PASSPHRASE
+7. Wait for completion...
+8. Success message will appear
+
+SUCCESS MESSAGE:
+✅ Task created: AlliedTelesisBackup
+✅ Running as: SYSTEM account
+✅ Auto-start at Windows boot (30s delay)
+✅ Service started!
+
+STEP 3: VERIFY
+──────────────
+Settings tab:
+- Task Status: "✅ Configured"
+- Service Status: "✅ Running" (after clicking Refresh)
+
+STEP 4: NORMAL USAGE (AFTER SETUP)
+───────────────────────────────────
+After setup, you can run aplikasi NORMALLY (no admin required):
+- Just double-click the executable
+- All features work normally
+- Schedules tab untuk manage schedules
+- Background service tetap jalan
+- Only setup auto-start yang requires admin
+
+═══════════════════════════════════════════════════════════════
+  HOW IT WORKS
+═══════════════════════════════════════════════════════════════
+
+SYSTEM ARCHITECTURE:
+────────────────────
+┌─────────────────────────────────────┐
+│ GUI Application (User Mode)         │
+│ - Create/Edit/Delete schedules      │
+│ - Manual backups                    │
+│ - View history                      │
+│ - Manage switches/credentials       │
+│ - All changes → DATABASE            │
+└──────────────┬──────────────────────┘
+               ↓
+┌──────────────────────────────────────┐
+│ SQLite Database (data/app.db)       │
+│ - Single source of truth            │
+│ - Stores: switches, credentials,    │
+│          schedules, backups,        │
+│          jobs status                │
+│ - Shared by GUI and Service         │
+└──────────────┬──────────────────────┘
+               ↓
+┌──────────────────────────────────────┐
+│ Background Service (SYSTEM account) │
+│ - Reads enabled schedules @ start   │
+│ - Executes backups @ scheduled time │
+│ - Updates status → DATABASE         │
+│ - Runs 24/7 independently           │
+└──────────────────────────────────────┘
+
+SCHEDULE LIFECYCLE:
+───────────────────
+1. USER: Creates schedule in GUI
+   - Switch: Core-Switch
+   - Interval: 1440 minutes (daily)
+   - Time: 08:30
+   - Status: Enabled
+
+2. GUI: Saves to database
+   - jobs table updated
+   - enabled = true
+   - schedule_hour = 8
+   - schedule_minute = 30
+
+3. BACKGROUND SERVICE (on startup):
+   - Reads database
+   - Finds enabled schedules
+   - Registers with APScheduler
+   - Logs: "Loading X enabled schedule(s)..."
+
+4. BACKGROUND SERVICE (at scheduled time):
+   - APScheduler triggers job
+   - Executes backup
+   - Logs: "[BACKGROUND-JOB] Starting..."
+   - Saves result to database
+   - Updates job.last_ran_at
+
+5. GUI (when opened):
+   - Auto-refresh reads database
+   - Shows updated "Last Run" time
+   - Shows new backup in History tab
+   - Indicator: "🤖 Auto"
+
+═══════════════════════════════════════════════════════════════
+  MANAGING SCHEDULES
+═══════════════════════════════════════════════════════════════
+
+CREATE NEW SCHEDULE:
+────────────────────
+1. Schedules tab → "Add Schedule"
+2. Select switch
+3. Set interval (15m/1h/6h/12h/daily/weekly/monthly)
+4. Set time (for daily/weekly/monthly)
+5. Click Save
+6. Schedule saved to database IMMEDIATELY
+7. Background service will pick it up on next startup
+   OR restart service untuk immediate effect
+
+EDIT SCHEDULE:
+──────────────
+1. Schedules tab → Select schedule
+2. Click "Edit"
+3. Modify settings
+4. Click Save
+5. Changes saved to database IMMEDIATELY
+6. Restart service untuk apply changes
+   OR wait for next service restart
+
+DELETE SCHEDULE:
+────────────────
+1. Schedules tab → Select schedule
+2. Click "Delete"
+3. Confirm
+4. Deleted from database IMMEDIATELY
+5. Service will stop executing it
+
+ENABLE/DISABLE SCHEDULE:
+─────────────────────────
+1. Schedules tab → Select schedule
+2. Click "Enable" or "Disable"
+3. Status updated in database IMMEDIATELY
+4. Restart service untuk apply
+   OR wait for next service restart
+
+IMPORTANT: Service reads schedules on startup!
+To apply changes immediately: Settings → "Start Service Now"
+
+═══════════════════════════════════════════════════════════════
+  TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════
+
+ISSUE: "Access Denied" saat setup
+──────────────────────────────────
+CAUSE: Tidak running as Administrator
+FIX:
+1. Close aplikasi
+2. Right-click executable
+3. "Run as Administrator"
+4. Try setup again
+
+ISSUE: Task Status "Not Configured"
+────────────────────────────────────
+CAUSE: Auto-start belum di-setup
+FIX: Settings → "Setup Auto-Start" (as Admin)
+
+ISSUE: Service Status "Not Running"
+────────────────────────────────────
+CAUSE: Service not started atau crashed
+FIX:
+1. Settings → "Start Service Now"
+2. OR restart Windows
+3. Check logs/app.log for errors
+
+ISSUE: Schedule tidak execute setelah tutup GUI
+─────────────────────────────────────────────────
+CHECKLIST:
+□ Auto-start sudah di-setup? (Task Status: Configured)
+□ Service running? (Service Status: Running)
+□ Schedule enabled? (Schedules tab, kolom Enabled = ✓)
+□ File passphrase exist? (data/.service_passphrase)
+
+ISSUE: Schedule edited tapi tidak apply
+────────────────────────────────────────
+CAUSE: Service needs restart untuk read new schedules
+FIX:
+1. Settings → "Start Service Now"
+2. This will restart service dan reload schedules
+
+ISSUE: Schedule baru dibuat tapi tidak jalan
+─────────────────────────────────────────────
+CAUSE: Service needs to read new schedule from database
+FIX:
+1. Verify schedule enabled (Schedules tab)
+2. Restart service: Settings → "Start Service Now"
+3. Wait for scheduled time
+4. Check History tab for backup
+
+═══════════════════════════════════════════════════════════════
+  MONITORING
+═══════════════════════════════════════════════════════════════
+
+CHECK SERVICE STATUS:
+─────────────────────
+Settings tab → Click "🔄 Refresh Status"
+Should show:
+- Task Status: "✅ Configured"
+- Service Status: "✅ Running"
+
+CHECK TASK SCHEDULER:
+─────────────────────
+1. Win+R → taskschd.msc
+2. Find: AlliedTelesisBackup
+3. Right-click → Properties
+4. General tab → "Run whether user is logged on or not" ✓
+5. Triggers tab → "At system startup" with 30s delay
+6. Actions tab → Program/script points to your exe
+
+CHECK LOGS:
+───────────
+Open: logs/app.log
+
+LOOK FOR:
+══════════════════════════════════════════════════════════════════
+STARTING SCHEDULE SERVICE
+══════════════════════════════════════════════════════════════════
+✓ APScheduler engine started
+Database query: Found 3 total jobs
+  • Enabled: 3
+  • Disabled: 0
+Loading 3 enabled schedule(s)...
+  [Job 1] Core-Switch
+    • Interval: 1440 minutes
+    • Time: 08:30
+    • Last Run: 2025-10-31 08:30:15
+    • Status: ✅ Added to scheduler
+══════════════════════════════════════════════════════════════════
+
+CHECK BACKUP EXECUTION:
+───────────────────────
+Logs will show:
+[BACKGROUND-JOB] Starting scheduled backup
+[BACKGROUND-JOB] ✅ Backup completed successfully
+[BACKGROUND-JOB]   Switch: Core-Switch | Size: 45.2 KB | Duration: 2.3s
+
+GUI will show:
+- History tab: New backup dengan "🤖 Auto" indicator
+- Schedules tab: "Last Run" updated dengan timestamp
+
+═══════════════════════════════════════════════════════════════
+  TESTING
+═══════════════════════════════════════════════════════════════
+
+TEST 1: SERVICE INTEGRATION
+────────────────────────────
+1. Setup auto-start as Administrator
+2. Create test schedule (interval 2 minutes)
+3. Enable schedule
+4. Restart service: Settings → "Start Service Now"
+5. CLOSE GUI completely
+6. Wait 2-3 minutes
+7. Open GUI
+8. History tab should show new backup with "🤖 Auto"
+9. ✅ SUCCESS if backup executed while GUI was closed
+
+TEST 2: DATABASE SYNC
+─────────────────────
+1. Open GUI
+2. Edit existing schedule (change interval)
+3. Save changes
+4. Close GUI
+5. Restart service
+6. Wait for scheduled time
+7. Open GUI
+8. Check if backup executed with new schedule
+9. ✅ SUCCESS if new schedule respected
+
+TEST 3: STATUS PERSISTENCE
+───────────────────────────
+1. Open GUI with running service
+2. Schedules tab shows "Last Run" times
+3. Close GUI
+4. Wait for backup to execute (background)
+5. Open GUI again
+6. "Last Run" should be updated
+7. ✅ SUCCESS if status persisted from background to GUI
+
+═══════════════════════════════════════════════════════════════
+  BEST PRACTICES
+═══════════════════════════════════════════════════════════════
+
+✅ DO:
+- Setup auto-start as Administrator (one-time)
+- Create schedules in GUI Schedules tab
+- Enable schedules yang ingin jalan
+- Restart service setelah edit schedules (Settings → Start Service Now)
+- Monitor logs/app.log untuk troubleshooting
+- Close GUI anytime - service runs independently
+
+❌ DON'T:
+- Jangan delete data/.service_passphrase (service cannot start)
+- Jangan delete Task Scheduler task manually (use GUI Remove)
+- Jangan edit database directly (use GUI)
+- Jangan expect schedule changes apply without service restart
+
+═══════════════════════════════════════════════════════════════
+  SUMMARY
+═══════════════════════════════════════════════════════════════
+
+✅ Administrator mode = Most reliable & stable
+✅ SYSTEM account = Runs 24/7 independent dari user
+✅ Perfect integration = GUI ↔ Database ↔ Service
+✅ Database-driven = Single source of truth
+✅ Auto-sync = All changes persist and sync
+✅ Real-time monitoring = Logs & GUI status
+✅ Simple management = All via GUI Schedules tab
+
+SETUP ONCE: Run as Admin → Setup Auto-Start → Done!
+USE FOREVER: Normal mode (no admin) → Manage schedules → Works!
+
+═══════════════════════════════════════════════════════════════
+
+Build: 3.0.0-20251031-1316 (FINAL - Administrator Mode)
+Last Updated: October 31, 2025 at 1:16 PM
+
+═══════════════════════════════════════════════════════════════
