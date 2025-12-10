@@ -1750,20 +1750,39 @@ class SettingsView:
                 # Use current base_dir for source runs with safe quoting
                 tr_action = f'cmd.exe /c "set \"ATBM_BASE_DIR={base_dir}\" && \"{exe_path}\" -u \"{script_path}\" --service"'
             
-            # Determine run account (SYSTEM by default). If UNC share is configured as backup root,
-            # recommend running under a user account for network access.
+            # Determine run account (SYSTEM by default).
+            # SYSTEM account has limited access to network shares and non-system drives (in some configs).
             run_args = ['/RU', 'SYSTEM']
+            
             try:
+                needs_user_account = False
+                reason = ""
+                
+                # Check 1: Backup root is UNC path
                 cfg_path = get_config_path()
                 with open(cfg_path, 'r') as cf:
                     cfg = yaml.safe_load(cf)
                 root_folder = str(cfg.get('backup', {}).get('root_folder', '') or '')
                 if root_folder.startswith('\\\\'):
+                    needs_user_account = True
+                    reason = "Detected network share (UNC) as backup destination."
+                
+                # Check 2: App running from non-system drive (e.g. D:)
+                # SYSTEM account often cannot access mapped drives or secondary partitions depending on permissions
+                if not needs_user_account:
+                    app_drive = os.path.splitdrive(str(base_dir))[0].upper()
+                    system_drive = os.environ.get('SystemDrive', 'C:').upper()
+                    if app_drive and app_drive != system_drive:
+                        needs_user_account = True
+                        reason = f"Application is running from non-system drive ({app_drive})."
+                
+                if needs_user_account:
                     if Messagebox.show_question(
-                        "Detected network share (UNC) as backup destination.\n\n"
-                        "Windows SYSTEM account typically cannot access network shares.\n\n"
-                        "Do you want to run the background task under your user account instead?",
-                        "Use User Account for Network Share?"
+                        f"{reason}\n\n"
+                        "Windows SYSTEM account typically cannot access network shares or non-system drives.\n\n"
+                        "Do you want to run the background task under your user account instead?\n"
+                        "(Recommended for proper file access)",
+                        "Use User Account?"
                     ):
                         default_user = os.getlogin()
                         username = simpledialog.askstring("Windows Username", "Enter DOMAIN\\User or User:", initialvalue=default_user)
@@ -1772,7 +1791,7 @@ class SettingsView:
                             if password:
                                 run_args = ['/RU', username, '/RP', password]
             except Exception as cfg_err:
-                logger.debug(f"Config check for UNC root skipped: {cfg_err}")
+                logger.debug(f"Config/Drive check skipped: {cfg_err}")
             
             logger.info(f"Creating scheduled task")
             logger.info(f"Action: {tr_action}")

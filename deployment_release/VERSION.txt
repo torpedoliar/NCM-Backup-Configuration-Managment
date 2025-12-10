@@ -1,0 +1,11 @@
+﻿Allied Telesis Backup Configuration Manager
+
+Version:        3.5.5
+Build Date:     2025-11-21 07:52:14
+Build Type:     Release
+Platform:       Windows x64
+Executable:     AlliedTelesisBackup.exe
+
+Python Version: Python 3.13.9
+Build Duration: 3.8 seconds
+Executable Size: 37.87 MB

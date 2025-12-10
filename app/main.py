@@ -4,12 +4,14 @@ Main entry point for Allied Telesis Backup Configuration Management
 import sys
 import os
 import logging
-import time
+import tkinter as tk
+from tkinter import messagebox
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
+import time
 
 # Add app directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))

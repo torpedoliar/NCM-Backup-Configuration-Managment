@@ -73,7 +73,7 @@ Copy-Item "IMPLEMENTATION_GUIDE.md" $deployDir -ErrorAction SilentlyContinue
 # Create version file
 $versionInfo = @"
 Allied Telesis Backup Configuration Management
-Version: 1.0
+Version: 3.5.5
 Build Date: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 Created by: Yohanes Octavian Rizky
 
@@ -102,7 +102,7 @@ $startupScript = @"
 @echo off
 echo ========================================
 echo Allied Telesis Backup Configuration Management
-echo Version 1.0
+echo Version 3.5.5
 echo ========================================
 echo.
 echo Starting application...
