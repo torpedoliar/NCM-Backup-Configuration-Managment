@@ -1,0 +1,30 @@
+graph BT
+    UI[UI Layer - ttkbootstrap] --> Service[Service Layer]
+    Service --> Network[Network Layer]
+    Network --> Data[Data Layer - SQLite]
+    
+    subgraph UI Layer
+        Dashboard
+        Inventory
+        Credentials
+        Settings
+    end
+    
+    subgraph Service Layer
+        BackupService
+        ScheduleService
+        CryptoService
+        DiffService
+    end
+    
+    subgraph Network Layer
+        SSHClient
+        TelnetClient
+        BackupRunner
+    end
+    
+    subgraph Data Layer
+        Models
+        Repository
+        DB(SQLite)
+    end

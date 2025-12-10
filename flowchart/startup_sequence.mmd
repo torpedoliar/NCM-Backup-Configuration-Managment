@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant User
+    participant GUI
+    participant Service
+    participant Scheduler
+    
+    User->>GUI: Launch EXE
+    alt First Run
+        GUI->>GUI: Setup master passphrase
+    else Normal Run
+        GUI->>Crypto: Unlock credential vault
+    end
+    GUI->>DB: Load switches/schedules
+    GUI->>Scheduler: Start scheduler
+    Scheduler->>Service: Execute scheduled backups
+    loop Every 30s
+        GUI->>Dashboard: Refresh monitoring
+    end
+    User->>GUI: Close window
+    GUI->>Scheduler: Stop scheduler (if not service mode)
