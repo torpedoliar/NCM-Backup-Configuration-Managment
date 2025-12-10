@@ -115,7 +115,11 @@ class ScheduleService:
                 self._sync_thread.join(timeout=1)
         except Exception:
             pass
-        self.scheduler.shutdown(wait=False)
+        try:
+            if self.scheduler.running:
+                self.scheduler.shutdown(wait=False)
+        except Exception as e:
+            logger.debug(f"Scheduler shutdown error (ignored): {e}")
         self._release_lock()
     
     def add_job(self, job_id: int, switch_id: int, interval_minutes: int, schedule_hour: int = 8, schedule_minute: int = 0):
@@ -379,13 +383,15 @@ class ScheduleService:
             if job_id in self.job_map:
                 aps_job_id = self.job_map[job_id]
                 job = self.scheduler.get_job(aps_job_id)
-                if job and job.next_run_time:
-                    # Convert timezone-aware datetime to naive local time
-                    next_run = job.next_run_time
-                    if next_run.tzinfo is not None:
-                        # Convert to local time and remove timezone info
-                        next_run = next_run.astimezone().replace(tzinfo=None)
-                    return next_run
+                if job:
+                    # Use getattr to safely access next_run_time
+                    next_run = getattr(job, 'next_run_time', None)
+                    if next_run:
+                        # Convert timezone-aware datetime to naive local time
+                        if next_run.tzinfo is not None:
+                            # Convert to local time and remove timezone info
+                            next_run = next_run.astimezone().replace(tzinfo=None)
+                        return next_run
         except Exception as e:
             logger.error(f"Error getting next run time for job {job_id}: {e}")
         return None

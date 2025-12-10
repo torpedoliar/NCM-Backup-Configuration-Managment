@@ -1,0 +1,21 @@
+﻿Allied Telesis Backup Configuration Management
+Version: 3.5.5
+Build Date: 2025-11-21 07:27:34
+Created by: Yohanes Octavian Rizky
+
+System Requirements:
+- Windows 10 or later
+- Network connectivity to switches
+- Administrator privileges (for some features)
+
+Quick Start:
+1. Run AlliedTelesisBackup.exe
+2. Set master password on first run
+3. Add credentials in Credentials tab
+4. Add switches in Inventory tab
+5. Start backing up!
+
+Support:
+- Check IMPLEMENTATION_GUIDE.md for detailed documentation
+- Logs are stored in the 'logs' folder
+- Backup configurations are stored in 'backups' folder

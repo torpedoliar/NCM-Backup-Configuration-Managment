@@ -1,0 +1,400 @@
+"""
+Web Smart Switch Client (HTTP/HTTPS Scraping)
+Supports Allied Telesis WebSmart switches (FS750, GS950, etc.)
+"""
+import logging
+import requests
+from urllib.parse import urljoin
+from bs4 import BeautifulSoup
+import re
+import base64
+import json
+
+logger = logging.getLogger(__name__)
+
+class WebSmartClient:
+    """Client for interacting with WebSmart switches via HTTP/HTTPS"""
+    
+    def __init__(self, host: str, port: int = 80, username: str = "manager", 
+                 password: str = "friend", timeout: int = 30, force_v2_only: bool = False):
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.timeout = timeout
+        self.base_url = f"http://{host}:{port}/"
+        self.session = requests.Session()
+        self.gambit_token = None
+        self.is_v2_model = False  # Flag for GS950/52PS V2 detection
+        self.force_v2_only = force_v2_only  # If True, ONLY try V2 authentication
+        
+        # Common headers to mimic a browser
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        })
+
+    def _try_v2_login(self):
+        """
+        Try V2 authentication (GS950/52PS V2 and similar models).
+        Uses RSA encryption and API-based login.
+        Returns True if successful, False otherwise.
+        """
+        # Save original headers to restore if V2 login fails
+        original_accept = self.session.headers.get('Accept')
+        original_referer = self.session.headers.get('Referer')
+        
+        try:
+            # Step 1: Get RSA public key
+            logger.debug("Attempting V2 login: Fetching RSA public key...")
+            pubkey_url = urljoin(self.base_url, 'iss/specific/web_pub_key_data.js')
+            response = self.session.get(pubkey_url, timeout=self.timeout)
+            
+            if response.status_code != 200:
+                logger.debug(f"V2 pubkey fetch failed: {response.status_code}")
+                return False
+            
+            # Extract public key from JavaScript
+            match = re.search(r'"(-----BEGIN PUBLIC KEY-----[^"]+-----END PUBLIC KEY-----)"', response.text)
+            if not match:
+                logger.debug("V2 public key not found in response")
+                return False
+            
+            # Replace JavaScript line continuation (backslash)
+            pubkey_pem = match.group(1).replace('\\', '')
+            logger.debug("V2 public key retrieved successfully")
+            
+            # Step 2: Encrypt username and password with RSA
+            try:
+                from Crypto.PublicKey import RSA
+                from Crypto.Cipher import PKCS1_v1_5
+                
+                key = RSA.import_key(pubkey_pem)
+                cipher = PKCS1_v1_5.new(key)
+                
+                encrypted_username = cipher.encrypt(self.username.encode('utf-8'))
+                pelican = base64.b64encode(encrypted_username).decode('utf-8')
+                
+                encrypted_password = cipher.encrypt(self.password.encode('utf-8'))
+                pinkpanther = base64.b64encode(encrypted_password).decode('utf-8')
+                
+                logger.debug("V2 credentials encrypted successfully")
+                
+            except ImportError:
+                logger.error("V2 login requires 'pycryptodome' library. Install: pip install pycryptodome")
+                return False
+            except Exception as e:
+                logger.error(f"V2 encryption failed: {e}")
+                return False
+            
+            # Step 3: Send login request
+            login_url = urljoin(self.base_url, 'iss/specific/web_login_data.js')
+            params = {
+                'pelican': pelican,
+                'pinkpanther': pinkpanther
+            }
+            
+            # Temporarily update headers for V2 API-style requests
+            self.session.headers.update({
+                'Accept': 'application/json, text/plain, */*',
+                'Referer': urljoin(self.base_url, 'main.html')
+            })
+            
+            response = self.session.get(login_url, params=params, timeout=self.timeout)
+            
+            if response.status_code != 200:
+                logger.debug(f"V2 login request failed: {response.status_code}")
+                # Restore original headers and clear cookies
+                if original_accept:
+                    self.session.headers['Accept'] = original_accept
+                if original_referer:
+                    self.session.headers['Referer'] = original_referer
+                self.session.cookies.clear()
+                return False
+            
+            # Step 4: Parse response and extract Gambit token
+            try:
+                data = json.loads(response.text)
+                if 'gambit' in data:
+                    self.gambit_token = data['gambit']
+                    self.is_v2_model = True
+                    logger.info(f"V2 login successful, Gambit token obtained")
+                    # Keep V2 headers for subsequent requests
+                    return True
+                else:
+                    logger.debug(f"V2 login response missing Gambit token: {data}")
+                    # Restore original headers and clear cookies
+                    if original_accept:
+                        self.session.headers['Accept'] = original_accept
+                    if original_referer:
+                        self.session.headers['Referer'] = original_referer  
+                    self.session.cookies.clear()
+                    return False
+            except json.JSONDecodeError as e:
+                logger.debug(f"V2 login response not JSON: {e}")
+                # Restore original headers and clear cookies
+                if original_accept:
+                    self.session.headers['Accept'] = original_accept
+                if original_referer:
+                    self.session.headers['Referer'] = original_referer
+                self.session.cookies.clear()
+                return False
+                
+        except requests.RequestException as e:
+            logger.debug(f"V2 login network error: {e}")
+            # Restore original headers and clear cookies
+            if original_accept:
+                self.session.headers['Accept'] = original_accept
+            if original_referer:
+                self.session.headers['Referer'] = original_referer
+            self.session.cookies.clear()
+            return False
+        except Exception as e:
+            logger.debug(f"V2 login unexpected error: {e}")
+            # Restore original headers and clear cookies
+            if original_accept:
+                self.session.headers['Accept'] = original_accept
+            if original_referer:
+                self.session.headers['Referer'] = original_referer
+            self.session.cookies.clear()
+            return False
+
+
+    def connect(self):
+        """
+        Attempt to login to the switch.
+        Note: Different firmware versions have different login paths.
+        V2 models (GS950/52PS V2) use RSA encryption, older models use form POST.
+        """
+        logger.info(f"Connecting to WebSmart switch at {self.base_url}")
+        
+        # If force_v2_only is True, ONLY try V2 authentication
+        if self.force_v2_only:
+            logger.info("Force V2 mode: Only attempting V2 authentication")
+            if self._try_v2_login():
+                return True
+            else:
+                raise ConnectionError("V2 authentication failed. Check if switch is V2 model and credentials are correct.")
+        
+        # For traditional WebSmart protocol: SKIP V2 attempt entirely
+        # This prevents connection closure issue that breaks traditional login
+        logger.info("Traditional WebSmart mode: Skipping V2 attempt, using direct traditional login")
+        
+        # List of potential login endpoints and payload formats
+        login_attempts = [
+             # Pattern 4: FS750/GS950 /iss/ path structure
+            {
+                'url': 'iss/redirect.html',
+                'method': 'POST',
+                'data': {'Login': self.username, 'Password': self.password}
+            },
+            {
+                'url': 'iss/login.cgi',
+                'method': 'POST',
+                'data': {'username': self.username, 'password': self.password, 'submit': 'Login'}
+            },
+            {
+                'url': 'iss/login.html',
+                'method': 'POST',
+                'data': {'username': self.username, 'password': self.password, 'submit': 'Login'}
+            },
+            # Pattern 1: GS950 series (often /login.cgi or just /)
+            {
+                'url': 'login.cgi',
+                'method': 'POST',
+                'data': {'username': self.username, 'password': self.password, 'submit': 'Login'}
+            },
+            # Pattern 2: FS750 series (sometimes /logon.htm)
+            {
+                'url': 'logon.htm',
+                'method': 'POST',
+                'data': {'user': self.username, 'password': self.password}
+            }
+        ]
+
+        for attempt in login_attempts:
+            try:
+                target_url = urljoin(self.base_url, attempt['url'])
+                
+                if attempt.get('auth'):
+                    # Basic Auth
+                    response = self.session.get(target_url, auth=attempt['auth'], timeout=self.timeout)
+                elif attempt['method'] == 'POST':
+                    # Form Login - follow redirects to get to page with Gambit token
+                    response = self.session.post(target_url, data=attempt['data'], timeout=self.timeout, allow_redirects=True)
+                else:
+                    continue
+
+                # Check if login successful
+                if response.status_code == 200:
+                    # Try to extract Gambit token from response
+                    # Token may be in various formats depending on switch model
+                    gambit_patterns = [
+                        r'name\s*=\s*["\']Gambit["\']\s+value\s*=\s*["\']([^"\']+)["\']',  # name="Gambit" value="..."
+                        r'value\s*=\s*["\']([^"\']+)["\']\s+name\s*=\s*["\']Gambit["\']',  # value="..." name="Gambit"
+                        r'Gambit["\s=:]+([A-F0-9a-f]{60,})',     # JavaScript variable
+                        r'var\s+Gambit\s*=\s*["\']([^"\']+)["\']',  # JS var declaration
+                    ]
+                    
+                    for pattern in gambit_patterns:
+                        match = re.search(pattern, response.text, re.IGNORECASE)
+                        if match:
+                            self.gambit_token = match.group(1)
+                            logger.info(f"Extracted Gambit token: {self.gambit_token}")
+                            break
+                    
+                    if not self.gambit_token:
+                        logger.debug(f"No Gambit token found in response from {attempt['url']}")
+
+                    # If we are redirected to index or don't see login form
+                    if "login" not in response.url.lower() and "logon" not in response.url.lower():
+                        logger.info(f"Login successful via {attempt['url']}")
+                        return True
+                    
+                    # Specific check for /iss/ structure - often redirects to specific menu
+                    if "iss/" in response.url.lower():
+                        logger.info(f"Login successful via {attempt['url']} (path check)")
+                        return True
+                        
+                    # Content check
+                    text_lower = response.text.lower()
+                    if "invalid" not in text_lower and \
+                       "fail" not in text_lower and \
+                       "error_msg = 'error" not in text_lower and \
+                       "wrong password" not in text_lower:
+                        
+                        logger.info(f"Login successful via {attempt['url']} (content check)")
+                        return True
+                    else:
+                        logger.warning(f"Login failed via {attempt['url']}: Detected error message in response")
+
+            except requests.RequestException as e:
+                logger.debug(f"Login attempt failed for {attempt['url']}: {e}")
+                continue
+
+        raise ConnectionError("Failed to login to WebSmart switch. Check credentials or network.")
+
+    def get_running_config(self) -> str:
+        """
+        Download the configuration file.
+        Tries multiple known backup endpoints.
+        """
+        # Debug: Check token state
+
+        
+        # List of potential backup endpoints
+        backup_endpoints = []
+        
+        # If we have a Gambit token, try the direct download endpoints first with token
+        # GS950/52PS V2 uses iss1.conf, older models use iss.conf
+        if self.gambit_token:
+            backup_endpoints.append(f"iss1.conf?Gambit={self.gambit_token}")
+            backup_endpoints.append(f"iss.conf?Gambit={self.gambit_token}")
+
+        
+        # Always try iss endpoints without Gambit as fallback
+        # Some switches may work without explicit Gambit in URL if session-based
+        backup_endpoints.extend([
+            'iss1.conf',  # V2 without Gambit
+            'iss.conf',   # Traditional without Gambit
+            'iss/config_file_http.html',  # User provided specific path
+            'config.bin',
+            'backup.cgi',
+            'config/backup.cgi',
+            'system/config_backup.htm',
+            'maintenance/upload_download.htm'
+        ])
+
+        for endpoint in backup_endpoints:
+            try:
+                target_url = urljoin(self.base_url, endpoint)
+                logger.debug(f"Trying to download config from {target_url}")
+                
+                response = self.session.get(target_url, timeout=self.timeout)
+                
+
+                
+                if response.status_code == 200:
+                    content_type = response.headers.get('Content-Type', '').lower()
+                    
+                    # Direct file download check
+                    if 'text/html' not in content_type:
+                        content = response.text
+                        if len(content) > 100:
+                            logger.info(f"Config downloaded successfully from {endpoint}")
+                            return content
+                            
+                    # If it's the specific HTML page with the Backup button
+                    if 'iss/config_file_http.html' in target_url and 'text/html' in content_type:
+                        logger.info("Found backup page, attempting to click Backup button...")
+                        try:
+                            soup = BeautifulSoup(response.text, 'html.parser')
+                            # Look for the form containing the Backup button
+                            # Based on image: "Backup" button
+                            # Usually <input type="submit" name="b_save" value="Backup"> or similar
+                            
+                            # Try to find any form that looks like a backup form
+                            forms = soup.find_all('form')
+                            for form in forms:
+                                # Check if form has a backup button
+                                buttons = form.find_all(['input', 'button'])
+                                backup_btn = None
+                                for btn in buttons:
+                                    if btn.get('value', '').lower() == 'backup' or 'backup' in btn.get('name', '').lower():
+                                        backup_btn = btn
+                                        break
+                                
+                                if backup_btn:
+                                    # Found the form, submit it
+                                    action = form.get('action', '')
+                                    post_url = urljoin(target_url, action) if action else target_url
+                                    
+                                    data = {}
+                                    # Add the button's name/value if it has one (often required to trigger action)
+                                    if backup_btn.get('name'):
+                                        data[backup_btn['name']] = backup_btn.get('value', '')
+                                    
+                                    # Add hidden fields
+                                    for hidden in form.find_all('input', type='hidden'):
+                                        if hidden.get('name'):
+                                            data[hidden['name']] = hidden.get('value', '')
+                                            
+                                    logger.info(f"Submitting backup form to {post_url} with data {data}")
+                                    file_response = self.session.post(post_url, data=data, timeout=self.timeout)
+                                    
+                                    if file_response.status_code == 200:
+                                        # This should be the file
+                                        if len(file_response.text) > 100 and 'text/html' not in file_response.headers.get('Content-Type', '').lower():
+                                            return file_response.text
+                                        # Sometimes it returns HTML saying "Processing" or redirects
+                                        # But for simple switches, it often returns the file directly
+                                        # If it's still HTML, maybe we need to check for a generated link?
+                                        # For now, let's assume direct download or check content
+                                        if "config" in file_response.text[:100] or "sysname" in file_response.text[:100]:
+                                            return file_response.text
+                        except Exception as e:
+                            logger.error(f"Error parsing/submitting backup form: {e}")
+
+            except requests.RequestException:
+                continue
+        
+        # If we get here, we failed to find the config
+        logger.error("Failed to find config. Dumping last response for debugging:")
+        try:
+            # Dump the first 500 chars of the last visited page to help identify where we are
+            logger.error(f"Last URL: {target_url}")
+            logger.error(f"Response snippet: {response.text[:500]}...")
+        except:
+            pass
+            
+        raise ValueError("Could not find a valid configuration download endpoint.")
+
+    def disconnect(self):
+        """Logout and close session"""
+        try:
+            logout_url = urljoin(self.base_url, 'logout.cgi')
+            self.session.get(logout_url, timeout=5)
+        except:
+            pass
+        self.session.close()

@@ -1,4 +1,4 @@
-﻿# ============================================================================
+# ============================================================================
 # Allied Telesis Backup Manager - Production Build Script
 # Version: 1.0
 # Best Practice Deployment Workflow
@@ -146,8 +146,7 @@ if ($missingPackages.Count -gt 0) {
         exit 1
     }
     Write-Success "Dependencies installed"
-}
-else {
+} else {
     Write-Success "All dependencies satisfied"
 }
 
@@ -162,8 +161,7 @@ if (-not $SkipTests) {
     python -m py_compile app/main.py
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Python syntax validation passed"
-    }
-    else {
+    } else {
         Write-Error-Custom "Syntax errors found!"
         exit 1
     }
@@ -175,8 +173,7 @@ if (-not $SkipTests) {
         Write-Warning "Found print() statements - consider using logging"
     }
     Write-Success "Code validation complete"
-}
-else {
+} else {
     Write-Warning "Skipping code validation (--SkipTests specified)"
 }
 
@@ -199,8 +196,7 @@ if (-not $SkipClean) {
     Get-ChildItem -Filter "*.spec" | Remove-Item -Force -ErrorAction SilentlyContinue
     
     Write-Success "Cleanup complete"
-}
-else {
+} else {
     Write-Warning "Skipping cleanup (--SkipClean specified)"
 }
 
@@ -228,8 +224,7 @@ if ($IconPath -and $IconPath.Trim() -ne "") {
     $ext = [System.IO.Path]::GetExtension($resolvedIcon).ToLower()
     if ($ext -eq ".ico") {
         $iconIcoPath = $resolvedIcon
-    }
-    elseif ($ext -eq ".png") {
+    } elseif ($ext -eq ".png") {
         # Convert PNG to ICO using Python Pillow
         $iconIcoPath = Join-Path (Get-Location) "build_app_icon.ico"
         Write-Info "Converting PNG to ICO: $resolvedIcon -> $iconIcoPath"
@@ -253,8 +248,7 @@ print('OK')
             Write-Error-Custom "Failed to convert PNG to ICO. Ensure Pillow is installed. Output: $out"
             exit 1
         }
-    }
-    else {
+    } else {
         Write-Error-Custom "Unsupported icon format: $ext. Use .ico or .png"
         exit 1
     }
@@ -270,10 +264,6 @@ if (-not (Test-Path "version_info.txt")) {
     Write-Warning "version_info.txt not found; skipping Windows version resource embedding"
     $VersionSpecLine = ""
 }
-
-# Calculate ttkbootstrap path using Python
-$ttkPath = python -c "import ttkbootstrap; import os; print(os.path.dirname(ttkbootstrap.__file__))"
-$ttkPath = $ttkPath.Trim() -replace "\\", "/"
 
 # Create optimized spec file for better control
 $specContent = @"
@@ -334,7 +324,7 @@ a = Analysis(
 )
 
 # Collect all ttkbootstrap themes and resources
-a.datas += Tree('$ttkPath', prefix='ttkbootstrap')
+a.datas += Tree('$((Get-Command python).Source | Split-Path | Split-Path)/Lib/site-packages/ttkbootstrap', prefix='ttkbootstrap')
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
@@ -367,7 +357,7 @@ $specContent | Out-File "$AppName.spec" -Encoding UTF8
 Write-Info "Starting PyInstaller build (this may take several minutes)..."
 $buildStartTime = Get-Date
 
-cmd /c "pyinstaller ""$AppName.spec"" --clean --noconfirm 2>&1"
+pyinstaller "$AppName.spec" --clean --noconfirm 2>&1 | Out-Null
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Custom "Build failed!"
@@ -401,7 +391,6 @@ New-Item -ItemType Directory -Path $DeploymentDir -Force | Out-Null
 New-Item -ItemType Directory -Path "$DeploymentDir\data" -Force | Out-Null
 New-Item -ItemType Directory -Path "$DeploymentDir\backups" -Force | Out-Null
 New-Item -ItemType Directory -Path "$DeploymentDir\logs" -Force | Out-Null
-New-Item -ItemType Directory -Path "$DeploymentDir\docs" -Force | Out-Null
 
 # Copy executable
 Write-Info "Copying executable..."
@@ -420,7 +409,7 @@ $docsToInclude = @(
 
 foreach ($doc in $docsToInclude) {
     if (Test-Path $doc) {
-        Copy-Item $doc "$DeploymentDir\docs" -Force -ErrorAction SilentlyContinue
+        Copy-Item $doc "$DeploymentDir\docs\" -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -764,8 +753,7 @@ Compress-Archive -Path "$DeploymentDir\*" -DestinationPath $zipName -Compression
 if (Test-Path $zipName) {
     $zipSize = (Get-Item $zipName).Length / 1MB
     Write-Success "Distribution package created: $([math]::Round($zipSize, 2)) MB"
-}
-else {
+} else {
     Write-Error-Custom "Failed to create distribution package!"
     exit 1
 }

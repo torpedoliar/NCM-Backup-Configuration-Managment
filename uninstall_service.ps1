@@ -9,10 +9,9 @@ Write-Host ""
 # Check if running as Administrator
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "ERROR: This script must be run as Administrator!" -ForegroundColor Red
-    Write-Host "Right-click PowerShell and select 'Run as Administrator'" -ForegroundColor Yellow
-    pause
-    exit 1
+    Write-Host "Requesting Administrator privileges..." -ForegroundColor Yellow
+    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$((Get-Location).Path)\uninstall_service.ps1`"" -Verb RunAs
+    exit
 }
 
 Write-Host "This will uninstall the Allied Telesis Backup Windows Service." -ForegroundColor Yellow
@@ -70,7 +69,8 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "The Windows Service has been removed." -ForegroundColor White
     Write-Host "You can still use the GUI application for manual backups." -ForegroundColor Cyan
     Write-Host ""
-} else {
+}
+else {
     Write-Host "ERROR: Service uninstall failed!" -ForegroundColor Red
     Write-Host "The service may not be installed or there was an error." -ForegroundColor Yellow
 }

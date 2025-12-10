@@ -463,8 +463,8 @@ class InventoryView:
                                 continue
                             
                             # Validate protocol
-                            if protocol not in ['ssh', 'telnet']:
-                                errors.append(f"Row {row_num}: Invalid protocol '{protocol}', must be 'ssh' or 'telnet'")
+                            if protocol not in ['ssh', 'telnet', 'http', 'https', 'websmart', 'websmart-v2']:
+                                errors.append(f"Row {row_num}: Invalid protocol '{protocol}', must be 'ssh', 'telnet', 'websmart', or 'websmart-v2'")
                                 skipped += 1
                                 continue
                             
@@ -687,13 +687,14 @@ class SwitchDialog:
         self.ip_var = ttk.StringVar()
         ttk.Entry(frame, textvariable=self.ip_var, width=40).grid(row=1, column=1, pady=5)
         
-        # Protocol
         ttk.Label(frame, text="Protocol:").grid(row=2, column=0, sticky=W, pady=5)
         self.protocol_var = ttk.StringVar(value="ssh")
         protocol_frame = ttk.Frame(frame)
         protocol_frame.grid(row=2, column=1, sticky=W, pady=5)
         ttk.Radiobutton(protocol_frame, text="SSH", variable=self.protocol_var, value="ssh").pack(side=LEFT, padx=5)
         ttk.Radiobutton(protocol_frame, text="Telnet", variable=self.protocol_var, value="telnet").pack(side=LEFT, padx=5)
+        ttk.Radiobutton(protocol_frame, text="WebSmart", variable=self.protocol_var, value="websmart").pack(side=LEFT, padx=5)
+        ttk.Radiobutton(protocol_frame, text="WebSmart V2", variable=self.protocol_var, value="websmart-v2").pack(side=LEFT, padx=5)
         
         # Port
         ttk.Label(frame, text="Port:").grid(row=3, column=0, sticky=W, pady=5)
@@ -707,6 +708,8 @@ class SwitchDialog:
                 self.port_var.set(22)
             elif protocol == "telnet":
                 self.port_var.set(23)
+            elif protocol in ["http", "https", "websmart", "websmart-v2"]:
+                self.port_var.set(80)
         
         self.protocol_var.trace_add("write", on_protocol_change)
         

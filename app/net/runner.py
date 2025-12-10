@@ -8,12 +8,14 @@ import yaml
 
 from app.net.ssh_client import SSHClient
 from app.net.telnet_client import TelnetClient
+from app.net.web_smart_client import WebSmartClient
+from app.net.traditional_web_smart_client import TraditionalWebSmartClient
 
 logger = logging.getLogger(__name__)
 
 
 class BackupRunner:
-    """Unified interface for executing backups via SSH or Telnet"""
+    """Unified interface for executing backups via SSH, Telnet, or HTTP (WebSmart)"""
     
     def __init__(self):
         self.config = self._load_config()
@@ -48,6 +50,12 @@ class BackupRunner:
                     config_text = self._execute_ssh(host, port, username, password, enable_password)
                 elif protocol.lower() == 'telnet':
                     config_text = self._execute_telnet(host, port, username, password, enable_password)
+                elif protocol.lower() in ['http', 'https', 'websmart']:
+                    # Traditional WebSmart (FS750, GS950 old models) - NO V2 attempt
+                    config_text = self._execute_http(host, port, username, password, force_v2=False)
+                elif protocol.lower() == 'websmart-v2':
+                    # WebSmart V2 (GS950/52PS V2) - ONLY V2 authentication
+                    config_text = self._execute_http(host, port, username, password, force_v2=True)
                 else:
                     return False, "", f"Unsupported protocol: {protocol}"
                 
@@ -130,6 +138,31 @@ class BackupRunner:
         finally:
             if client:
                 await client.disconnect()
+
+    def _execute_http(self, host: str, port: int, username: str, password: str, force_v2: bool = False) -> str:
+        """Execute backup via HTTP/WebSmart"""
+        client = None
+        try:
+            timeout = self.config['network']['connect_timeout']
+            
+            if force_v2:
+                # WebSmart V2 - Use V2-only client
+                client = WebSmartClient(host, port, username, password, timeout, force_v2_only=True)
+            else:
+                # Traditional WebSmart - Use proven backup code
+                client = TraditionalWebSmartClient(host, port, username, password, timeout)
+            
+            # Connect/Login
+            client.connect()
+            
+            # Get config
+            config_text = client.get_running_config()
+            
+            return config_text
+            
+        finally:
+            if client:
+                client.disconnect()
     
     def _normalize_output(self, text: str) -> str:
         """Normalize line endings and whitespace"""
