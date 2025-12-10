@@ -1,0 +1,19 @@
+graph TD
+    A[Trigger Backup] --> B{Manual/Scheduled?}
+    B -->|Manual| C1[GUI Action]
+    B -->|Scheduled| C2[Background Service]
+    C1 --> D[Load Switch + Credentials]
+    C2 --> D
+    D --> E[Decrypt Credentials]
+    E --> F{Protocol?}
+    F -->|SSH| G1[SSHClient Connect]
+    F -->|Telnet| G2[TelnetClient Connect]
+    G1 --> H[Send Commands]
+    G2 --> H
+    H --> I[Capture Output]
+    I --> J[Save to File backups/switch/date/time_config.txt]
+    J --> K[Hash SHA256]
+    K --> L[Create DB Record]
+    L --> M[Compare with Last Backup]
+    M -->|Changes| N[Generate .diff File]
+    M -->|No Changes| O[Mark as Identical]

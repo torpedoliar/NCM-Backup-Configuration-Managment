@@ -1,0 +1,17 @@
+graph TD
+    A[Windows Boot] --> B[Task Scheduler]
+    B -->|Run as SYSTEM| C[Service EXE]
+    C --> D{Lock exists?}
+    D -->|No| E[Acquire Lock]
+    D -->|Yes| F[Wait 30s]
+    E --> G[Start Scheduler]
+    G --> H[Run Scheduled Backups]
+    H --> I[Release Lock on Exit]
+    
+    subgraph Service Control
+        C --> J[SCM: Start Service]
+        J --> K[Service Main Loop]
+        K --> L[Check Lock]
+        L -->|Stale| M[Take Over]
+        L -->|Valid| N[Wait]
+    end

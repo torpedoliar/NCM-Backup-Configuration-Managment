@@ -1,163 +1,370 @@
-# ATI Switch Configuration Backup Manager
+<p align="center">
+  <img src="ico.png" alt="NCM Logo" width="120" height="120"/>
+</p>
 
-A production-ready Windows desktop application for backing up and tracking configuration history for Allied Telesis switches.
+<h1 align="center">🔧 NCM - Network Configuration Manager</h1>
 
-## Features
+<p align="center">
+  <strong>Enterprise-Grade Switch Backup & Configuration Management for Allied Telesis</strong>
+</p>
 
-- **Multi-Protocol Support**: Connect via SSH or Telnet with custom ports
-- **Secure Credential Vault**: Encrypted storage with master passphrase (Fernet AES-128)
-- **Automated Backups**: Schedule periodic configuration pulls (15m/1h/6h/12h/24h)
-- **Diff Viewer**: Line-numbered unified diff with syntax highlighting
-- **30-Day Retention**: Automatic cleanup of old backups with minimum retention
-- **Non-Blocking UI**: Background threads for network operations
-- **Comprehensive Logging**: Rotating log files with 7-day retention
-- **Retry Logic**: Exponential backoff for connection failures
-- **Prompt Detection**: Automatic CLI prompt and paging detection
+<p align="center">
+  <img src="https://img.shields.io/badge/version-3.5.6-blue.svg" alt="Version"/>
+  <img src="https://img.shields.io/badge/python-3.11+-green.svg" alt="Python"/>
+  <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform"/>
+  <img src="https://img.shields.io/badge/license-Proprietary-red.svg" alt="License"/>
+  <img src="https://img.shields.io/badge/encryption-AES--128-orange.svg" alt="Encryption"/>
+</p>
 
-## Quick Start
+<p align="center">
+  <a href="#-features">Features</a> •
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-architecture">Architecture</a> •
+  <a href="#-security">Security</a> •
+  <a href="#-documentation">Documentation</a>
+</p>
+
+---
+
+## 🎯 Overview
+
+**NCM (Network Configuration Manager)** is a production-ready Windows desktop application designed for IT infrastructure teams to efficiently backup, track, and manage configuration changes across Allied Telesis network switches. Built with enterprise security in mind, NCM provides automated backup scheduling, change detection with visual diff comparison, and encrypted credential storage.
+
+## ✨ Features
+
+<table>
+<tr>
+<td width="50%">
+
+### 🌐 Multi-Protocol Support
+- **SSH** - Secure encrypted connections
+- **Telnet** - Legacy device compatibility  
+- **WebSmart** - Allied Telesis web interface
+- **WebSmart V2** - RSA-encrypted modern switches
+- Custom port configuration per device
+
+</td>
+<td width="50%">
+
+### 🔐 Enterprise Security
+- **AES-128 Fernet Encryption** for credentials
+- **PBKDF2-HMAC-SHA256** key derivation
+- 100,000 iterations for maximum security
+- Master passphrase never stored on disk
+- Encrypted SQLite credential storage
+
+</td>
+</tr>
+<tr>
+<td>
+
+### ⏰ Automated Scheduling
+- Flexible intervals: 15m, 1h, 6h, 12h, 24h
+- Background service mode support
+- Windows Task Scheduler integration
+- Automatic retry with exponential backoff
+
+</td>
+<td>
+
+### 📊 Change Management
+- **Visual Diff Viewer** with syntax highlighting
+- Line-by-line comparison with line numbers
+- Unified diff format
+- Configuration change tracking over time
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 🗂️ Intelligent Retention
+- Configurable 30-day default retention
+- Automatic cleanup of old backups
+- Minimum backup count guarantee
+- Organized folder structure by device/date
+
+</td>
+<td>
+
+### 🖥️ Modern UI/UX
+- **ttkbootstrap** modern theme engine
+- Non-blocking background operations
+- Real-time backup status updates
+- Comprehensive logging with 7-day rotation
+
+</td>
+</tr>
+</table>
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Python 3.11+** (required)
+- **Windows 10/11**
+- Network access to Allied Telesis switches
+
+### Installation
 
 ```powershell
-# 1. Install dependencies (Python 3.11+ required)
+# 1️⃣ Clone the repository
+git clone https://github.com/your-org/ncm-backup.git
+cd ncm-backup
+
+# 2️⃣ Create virtual environment (recommended)
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# 3️⃣ Install dependencies
 pip install -r requirements.txt
 
-# 2. Run application
+# 4️⃣ Launch the application
 python -m app.main
-
-# 3. Build standalone executable
-.\build.ps1
 ```
-
-The application will prompt for a master passphrase on first launch to encrypt credentials.
-
-## Project Structure
-
-```
-app/
-├── main.py                 # Entry point
-├── ui/                     # User interface modules
-│   ├── app_window.py
-│   ├── inventory_view.py
-│   ├── credentials_view.py
-│   ├── history_view.py
-│   ├── diff_view.py
-│   ├── schedules_view.py
-│   └── settings_view.py
-├── net/                    # Network clients
-│   ├── ssh_client.py
-│   ├── telnet_client.py
-│   └── runner.py
-├── data/                   # Database layer
-│   ├── db.py
-│   ├── models.py
-│   └── repository.py
-├── services/               # Business logic
-│   ├── backup_service.py
-│   ├── diff_service.py
-│   ├── schedule_service.py
-│   ├── retention_service.py
-│   ├── crypto_service.py
-│   └── export_service.py
-└── config/                 # Configuration
-    ├── appsettings.yaml
-    └── logging_config.py
-```
-
-## Usage
 
 ### First Launch
-1. Set a master passphrase (min 8 characters)
-2. Keep it safe - it's NOT stored!
 
-### Adding Switches
+1. 🔑 **Set Master Passphrase** - Create a secure passphrase (minimum 8 characters)
+2. 📱 **Add Switches** - Go to Inventory tab and add your devices
+3. 🔐 **Configure Credentials** - Add encrypted credentials in Credentials tab
+4. ▶️ **Start Backing Up** - Manual backup or configure automated schedules
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        NCM Application                          │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                     UI Layer (tkinter)                   │   │
+│  │  Dashboard │ Inventory │ Credentials │ History │ Diff   │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                    Service Layer                          │   │
+│  │  BackupService │ CryptoService │ ScheduleService │ etc.  │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌─────────────────┐    ┌───────────────────┐                   │
+│  │   Data Layer    │    │   Network Layer   │                   │
+│  │ SQLite + ORM    │    │ SSH/Telnet/HTTP   │                   │
+│  └─────────────────┘    └───────────────────┘                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Project Structure
+
+```
+📦 ncm-backup/
+├── 📂 app/
+│   ├── 📄 main.py              # Application entry point
+│   ├── 📂 ui/                  # User interface modules
+│   │   ├── app_window.py       # Main window container
+│   │   ├── dashboard_view.py   # Overview dashboard
+│   │   ├── inventory_view.py   # Switch management
+│   │   ├── credentials_view.py # Credential vault
+│   │   ├── history_view.py     # Backup history
+│   │   ├── diff_view.py        # Configuration diff viewer
+│   │   ├── schedules_view.py   # Scheduler management
+│   │   └── settings_view.py    # Application settings
+│   ├── 📂 services/            # Business logic layer
+│   │   ├── backup_service.py   # Core backup execution
+│   │   ├── crypto_service.py   # Encryption/decryption
+│   │   ├── schedule_service.py # APScheduler integration
+│   │   ├── retention_service.py# Cleanup automation
+│   │   ├── diff_service.py     # Configuration comparison
+│   │   └── export_service.py   # Data export utilities
+│   ├── 📂 net/                 # Network communication
+│   │   ├── runner.py           # Protocol abstraction
+│   │   ├── ssh_client.py       # Paramiko SSH client
+│   │   ├── telnet_client.py    # Telnet3 client
+│   │   └── websmart_client.py  # WebSmart HTTP client
+│   ├── 📂 data/                # Data persistence
+│   │   ├── db.py               # SQLite connection
+│   │   ├── models.py           # SQLAlchemy ORM models
+│   │   └── repository.py       # Data access layer
+│   └── 📂 config/              # Configuration
+│       ├── appsettings.yaml    # App settings
+│       └── logging_config.py   # Logging setup
+├── 📂 backups/                 # Backup storage
+├── 📂 logs/                    # Application logs
+├── 📂 Dokumentasi/             # Documentation
+├── 📄 requirements.txt         # Python dependencies
+├── 📄 build.ps1                # Build script
+└── 📄 README.md                # This file
+```
+
+## 🔒 Security
+
+### Encryption Standards
+
+| Component | Implementation |
+|-----------|----------------|
+| **Symmetric Encryption** | Fernet (AES-128-CBC) |
+| **Key Derivation** | PBKDF2-HMAC-SHA256 |
+| **Iterations** | 100,000 |
+| **Salt** | 16-byte random per installation |
+| **Credential Storage** | Encrypted JSON in SQLite |
+
+### Security Best Practices
+
+- ✅ Master passphrase required at every session start
+- ✅ Credentials encrypted at rest
+- ✅ No plaintext passwords in logs or files
+- ✅ Session keys stored only in memory
+- ✅ Secure connection protocols (SSH preferred)
+
+> ⚠️ **Important**: If you lose your master passphrase, credential recovery is impossible. Store it securely!
+
+## 📖 Usage Guide
+
+### 📱 Managing Switches
+
 1. Navigate to **Inventory** tab
-2. Click **Add Switch**
-3. Fill in details and save
+2. Click **➕ Add Switch**
+3. Fill in: Name, IP Address, Protocol (SSH/Telnet/WebSmart), Port
+4. Assign credentials and save
 
-### Managing Credentials
+### 🔐 Credential Management
+
 1. Go to **Credentials** tab
-2. Add credentials (username, password, enable password)
-3. All data is encrypted at rest
+2. Click **Add Credential**
+3. Enter: Label, Username, Password, Enable Password (optional)
+4. All data is encrypted automatically
 
-### Manual Backup
-1. Select switch in **Inventory**
-2. Click **Get Data**
-3. View status in real-time
+### ⏱️ Scheduling Backups
 
-### Scheduling
-1. Go to **Schedules** tab
-2. Add schedule for switch
-3. Choose interval (15m/1h/6h/12h/24h)
+1. Navigate to **Schedules** tab
+2. Click **Add Schedule**
+3. Select switch and interval (15m/1h/6h/12h/24h)
+4. Enable and save
 
-### Viewing Diffs
-1. Navigate to **Backup History**
-2. Select switch and two backups
-3. Click **Show Diff**
+### 📊 Comparing Configurations
 
-## Security
+1. Go to **Backup History** tab
+2. Select a switch from the dropdown
+3. Choose two backup versions
+4. Click **Show Diff** to view changes
 
-- AES-128 encryption (Fernet) for credentials
-- Master passphrase derived using PBKDF2
-- Passphrase never stored on disk
-- 100,000 iterations for key derivation
+## 🛠️ Building
 
-## Building
+### Development Build
 
 ```powershell
 .\build.ps1
 ```
 
-Output: `dist\ATISwitchBackup.exe`
-
-## Troubleshooting
-
-**Connection fails**: Check IP, port, firewall, credentials
-
-**Prompt not detected**: Customize in Settings > Prompt Patterns
-
-**Master passphrase lost**: Delete `data/master.key` and `data/app.db` (loses all data)
-
-## Requirements
-
-- Python 3.11+
-- Windows 10/11
-- Network access to switches
-
-## Testing
-
-Run the test suite:
+### Production Release
 
 ```powershell
-# Run all tests
+.\build_production.ps1
+```
+
+Output: `dist\AlliedTelesisBackup.exe` (~38 MB standalone)
+
+## 🧪 Testing
+
+```powershell
+# Run all tests with pytest
 python -m pytest app/tests/ -v
 
-# Or using unittest
+# Run with unittest
 python -m unittest discover app/tests/
 ```
 
-## Architecture
+## 📋 Database Schema
 
-### Database Schema
-- **Credential**: Encrypted credentials (username, password, enable_password)
-- **Switch**: Switch configurations (name, IP, protocol, port, credential_id)
-- **Backup**: Backup records (switch_id, file_path, hash, timestamp, success)
-- **Job**: Scheduled jobs (switch_id, interval, enabled, last_ran_at)
+```mermaid
+erDiagram
+    Credential ||--o{ Switch : "has"
+    Switch ||--o{ Backup : "generates"
+    Switch ||--o{ Job : "scheduled by"
+    
+    Credential {
+        int id PK
+        string label
+        blob username_enc
+        blob password_enc
+        blob enable_enc
+    }
+    
+    Switch {
+        int id PK
+        string name
+        string ip_address
+        string protocol
+        int port
+        int credential_id FK
+    }
+    
+    Backup {
+        int id PK
+        int switch_id FK
+        string file_path
+        string hash_sha256
+        datetime timestamp
+        boolean success
+    }
+    
+    Job {
+        int id PK
+        int switch_id FK
+        string interval
+        boolean enabled
+        datetime last_ran_at
+    }
+```
 
-### Network Flow
-1. Connect (SSH/Telnet)
-2. Send `enable` command (with optional password)
-3. Send `terminal length 0` to disable paging
-4. Send `show running-config`
-5. Capture full output (handle paging if needed)
-6. Normalize line endings
-7. Save to `backups/<switch>/<date>/<time>_running-config.txt`
+## 🔧 Troubleshooting
 
-### Security
-- **Encryption**: Fernet (symmetric AES-128 in CBC mode)
-- **Key Derivation**: PBKDF2-HMAC-SHA256 with 100,000 iterations
-- **Salt Storage**: Random 16-byte salt stored in `data/master.key`
-- **Credential Storage**: Encrypted JSON blobs in SQLite database
-- **Master Passphrase**: Never stored on disk, only in memory during session
+| Issue | Solution |
+|-------|----------|
+| **Connection timeout** | Verify IP, port, and firewall rules |
+| **Authentication failed** | Check username/password in Credentials |
+| **Prompt not detected** | Customize in Settings → Prompt Patterns |
+| **WebSmart V2 fails** | Ensure RSA encryption support (pycryptodome) |
+| **Passphrase lost** | Delete `data/master.key` + `data/app.db` (⚠️ loses all data) |
 
-## License
+## 📦 Dependencies
 
-Proprietary - Internal Use Only
+| Package | Purpose |
+|---------|---------|
+| `ttkbootstrap` | Modern UI theming |
+| `paramiko` | SSH connections |
+| `telnetlib3` | Telnet support |
+| `apscheduler` | Background scheduling |
+| `sqlalchemy` | ORM database access |
+| `cryptography` | Fernet encryption |
+| `pycryptodome` | RSA for WebSmart V2 |
+| `requests` | HTTP client |
+| `beautifulsoup4` | HTML parsing |
+| `pillow` | Image processing |
+| `pywin32` | Windows service |
+
+## 📚 Documentation
+
+Detailed documentation available in the `Dokumentasi/` folder:
+
+- 📘 [User Guide](Dokumentasi/user_guide.md)
+- 📗 [WebSmart V2 Backup Flow](websmart_v2_backup_flow.md)
+- 📙 [Application Overview](application_overview.md)
+
+## 👥 Support
+
+For internal support, contact the IT Infrastructure team.
+
+---
+
+<p align="center">
+  <strong>NCM - Network Configuration Manager</strong><br>
+  <em>Securing Your Network, One Backup at a Time</em>
+</p>
+
+<p align="center">
+  Made with ❤️ by IT Infrastructure Team
+</p>
+
+<p align="center">
+  <sub>© 2024-2025 | Proprietary - Internal Use Only</sub>
+</p>
