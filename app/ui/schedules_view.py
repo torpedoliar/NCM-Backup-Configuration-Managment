@@ -1,7 +1,11 @@
 """Schedules management view"""
+import csv
+import io
 import logging
+from dataclasses import dataclass
 from tkinter import END
 from datetime import datetime, timedelta
+from typing import List
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
@@ -11,6 +15,137 @@ from app.services.schedule_service import ScheduleService
 from app.config.paths import get_base_dir
 
 logger = logging.getLogger(__name__)
+
+SCHEDULE_BULK_COLUMNS = ("switch_name", "schedule_type", "interval_minutes", "hour", "minute", "enabled")
+VALID_SCHEDULE_TYPES = {"interval", "daily", "weekly", "monthly"}
+NAMED_SCHEDULE_INTERVALS = {
+    "daily": 1440,
+    "weekly": 10080,
+    "monthly": 43200,
+}
+TRUE_VALUES = {"", "true", "yes", "1", "y", "enabled"}
+FALSE_VALUES = {"false", "no", "0", "n", "disabled"}
+
+
+@dataclass
+class ScheduleBulkRow:
+    row_num: int
+    switch_name: str
+    schedule_type: str
+    interval_minutes: int
+    schedule_hour: int
+    schedule_minute: int
+    enabled: bool
+
+
+@dataclass
+class ScheduleBulkParseResult:
+    rows: List[ScheduleBulkRow]
+    errors: List[str]
+
+
+def _is_schedule_header(values: List[str]) -> bool:
+    normalized = {value.strip().lower() for value in values}
+    return "switch_name" in normalized and "schedule_type" in normalized
+
+
+def _schedule_record_from_values(values: List[str]) -> dict:
+    return {
+        column: values[index].strip() if index < len(values) else ""
+        for index, column in enumerate(SCHEDULE_BULK_COLUMNS)
+    }
+
+
+def _parse_int_range(value: str, minimum: int, maximum: int) -> int:
+    parsed = int(value)
+    if not minimum <= parsed <= maximum:
+        raise ValueError
+    return parsed
+
+
+def parse_schedule_bulk_text(text: str) -> ScheduleBulkParseResult:
+    csv_rows = [
+        row for row in csv.reader(io.StringIO(text))
+        if any(cell.strip() for cell in row)
+    ]
+    if not csv_rows:
+        return ScheduleBulkParseResult(rows=[], errors=["No rows found"])
+
+    has_header = _is_schedule_header(csv_rows[0])
+    header = [cell.strip().lower() for cell in csv_rows[0]] if has_header else []
+    data_rows = csv_rows[1:] if has_header else csv_rows
+    first_row_num = 2 if has_header else 1
+
+    parsed_rows = []
+    errors = []
+
+    for offset, values in enumerate(data_rows):
+        row_num = first_row_num + offset
+        if has_header:
+            record = {
+                header[index]: values[index].strip() if index < len(values) else ""
+                for index in range(len(header))
+            }
+        else:
+            record = _schedule_record_from_values(values)
+
+        switch_name = record.get("switch_name", "").strip()
+        schedule_type = record.get("schedule_type", "").strip().lower()
+        interval_text = record.get("interval_minutes", "").strip()
+        hour_text = record.get("hour", "").strip()
+        minute_text = record.get("minute", "").strip()
+        enabled_text = record.get("enabled", "").strip().lower()
+
+        if not switch_name:
+            errors.append(f"Row {row_num}: Missing switch name")
+            continue
+        if schedule_type not in VALID_SCHEDULE_TYPES:
+            errors.append(f"Row {row_num}: Invalid schedule type '{schedule_type}'")
+            continue
+
+        if schedule_type == "interval":
+            if not interval_text:
+                errors.append(f"Row {row_num}: Missing interval minutes")
+                continue
+            try:
+                interval_minutes = _parse_int_range(interval_text, 1, 43200)
+            except ValueError:
+                errors.append(f"Row {row_num}: Invalid interval minutes '{interval_text}'")
+                continue
+        else:
+            interval_minutes = NAMED_SCHEDULE_INTERVALS[schedule_type]
+
+        try:
+            schedule_hour = _parse_int_range(hour_text or "8", 0, 23)
+        except ValueError:
+            errors.append(f"Row {row_num}: Invalid hour '{hour_text}'")
+            continue
+
+        try:
+            schedule_minute = _parse_int_range(minute_text or "0", 0, 59)
+        except ValueError:
+            errors.append(f"Row {row_num}: Invalid minute '{minute_text}'")
+            continue
+
+        if enabled_text in TRUE_VALUES:
+            enabled = True
+        elif enabled_text in FALSE_VALUES:
+            enabled = False
+        else:
+            errors.append(f"Row {row_num}: Invalid enabled value '{enabled_text}'")
+            continue
+
+        parsed_rows.append(ScheduleBulkRow(
+            row_num=row_num,
+            switch_name=switch_name,
+            schedule_type=schedule_type,
+            interval_minutes=interval_minutes,
+            schedule_hour=schedule_hour,
+            schedule_minute=schedule_minute,
+            enabled=enabled,
+        ))
+
+    return ScheduleBulkParseResult(rows=parsed_rows, errors=errors)
 
 
 class SchedulesView:
@@ -39,7 +174,21 @@ class SchedulesView:
             command=self._add_schedule,
             bootstyle=SUCCESS
         ).pack(side=LEFT, padx=5)
-        
+
+        ttk.Button(
+            toolbar,
+            text="➕ Bulk Add",
+            command=self._bulk_add_schedule,
+            bootstyle=SUCCESS
+        ).pack(side=LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
+            text="📋 Import CSV",
+            command=self._import_schedules_csv,
+            bootstyle=SUCCESS
+        ).pack(side=LEFT, padx=5)
+
         ttk.Button(
             toolbar,
             text="✏️ Edit",
@@ -100,7 +249,8 @@ class SchedulesView:
             self.frame,
             columns=columns,
             show="headings",
-            height=20
+            height=20,
+            selectmode="extended"
         )
         
         self.tree.column("ID", width=50, anchor=CENTER)
@@ -295,31 +445,198 @@ class SchedulesView:
     def _auto_refresh(self):
         """Auto-refresh schedules table every 10 seconds"""
         try:
-            # Store current selection
-            selected_items = self.tree.selection()
-            selected_id = None
-            if selected_items:
-                selected_id = self.tree.item(selected_items[0])['values'][0]
-            
-            # Reload data
+            selected_ids = []
+            for item in self.tree.selection():
+                values = self.tree.item(item)['values']
+                if values:
+                    selected_ids.append(values[0])
+
             self._load_data()
-            
-            # Restore selection
-            if selected_id:
-                for item in self.tree.get_children():
-                    if self.tree.item(item)['values'][0] == selected_id:
-                        self.tree.selection_set(item)
-                        break
+
+            restored_items = []
+            for item in self.tree.get_children():
+                values = self.tree.item(item)['values']
+                if values and values[0] in selected_ids:
+                    restored_items.append(item)
+            if restored_items:
+                self.tree.selection_set(restored_items)
         except Exception as e:
             logger.error(f"Auto-refresh failed: {e}")
         
         # Schedule next refresh in 10 seconds
         self.frame.after(10000, self._auto_refresh)
     
+    def _get_selected_job_rows(self):
+        rows = []
+        for item in self.tree.selection():
+            values = self.tree.item(item)['values']
+            rows.append({
+                'id': int(values[0]),
+                'switch_name': values[1],
+            })
+        return rows
+
+    def _format_name_preview(self, names):
+        preview = ", ".join(names[:8])
+        if len(names) > 8:
+            preview += f", ... and {len(names) - 8} more"
+        return preview
+
+    def _format_bulk_result(self, title, created=0, updated=0, skipped=0, failed=0, errors=None):
+        errors = errors or []
+        message = (
+            f"{title}\n\n"
+            f"Created: {created}\n"
+            f"Updated: {updated}\n"
+            f"Skipped: {skipped}\n"
+            f"Failed: {failed}"
+        )
+        if errors:
+            message += "\n\nErrors:\n" + "\n".join(errors[:10])
+            if len(errors) > 10:
+                message += f"\n... and {len(errors) - 10} more errors"
+        return message
+
+    def _ask_duplicate_mode(self, duplicate_count, item_label):
+        result = Messagebox.yesno(
+            f"Found {duplicate_count} duplicate {item_label}.\n\n"
+            "Choose Yes to update existing records.\n"
+            "Choose No to skip duplicates.",
+            "Duplicates Found"
+        )
+        return "update" if result == "Yes" else "skip"
+
+    def _find_duplicate_job(self, jobs, switch_id, interval_minutes, schedule_hour, schedule_minute):
+        for job in jobs:
+            if (
+                job.switch_id == switch_id
+                and job.interval_minutes == interval_minutes
+                and getattr(job, 'schedule_hour', 8) == schedule_hour
+                and getattr(job, 'schedule_minute', 0) == schedule_minute
+            ):
+                return job
+        return None
+
     def _add_schedule(self):
         """Add new schedule"""
         ScheduleDialog(self.frame, self.schedule_service, callback=self._load_data)
-    
+
+    def _bulk_add_schedule(self):
+        """Add one schedule configuration to multiple switches"""
+        ScheduleDialog(self.frame, self.schedule_service, callback=self._load_data, bulk=True)
+
+    def _import_schedules_csv(self):
+        """Import schedules from CSV file"""
+        from tkinter import filedialog
+
+        filename = filedialog.askopenfilename(
+            title="Select CSV File to Import Schedules",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if not filename:
+            return
+
+        instructions = (
+            "CSV Format Expected:\n\n"
+            "switch_name,schedule_type,interval_minutes,hour,minute,enabled\n\n"
+            "Examples:\n"
+            "Switch01,interval,60,8,0,true\n"
+            "Switch02,daily,,9,30,true\n\n"
+            "switch_name must match an existing switch."
+        )
+        if not Messagebox.show_question(instructions + "\n\nContinue with import?", "Schedule CSV Import Format"):
+            return
+
+        try:
+            with open(filename, 'r', encoding='utf-8') as csvfile:
+                self._import_schedule_bulk_text(csvfile.read(), filename)
+        except Exception as e:
+            Messagebox.show_error(f"Failed to read CSV: {e}", "Import Error")
+            logger.exception("Schedule CSV import failed")
+
+    def _import_schedule_bulk_text(self, text, source_name):
+        parse_result = parse_schedule_bulk_text(text)
+        errors = list(parse_result.errors)
+        if not parse_result.rows:
+            Messagebox.show_warning(
+                self._format_bulk_result(f"No schedules imported from {source_name}.", failed=len(errors), errors=errors),
+                "Import Complete"
+            )
+            return
+
+        created = 0
+        updated = 0
+        skipped = 0
+        jobs_to_schedule = []
+
+        try:
+            with Repository() as repo:
+                switches = {switch.name: switch for switch in repo.list_switches()}
+                jobs = repo.list_jobs()
+                duplicate_count = 0
+
+                for row in parse_result.rows:
+                    switch = switches.get(row.switch_name)
+                    if not switch:
+                        errors.append(f"Row {row.row_num}: Switch '{row.switch_name}' not found")
+                        continue
+                    if self._find_duplicate_job(jobs, switch.id, row.interval_minutes, row.schedule_hour, row.schedule_minute):
+                        duplicate_count += 1
+
+                duplicate_mode = "skip"
+                if duplicate_count:
+                    duplicate_mode = self._ask_duplicate_mode(duplicate_count, "schedule(s)")
+
+                for row in parse_result.rows:
+                    switch = switches.get(row.switch_name)
+                    if not switch:
+                        skipped += 1
+                        continue
+                    duplicate = self._find_duplicate_job(jobs, switch.id, row.interval_minutes, row.schedule_hour, row.schedule_minute)
+                    if duplicate:
+                        if duplicate_mode == "skip":
+                            skipped += 1
+                            continue
+                        repo.update_job(
+                            duplicate.id,
+                            interval_minutes=row.interval_minutes,
+                            enabled=row.enabled,
+                            schedule_hour=row.schedule_hour,
+                            schedule_minute=row.schedule_minute,
+                        )
+                        jobs_to_schedule.append((duplicate.id, switch.id, row.interval_minutes, row.schedule_hour, row.schedule_minute, row.enabled))
+                        updated += 1
+                    else:
+                        job = repo.create_job(switch.id, row.interval_minutes, enabled=row.enabled)
+                        job.schedule_hour = row.schedule_hour
+                        job.schedule_minute = row.schedule_minute
+                        jobs.append(job)
+                        jobs_to_schedule.append((job.id, switch.id, row.interval_minutes, row.schedule_hour, row.schedule_minute, row.enabled))
+                        created += 1
+
+            for job_id, switch_id, interval_minutes, schedule_hour, schedule_minute, enabled in jobs_to_schedule:
+                if enabled:
+                    self.schedule_service.add_job(job_id, switch_id, interval_minutes, schedule_hour, schedule_minute)
+                elif job_id in self.schedule_service.job_map:
+                    self.schedule_service.remove_job(job_id)
+
+            message = self._format_bulk_result(
+                f"Schedule import completed from {source_name}.",
+                created=created,
+                updated=updated,
+                skipped=skipped,
+                failed=len(errors),
+                errors=errors,
+            )
+            if created or updated:
+                Messagebox.show_info(message, "Import Complete")
+            else:
+                Messagebox.show_warning(message, "Import Complete")
+            self._load_data()
+        except Exception as e:
+            Messagebox.show_error(f"Failed to import schedules: {e}", "Import Error")
+            logger.exception("Bulk schedule import failed")
+
     def _edit_schedule(self):
         """Edit selected schedule"""
         selected = self.tree.selection()
@@ -331,94 +648,128 @@ class SchedulesView:
         ScheduleDialog(self.frame, self.schedule_service, job_id=job_id, callback=self._load_data)
     
     def _delete_schedule(self):
-        """Delete selected schedule"""
-        selected = self.tree.selection()
-        if not selected:
-            Messagebox.show_warning("Please select a schedule to delete", "No Selection")
+        """Delete selected schedules"""
+        rows = self._get_selected_job_rows()
+        if not rows:
+            Messagebox.show_warning("Please select one or more schedules to delete", "No Selection")
             return
-        
-        if not Messagebox.show_question("Delete this schedule?", "Confirm Delete"):
+
+        names = [row['switch_name'] for row in rows]
+        message = (
+            f"Delete {len(rows)} schedule(s)?\n\n"
+            f"{self._format_name_preview(names)}"
+        )
+        if not Messagebox.show_question(message, "Confirm Delete"):
             return
-        
-        job_id = self.tree.item(selected[0])['values'][0]
-        
-        try:
-            self.schedule_service.remove_job(job_id)
-            
-            with Repository() as repo:
-                repo.delete_job(job_id)
-            
-            Messagebox.show_info("Schedule deleted", "Success")
-            self._load_data()
-        except Exception as e:
-            Messagebox.show_error(f"Failed to delete schedule: {e}", "Error")
-    
+
+        deleted = 0
+        errors = []
+        for row in rows:
+            try:
+                if row['id'] in self.schedule_service.job_map:
+                    self.schedule_service.remove_job(row['id'])
+                with Repository() as repo:
+                    if repo.delete_job(row['id']):
+                        deleted += 1
+                    else:
+                        errors.append(f"Schedule not found for {row['switch_name']}")
+            except Exception as e:
+                errors.append(f"{row['switch_name']}: {e}")
+
+        message = self._format_bulk_result(
+            "Schedule delete completed.",
+            updated=deleted,
+            failed=len(errors),
+            errors=errors,
+        ).replace("Updated", "Deleted")
+        if errors:
+            Messagebox.show_warning(message, "Delete Complete")
+        else:
+            Messagebox.show_info(message, "Delete Complete")
+        self._load_data()
+
     def _enable_schedule(self):
-        """Enable selected schedule"""
-        selected = self.tree.selection()
-        if not selected:
-            Messagebox.show_warning("Please select a schedule", "No Selection")
+        """Enable selected schedules"""
+        rows = self._get_selected_job_rows()
+        if not rows:
+            Messagebox.show_warning("Please select one or more schedules", "No Selection")
             return
-        
-        job_id = self.tree.item(selected[0])['values'][0]
-        
-        try:
-            # Get job details from database
-            with Repository() as repo:
-                job = repo.get_job(job_id)
-                if not job:
-                    Messagebox.show_error("Job not found", "Error")
-                    return
-                
-                switch_id = job.switch_id
-                interval_minutes = job.interval_minutes
-                schedule_hour = getattr(job, 'schedule_hour', 8)
-                schedule_minute = getattr(job, 'schedule_minute', 0)
-                
-                # Update enabled status
-                repo.update_job(job_id, enabled=True)
-            
-            # Check if job exists in scheduler
-            if job_id in self.schedule_service.job_map:
-                # Job exists, just resume it
-                self.schedule_service.resume_job(job_id)
-                logger.info(f"Resumed existing job {job_id} in scheduler")
-            else:
-                # Job not in scheduler (maybe service restarted), add it
-                self.schedule_service.add_job(job_id, switch_id, interval_minutes, schedule_hour, schedule_minute)
-                logger.info(f"Added job {job_id} to scheduler (was not present)")
-            
-            Messagebox.show_info("Schedule enabled", "Success")
-            self._load_data()
-        except Exception as e:
-            Messagebox.show_error(f"Failed to enable schedule: {e}", "Error")
-            logger.exception(f"Failed to enable schedule {job_id}")
-    
+
+        enabled = 0
+        errors = []
+        jobs_to_schedule = []
+
+        for row in rows:
+            try:
+                with Repository() as repo:
+                    job = repo.get_job(row['id'])
+                    if not job:
+                        errors.append(f"Schedule not found for {row['switch_name']}")
+                        continue
+                    schedule_hour = getattr(job, 'schedule_hour', 8)
+                    schedule_minute = getattr(job, 'schedule_minute', 0)
+                    switch_id = job.switch_id
+                    interval_minutes = job.interval_minutes
+                    repo.update_job(row['id'], enabled=True)
+                    jobs_to_schedule.append((row['id'], switch_id, interval_minutes, schedule_hour, schedule_minute))
+                    enabled += 1
+            except Exception as e:
+                errors.append(f"{row['switch_name']}: {e}")
+
+        for job_id, switch_id, interval_minutes, schedule_hour, schedule_minute in jobs_to_schedule:
+            try:
+                if job_id in self.schedule_service.job_map:
+                    self.schedule_service.resume_job(job_id)
+                else:
+                    self.schedule_service.add_job(job_id, switch_id, interval_minutes, schedule_hour, schedule_minute)
+            except Exception as e:
+                errors.append(f"Job {job_id}: {e}")
+
+        message = self._format_bulk_result(
+            "Schedule enable completed.",
+            updated=enabled,
+            failed=len(errors),
+            errors=errors,
+        ).replace("Updated", "Enabled")
+        if errors:
+            Messagebox.show_warning(message, "Enable Complete")
+        else:
+            Messagebox.show_info(message, "Enable Complete")
+        self._load_data()
+
     def _disable_schedule(self):
-        """Disable selected schedule"""
-        selected = self.tree.selection()
-        if not selected:
-            Messagebox.show_warning("Please select a schedule", "No Selection")
+        """Disable selected schedules"""
+        rows = self._get_selected_job_rows()
+        if not rows:
+            Messagebox.show_warning("Please select one or more schedules", "No Selection")
             return
-        
-        job_id = self.tree.item(selected[0])['values'][0]
-        
-        try:
-            with Repository() as repo:
-                repo.update_job(job_id, enabled=False)
-            
-            # Only pause if job exists in scheduler
-            if job_id in self.schedule_service.job_map:
-                self.schedule_service.pause_job(job_id)
-                logger.info(f"Paused job {job_id} in scheduler")
-            else:
-                logger.info(f"Job {job_id} not in scheduler, only updated database")
-            
-            Messagebox.show_info("Schedule disabled", "Success")
-            self._load_data()
-        except Exception as e:
-            Messagebox.show_error(f"Failed to disable schedule: {e}", "Error")
-            logger.exception(f"Failed to disable schedule {job_id}")
+
+        disabled = 0
+        errors = []
+        for row in rows:
+            try:
+                with Repository() as repo:
+                    if repo.update_job(row['id'], enabled=False):
+                        disabled += 1
+                    else:
+                        errors.append(f"Schedule not found for {row['switch_name']}")
+                        continue
+                if row['id'] in self.schedule_service.job_map:
+                    self.schedule_service.pause_job(row['id'])
+            except Exception as e:
+                errors.append(f"{row['switch_name']}: {e}")
+
+        message = self._format_bulk_result(
+            "Schedule disable completed.",
+            updated=disabled,
+            failed=len(errors),
+            errors=errors,
+        ).replace("Updated", "Disabled")
+        if errors:
+            Messagebox.show_warning(message, "Disable Complete")
+        else:
+            Messagebox.show_info(message, "Disable Complete")
+        self._load_data()
     
     def _start_now(self):
         """Manually trigger selected schedule(s) now - supports multiple selection"""
@@ -427,18 +778,14 @@ class SchedulesView:
             Messagebox.show_warning("Please select one or more schedules", "No Selection")
             return
         
-        # Collect all selected jobs
-        jobs_to_run = []
-        for item in selected:
-            job_id = self.tree.item(item)['values'][0]
-            switch_name = self.tree.item(item)['values'][1]
-            jobs_to_run.append((job_id, switch_name))
+        rows = self._get_selected_job_rows()
+        jobs_to_run = [(row['id'], row['switch_name']) for row in rows]
         
         # Confirm action
         if len(jobs_to_run) == 1:
             message = f"Start backup now for {jobs_to_run[0][1]}?"
         else:
-            switches_list = ", ".join([name for _, name in jobs_to_run])
+            switches_list = self._format_name_preview([name for _, name in jobs_to_run])
             message = f"Start backup now for {len(jobs_to_run)} switches?\n\n{switches_list}\n\nJobs will run one by one."
         
         result = Messagebox.yesno(message, "Confirm Manual Start")
@@ -511,14 +858,20 @@ class SchedulesView:
 class ScheduleDialog:
     """Dialog for adding/editing schedules"""
     
-    def __init__(self, parent, schedule_service, job_id=None, callback=None):
+    def __init__(self, parent, schedule_service, job_id=None, callback=None, bulk=False):
         self.schedule_service = schedule_service
         self.job_id = job_id
         self.callback = callback
-        
+        self.bulk = bulk
+
         self.dialog = ttk.Toplevel(parent)
-        self.dialog.title("Edit Schedule" if job_id else "Add Schedule")
-        self.dialog.geometry("500x450")
+        if job_id:
+            self.dialog.title("Edit Schedule")
+        elif bulk:
+            self.dialog.title("Bulk Add Schedules")
+        else:
+            self.dialog.title("Add Schedule")
+        self.dialog.geometry("650x520" if bulk else "500x450")
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
@@ -533,24 +886,60 @@ class ScheduleDialog:
         frame.pack(fill=BOTH, expand=YES)
         
         # Switch
-        ttk.Label(frame, text="Switch:").grid(row=0, column=0, sticky=W, pady=5)
+        ttk.Label(frame, text="Switch:" if not self.bulk else "Switches:").grid(row=0, column=0, sticky=NW, pady=5)
         self.switch_var = ttk.StringVar()
-        
+
         with Repository() as repo:
             switches = repo.list_switches()
             switch_names = [s.name for s in switches]
-        
-        self.switch_combo = ttk.Combobox(frame, textvariable=self.switch_var, values=switch_names, state="readonly", width=35)
-        self.switch_combo.grid(row=0, column=1, columnspan=2, pady=5, sticky=W)
-        if switch_names:
-            self.switch_combo.current(0)
-        
+
+        if self.bulk:
+            selector_frame = ttk.Frame(frame)
+            selector_frame.grid(row=0, column=1, columnspan=2, sticky=NSEW, pady=5)
+            self.switch_list = ttk.Treeview(
+                selector_frame,
+                columns=("Switch",),
+                show="headings",
+                height=8,
+                selectmode="extended"
+            )
+            self.switch_list.heading("Switch", text="Switch")
+            self.switch_list.column("Switch", width=300)
+            for name in switch_names:
+                self.switch_list.insert("", END, values=(name,))
+            self.switch_list.pack(side=LEFT, fill=BOTH, expand=YES)
+            switch_scrollbar = ttk.Scrollbar(selector_frame, orient=VERTICAL, command=self.switch_list.yview)
+            self.switch_list.configure(yscrollcommand=switch_scrollbar.set)
+            switch_scrollbar.pack(side=RIGHT, fill=Y)
+
+            switch_button_frame = ttk.Frame(frame)
+            switch_button_frame.grid(row=1, column=1, columnspan=2, sticky=W, pady=(0, 5))
+            ttk.Button(
+                switch_button_frame,
+                text="Select All",
+                command=lambda: self.switch_list.selection_set(self.switch_list.get_children()),
+                bootstyle=SECONDARY,
+            ).pack(side=LEFT, padx=5)
+            ttk.Button(
+                switch_button_frame,
+                text="Clear",
+                command=lambda: self.switch_list.selection_remove(self.switch_list.selection()),
+                bootstyle=SECONDARY,
+            ).pack(side=LEFT, padx=5)
+            schedule_start_row = 2
+        else:
+            self.switch_combo = ttk.Combobox(frame, textvariable=self.switch_var, values=switch_names, state="readonly", width=35)
+            self.switch_combo.grid(row=0, column=1, columnspan=2, pady=5, sticky=W)
+            if switch_names:
+                self.switch_combo.current(0)
+            schedule_start_row = 1
+
         # Schedule Type
-        ttk.Label(frame, text="Schedule Type:").grid(row=1, column=0, sticky=W, pady=10)
+        ttk.Label(frame, text="Schedule Type:").grid(row=schedule_start_row, column=0, sticky=W, pady=10)
         self.schedule_type = ttk.StringVar(value="interval")
-        
+
         type_frame = ttk.Frame(frame)
-        type_frame.grid(row=1, column=1, columnspan=2, sticky=W, pady=10)
+        type_frame.grid(row=schedule_start_row, column=1, columnspan=2, sticky=W, pady=10)
         
         ttk.Radiobutton(type_frame, text="Interval", variable=self.schedule_type, value="interval", command=self._toggle_schedule_type).pack(side=LEFT, padx=5)
         ttk.Radiobutton(type_frame, text="Daily", variable=self.schedule_type, value="daily", command=self._toggle_schedule_type).pack(side=LEFT, padx=5)
@@ -559,7 +948,7 @@ class ScheduleDialog:
         
         # Interval Options (hidden/shown based on type)
         self.interval_frame = ttk.LabelFrame(frame, text="Interval Options", padding=10)
-        self.interval_frame.grid(row=2, column=0, columnspan=3, sticky=EW, pady=10)
+        self.interval_frame.grid(row=schedule_start_row + 1, column=0, columnspan=3, sticky=EW, pady=10)
         
         self.interval_var = ttk.IntVar(value=60)
         intervals = [
@@ -598,7 +987,7 @@ class ScheduleDialog:
         
         # Daily Options
         self.daily_frame = ttk.LabelFrame(frame, text="Daily Options", padding=10)
-        self.daily_frame.grid(row=2, column=0, columnspan=3, sticky=EW, pady=10)
+        self.daily_frame.grid(row=schedule_start_row + 1, column=0, columnspan=3, sticky=EW, pady=10)
         
         ttk.Label(self.daily_frame, text="Time (24-hour):").pack(side=LEFT, padx=5)
         self.daily_hour = ttk.Spinbox(self.daily_frame, from_=0, to=23, width=5)
@@ -611,7 +1000,7 @@ class ScheduleDialog:
         
         # Weekly Options
         self.weekly_frame = ttk.LabelFrame(frame, text="Weekly Options", padding=10)
-        self.weekly_frame.grid(row=2, column=0, columnspan=3, sticky=EW, pady=10)
+        self.weekly_frame.grid(row=schedule_start_row + 1, column=0, columnspan=3, sticky=EW, pady=10)
         
         ttk.Label(self.weekly_frame, text="Day:").pack(side=LEFT, padx=5)
         self.weekly_day = ttk.Combobox(self.weekly_frame, values=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], state="readonly", width=12)
@@ -628,7 +1017,7 @@ class ScheduleDialog:
         
         # Monthly Options
         self.monthly_frame = ttk.LabelFrame(frame, text="Monthly Options", padding=10)
-        self.monthly_frame.grid(row=2, column=0, columnspan=3, sticky=EW, pady=10)
+        self.monthly_frame.grid(row=schedule_start_row + 1, column=0, columnspan=3, sticky=EW, pady=10)
         
         ttk.Label(self.monthly_frame, text="Day of Month:").pack(side=LEFT, padx=5)
         self.monthly_day = ttk.Spinbox(self.monthly_frame, from_=1, to=31, width=5)
@@ -648,7 +1037,7 @@ class ScheduleDialog:
         
         # Buttons
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=3, column=0, columnspan=3, pady=20)
+        btn_frame.grid(row=schedule_start_row + 2, column=0, columnspan=3, pady=20)
         
         ttk.Button(btn_frame, text="Save", command=self._save, bootstyle=SUCCESS).pack(side=LEFT, padx=5)
         ttk.Button(btn_frame, text="Cancel", command=self.dialog.destroy, bootstyle=SECONDARY).pack(side=LEFT, padx=5)
@@ -734,14 +1123,35 @@ class ScheduleDialog:
                 
                 self._toggle_schedule_type()
     
+    def _get_selected_switch_names(self):
+        if not self.bulk:
+            return [self.switch_var.get()] if self.switch_var.get() else []
+        names = []
+        for item in self.switch_list.selection():
+            values = self.switch_list.item(item)['values']
+            if values:
+                names.append(values[0])
+        return names
+
+    def _find_duplicate_job(self, jobs, switch_id, interval_minutes, schedule_hour, schedule_minute):
+        for job in jobs:
+            if (
+                job.switch_id == switch_id
+                and job.interval_minutes == interval_minutes
+                and getattr(job, 'schedule_hour', 8) == schedule_hour
+                and getattr(job, 'schedule_minute', 0) == schedule_minute
+            ):
+                return job
+        return None
+
     def _save(self):
         """Save schedule"""
-        switch_name = self.switch_var.get()
-        
-        if not switch_name:
-            Messagebox.show_error("Please select a switch", "Validation Error")
+        switch_names = self._get_selected_switch_names()
+
+        if not switch_names:
+            Messagebox.show_error("Please select one or more switches", "Validation Error")
             return
-        
+
         # Calculate interval and time based on schedule type
         schedule_type = self.schedule_type.get()
         schedule_hour = 8  # Default
@@ -771,41 +1181,86 @@ class ScheduleDialog:
             schedule_minute = int(self.monthly_minute.get())
         
         try:
-            # First, create or update the job
+            jobs_to_schedule = []
+            created = 0
+            updated = 0
+            skipped = 0
+            errors = []
+
             with Repository() as repo:
-                switch = repo.get_switch_by_name(switch_name)
-                if not switch:
-                    Messagebox.show_error("Switch not found", "Error")
-                    return
-                
+                all_jobs = repo.list_jobs()
+                switches = {switch.name: switch for switch in repo.list_switches()}
+
                 if self.job_id:
-                    # Update existing job
-                    try:
-                        repo.update_job(self.job_id, interval_minutes=interval, schedule_hour=schedule_hour, schedule_minute=schedule_minute)
-                        needs_time_update = False
-                    except TypeError:
-                        # If repository doesn't support schedule_hour/minute, update them separately
-                        repo.update_job(self.job_id, interval_minutes=interval)
-                        needs_time_update = True
-                    
+                    switch = switches.get(switch_names[0])
+                    if not switch:
+                        Messagebox.show_error("Switch not found", "Error")
+                        return
+                    repo.update_job(self.job_id, interval_minutes=interval, schedule_hour=schedule_hour, schedule_minute=schedule_minute)
                     job_id = self.job_id
                     switch_id = switch.id
+                    jobs_to_schedule.append((job_id, switch_id, interval, schedule_hour, schedule_minute, True))
+                    updated = 1
                 else:
-                    # Create new job
-                    job = repo.create_job(switch.id, interval, enabled=True)
-                    job_id = job.id
-                    switch_id = switch.id
-                    needs_time_update = True
-            
-            # Now update schedule time AFTER repository is closed (to avoid database lock)
-            if needs_time_update:
-                self._set_schedule_time_directly(job_id, schedule_hour, schedule_minute)
-            
-            # Add job to scheduler
-            if self.job_id:
-                self.schedule_service.remove_job(job_id)
-            self.schedule_service.add_job(job_id, switch_id, interval, schedule_hour, schedule_minute)
-            
+                    duplicate_rows = []
+                    for switch_name in switch_names:
+                        switch = switches.get(switch_name)
+                        if not switch:
+                            errors.append(f"Switch not found: {switch_name}")
+                            continue
+                        duplicate = self._find_duplicate_job(
+                            all_jobs,
+                            switch.id,
+                            interval,
+                            schedule_hour,
+                            schedule_minute,
+                        )
+                        if duplicate:
+                            duplicate_rows.append((switch, duplicate))
+
+                    duplicate_mode = "skip"
+                    if duplicate_rows:
+                        result = Messagebox.yesno(
+                            f"Found {len(duplicate_rows)} duplicate schedule(s).\n\n"
+                            "Choose Yes to update existing records.\n"
+                            "Choose No to skip duplicates.",
+                            "Duplicates Found"
+                        )
+                        duplicate_mode = "update" if result == "Yes" else "skip"
+
+                    duplicate_by_switch = {switch.id: duplicate for switch, duplicate in duplicate_rows}
+                    for switch_name in switch_names:
+                        switch = switches.get(switch_name)
+                        if not switch:
+                            skipped += 1
+                            continue
+                        duplicate = duplicate_by_switch.get(switch.id)
+                        if duplicate:
+                            if duplicate_mode == "skip":
+                                skipped += 1
+                                continue
+                            repo.update_job(
+                                duplicate.id,
+                                interval_minutes=interval,
+                                enabled=True,
+                                schedule_hour=schedule_hour,
+                                schedule_minute=schedule_minute,
+                            )
+                            jobs_to_schedule.append((duplicate.id, switch.id, interval, schedule_hour, schedule_minute, True))
+                            updated += 1
+                        else:
+                            job = repo.create_job(switch.id, interval, enabled=True)
+                            job.schedule_hour = schedule_hour
+                            job.schedule_minute = schedule_minute
+                            jobs_to_schedule.append((job.id, switch.id, interval, schedule_hour, schedule_minute, True))
+                            created += 1
+
+            for job_id, switch_id, interval_minutes, job_hour, job_minute, enabled in jobs_to_schedule:
+                if self.job_id:
+                    self.schedule_service.remove_job(job_id)
+                if enabled:
+                    self.schedule_service.add_job(job_id, switch_id, interval_minutes, job_hour, job_minute)
+
             # Show summary
             type_desc = {
                 "interval": f"Every {interval} minutes",
@@ -814,10 +1269,22 @@ class ScheduleDialog:
                 "monthly": f"Monthly on day {self.monthly_day.get()} at {self.monthly_hour.get()}:{int(self.monthly_minute.get()):02d}"
             }
             
-            Messagebox.show_info(
-                f"Schedule saved successfully!\n\n{type_desc.get(schedule_type, 'Schedule configured')}\n\nNext run time will update shortly.",
-                "Success"
-            )
+            if self.bulk:
+                message = (
+                    f"Bulk schedule save complete.\n\n"
+                    f"Created: {created}\n"
+                    f"Updated: {updated}\n"
+                    f"Skipped: {skipped}\n"
+                    f"Failed: {len(errors)}"
+                )
+                if errors:
+                    message += "\n\nErrors:\n" + "\n".join(errors[:10])
+                Messagebox.show_info(message, "Success")
+            else:
+                Messagebox.show_info(
+                    f"Schedule saved successfully!\n\n{type_desc.get(schedule_type, 'Schedule configured')}\n\nNext run time will update shortly.",
+                    "Success"
+                )
             self.dialog.destroy()
             
             if self.callback:

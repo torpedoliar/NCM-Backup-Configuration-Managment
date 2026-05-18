@@ -3,8 +3,12 @@ import logging
 import threading
 import asyncio
 import time
+import csv
+import io
+from dataclasses import dataclass
 from tkinter import messagebox, END
 from queue import Queue
+from typing import List
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
@@ -17,6 +21,117 @@ from app.net.ssh_client import SSHClient
 from app.net.telnet_client import TelnetClient
 
 logger = logging.getLogger(__name__)
+
+SWITCH_BULK_COLUMNS = ("name", "ip", "protocol", "port", "credential_name", "notes")
+VALID_SWITCH_PROTOCOLS = {"ssh", "telnet", "websmart", "websmart-v2"}
+
+
+@dataclass
+class SwitchBulkRow:
+    row_num: int
+    name: str
+    ip: str
+    protocol: str
+    port: int
+    credential_name: str
+    notes: str
+
+
+@dataclass
+class SwitchBulkParseResult:
+    rows: List[SwitchBulkRow]
+    errors: List[str]
+
+
+def _default_switch_port(protocol: str) -> int:
+    if protocol == "telnet":
+        return 23
+    if protocol in {"websmart", "websmart-v2"}:
+        return 80
+    return 22
+
+
+def _is_switch_header(values: List[str]) -> bool:
+    normalized = {value.strip().lower() for value in values}
+    return "name" in normalized and "ip" in normalized
+
+
+def _switch_record_from_values(values: List[str]) -> dict:
+    return {
+        column: values[index].strip() if index < len(values) else ""
+        for index, column in enumerate(SWITCH_BULK_COLUMNS)
+    }
+
+
+def parse_switch_bulk_text(text: str) -> SwitchBulkParseResult:
+    csv_rows = [
+        row for row in csv.reader(io.StringIO(text))
+        if any(cell.strip() for cell in row)
+    ]
+    if not csv_rows:
+        return SwitchBulkParseResult(rows=[], errors=["No rows found"])
+
+    has_header = _is_switch_header(csv_rows[0])
+    header = [cell.strip().lower() for cell in csv_rows[0]] if has_header else []
+    data_rows = csv_rows[1:] if has_header else csv_rows
+    first_row_num = 2 if has_header else 1
+
+    parsed_rows = []
+    errors = []
+
+    for offset, values in enumerate(data_rows):
+        row_num = first_row_num + offset
+        if has_header:
+            record = {
+                header[index]: values[index].strip() if index < len(values) else ""
+                for index in range(len(header))
+            }
+        else:
+            record = _switch_record_from_values(values)
+
+        name = record.get("name", "").strip()
+        ip = record.get("ip", "").strip()
+        protocol = record.get("protocol", "ssh").strip().lower() or "ssh"
+        port_text = record.get("port", "").strip()
+        credential_name = record.get("credential_name", "").strip()
+        notes = record.get("notes", "").strip()
+
+        if not name:
+            errors.append(f"Row {row_num}: Missing switch name")
+            continue
+        if not ip:
+            errors.append(f"Row {row_num}: Missing IP address")
+            continue
+        if not credential_name:
+            errors.append(f"Row {row_num}: Missing credential name")
+            continue
+        if protocol not in VALID_SWITCH_PROTOCOLS:
+            errors.append(f"Row {row_num}: Invalid protocol '{protocol}'")
+            continue
+
+        if port_text:
+            try:
+                port = int(port_text)
+            except ValueError:
+                errors.append(f"Row {row_num}: Invalid port '{port_text}'")
+                continue
+            if not 1 <= port <= 65535:
+                errors.append(f"Row {row_num}: Invalid port '{port_text}'")
+                continue
+        else:
+            port = _default_switch_port(protocol)
+
+        parsed_rows.append(SwitchBulkRow(
+            row_num=row_num,
+            name=name,
+            ip=ip,
+            protocol=protocol,
+            port=port,
+            credential_name=credential_name,
+            notes=notes,
+        ))
+
+    return SwitchBulkParseResult(rows=parsed_rows, errors=errors)
 
 
 class InventoryView:
@@ -58,7 +173,14 @@ class InventoryView:
             command=self._batch_import,
             bootstyle=SUCCESS
         ).pack(side=LEFT, padx=5)
-        
+
+        ttk.Button(
+            toolbar,
+            text="📋 Paste Bulk",
+            command=self._paste_bulk_import,
+            bootstyle=SUCCESS
+        ).pack(side=LEFT, padx=5)
+
         ttk.Button(
             toolbar,
             text="✏️ Edit",
@@ -127,7 +249,8 @@ class InventoryView:
             table_frame,
             columns=columns,
             show="headings",
-            height=15
+            height=15,
+            selectmode="extended"
         )
         
         # Column configuration
@@ -351,6 +474,40 @@ class InventoryView:
         # Schedule next refresh in 30 seconds
         self.frame.after(30000, self._auto_refresh)
     
+    def _get_selected_switch_rows(self):
+        rows = []
+        for item in self.tree.selection():
+            values = self.tree.item(item)['values']
+            rows.append({
+                'id': int(values[0]),
+                'name': values[1],
+                'ip': values[2],
+                'protocol': str(values[3]).lower(),
+                'port': int(values[4]),
+            })
+        return rows
+
+    def _format_name_preview(self, names):
+        preview = ", ".join(names[:8])
+        if len(names) > 8:
+            preview += f", ... and {len(names) - 8} more"
+        return preview
+
+    def _format_bulk_result(self, title, created=0, updated=0, skipped=0, failed=0, errors=None):
+        errors = errors or []
+        message = (
+            f"{title}\n\n"
+            f"Created: {created}\n"
+            f"Updated: {updated}\n"
+            f"Skipped: {skipped}\n"
+            f"Failed: {failed}"
+        )
+        if errors:
+            message += "\n\nErrors:\n" + "\n".join(errors[:10])
+            if len(errors) > 10:
+                message += f"\n... and {len(errors) - 10} more errors"
+        return message
+
     def _add_switch(self):
         """Add new switch"""
         SwitchDialog(self.frame, self.crypto, callback=self._load_data)
@@ -366,197 +523,237 @@ class InventoryView:
         SwitchDialog(self.frame, self.crypto, switch_id=switch_id, callback=self._load_data)
     
     def _delete_switch(self):
-        """Delete selected switch"""
-        selected = self.tree.selection()
-        if not selected:
-            Messagebox.show_warning("Please select a switch to delete", "No Selection")
+        """Delete selected switches"""
+        rows = self._get_selected_switch_rows()
+        if not rows:
+            Messagebox.show_warning("Please select one or more switches to delete", "No Selection")
             return
-        
-        switch_name = self.tree.item(selected[0])['values'][1]
-        if not Messagebox.show_question(
-            f"Delete switch '{switch_name}' and all its backups?",
-            "Confirm Delete"
-        ):
+
+        names = [row['name'] for row in rows]
+        message = (
+            f"Delete {len(rows)} switch(es) and all related backups?\n\n"
+            f"{self._format_name_preview(names)}"
+        )
+        if not Messagebox.show_question(message, "Confirm Delete"):
             return
-        
-        switch_id = self.tree.item(selected[0])['values'][0]
-        
+
+        deleted = 0
+        errors = []
+        for row in rows:
+            try:
+                with Repository() as repo:
+                    if repo.delete_switch(row['id']):
+                        deleted += 1
+                        self._write_console(f"Deleted switch: {row['name']}")
+                    else:
+                        errors.append(f"Switch not found: {row['name']}")
+            except Exception as e:
+                errors.append(f"{row['name']}: {e}")
+
+        message = self._format_bulk_result(
+            "Switch delete completed.",
+            created=0,
+            updated=deleted,
+            skipped=0,
+            failed=len(errors),
+            errors=errors,
+        ).replace("Updated", "Deleted")
+        if errors:
+            Messagebox.show_warning(message, "Delete Complete")
+        else:
+            Messagebox.show_info(message, "Delete Complete")
+        self._load_data()
+
+    def _ask_duplicate_mode(self, duplicate_count, item_label):
+        result = Messagebox.yesno(
+            f"Found {duplicate_count} duplicate {item_label}.\n\n"
+            "Choose Yes to update existing records.\n"
+            "Choose No to skip duplicates.",
+            "Duplicates Found"
+        )
+        return "update" if result == "Yes" else "skip"
+
+    def _import_switch_bulk_text(self, text, source_name):
+        parse_result = parse_switch_bulk_text(text)
+        errors = list(parse_result.errors)
+        if not parse_result.rows:
+            Messagebox.show_warning(
+                self._format_bulk_result(f"No switches imported from {source_name}.", failed=len(errors), errors=errors),
+                "Import Complete"
+            )
+            return
+
+        created = 0
+        updated = 0
+        skipped = 0
+        duplicate_count = 0
+
         try:
             with Repository() as repo:
-                repo.delete_switch(switch_id)
-            Messagebox.show_info("Switch deleted successfully", "Success")
+                credentials = {cred.name: cred.id for cred in repo.list_credentials()}
+                switches = repo.list_switches()
+                by_name = {switch.name: switch for switch in switches}
+                by_ip = {switch.ip: switch for switch in switches}
+
+                for row in parse_result.rows:
+                    if row.credential_name not in credentials:
+                        errors.append(f"Row {row.row_num}: Credential '{row.credential_name}' not found")
+                        continue
+
+                    name_match = by_name.get(row.name)
+                    ip_match = by_ip.get(row.ip)
+                    if name_match and ip_match and name_match.id != ip_match.id:
+                        errors.append(f"Row {row.row_num}: Name '{row.name}' and IP '{row.ip}' match different switches")
+                        continue
+                    if name_match or ip_match:
+                        duplicate_count += 1
+
+                duplicate_mode = "skip"
+                if duplicate_count:
+                    duplicate_mode = self._ask_duplicate_mode(duplicate_count, "switch(es)")
+
+                for row in parse_result.rows:
+                    credential_id = credentials.get(row.credential_name)
+                    if not credential_id:
+                        skipped += 1
+                        continue
+
+                    existing_by_name = by_name.get(row.name)
+                    existing_by_ip = by_ip.get(row.ip)
+                    if existing_by_name and existing_by_ip and existing_by_name.id != existing_by_ip.id:
+                        skipped += 1
+                        continue
+
+                    existing = existing_by_name or existing_by_ip
+                    if existing:
+                        if duplicate_mode == "skip":
+                            skipped += 1
+                            self._write_console(f"Skipped duplicate switch: {row.name} ({row.ip})")
+                            continue
+                        repo.update_switch(
+                            existing.id,
+                            name=row.name,
+                            ip=row.ip,
+                            protocol=row.protocol,
+                            port=row.port,
+                            credential_id=credential_id,
+                            notes=row.notes,
+                        )
+                        updated += 1
+                        self._write_console(f"Updated switch: {row.name} ({row.ip})")
+                    else:
+                        switch = repo.create_switch(
+                            name=row.name,
+                            ip=row.ip,
+                            protocol=row.protocol,
+                            port=row.port,
+                            credential_id=credential_id,
+                            notes=row.notes,
+                        )
+                        by_name[switch.name] = switch
+                        by_ip[switch.ip] = switch
+                        created += 1
+                        self._write_console(f"Imported switch: {row.name} ({row.ip})")
+
+            failed = len(errors)
+            message = self._format_bulk_result(
+                f"Import completed from {source_name}.",
+                created=created,
+                updated=updated,
+                skipped=skipped,
+                failed=failed,
+                errors=errors,
+            )
+            if created or updated:
+                Messagebox.show_info(message, "Import Complete")
+            else:
+                Messagebox.show_warning(message, "Import Complete")
             self._load_data()
         except Exception as e:
-            Messagebox.show_error(f"Failed to delete switch: {e}", "Error")
-    
+            Messagebox.show_error(f"Failed to import switches: {e}", "Import Error")
+            logger.exception("Bulk switch import failed")
+
     def _batch_import(self):
         """Batch import switches from CSV file"""
         from tkinter import filedialog
-        import csv
-        
-        # Ask for CSV file
+
         filename = filedialog.askopenfilename(
             title="Select CSV File to Import Switches",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
-        
         if not filename:
             return
-        
-        # Show import instructions
+
         instructions = (
             "CSV Format Expected:\n\n"
             "name,ip,protocol,port,credential_name,notes\n\n"
             "Example:\n"
             "Switch01,192.168.1.1,ssh,22,admin_cred,Main switch\n"
             "Switch02,192.168.1.2,telnet,23,user_cred,Backup switch\n\n"
-            "Note: credential_name must match an existing credential."
+            "credential_name must match an existing credential."
         )
-        
-        if not Messagebox.show_question(
-            instructions + "\n\nContinue with import?",
-            "CSV Import Format"
-        ):
+        if not Messagebox.show_question(instructions + "\n\nContinue with import?", "CSV Import Format"):
             return
-        
+
         try:
-            imported = 0
-            skipped = 0
-            errors = []
-            
             with open(filename, 'r', encoding='utf-8') as csvfile:
-                reader = csv.DictReader(csvfile)
-                
-                with Repository() as repo:
-                    # Get all credentials
-                    credentials = {c.name: c.id for c in repo.list_credentials()}
-                    
-                    for row_num, row in enumerate(reader, start=2):  # Start at 2 to account for header
-                        try:
-                            # Validate required fields
-                            name = row.get('name', '').strip()
-                            ip = row.get('ip', '').strip()
-                            protocol = row.get('protocol', 'ssh').strip().lower()
-                            port = row.get('port', '22').strip()
-                            credential_name = row.get('credential_name', '').strip()
-                            notes = row.get('notes', '').strip()
-                            
-                            if not name:
-                                errors.append(f"Row {row_num}: Missing switch name")
-                                skipped += 1
-                                continue
-                            
-                            if not ip:
-                                errors.append(f"Row {row_num}: Missing IP address")
-                                skipped += 1
-                                continue
-                            
-                            if not credential_name:
-                                errors.append(f"Row {row_num}: Missing credential name")
-                                skipped += 1
-                                continue
-                            
-                            # Validate credential exists
-                            if credential_name not in credentials:
-                                errors.append(f"Row {row_num}: Credential '{credential_name}' not found")
-                                skipped += 1
-                                continue
-                            
-                            # Validate protocol
-                            if protocol not in ['ssh', 'telnet', 'http', 'https', 'websmart', 'websmart-v2']:
-                                errors.append(f"Row {row_num}: Invalid protocol '{protocol}', must be 'ssh', 'telnet', 'websmart', or 'websmart-v2'")
-                                skipped += 1
-                                continue
-                            
-                            # Validate port
-                            try:
-                                port = int(port)
-                                if not 1 <= port <= 65535:
-                                    raise ValueError()
-                            except ValueError:
-                                errors.append(f"Row {row_num}: Invalid port '{port}', must be 1-65535")
-                                skipped += 1
-                                continue
-                            
-                            # Check if switch already exists
-                            switches = repo.list_switches()
-                            existing = next((s for s in switches if s.name == name or s.ip == ip), None)
-                            if existing:
-                                errors.append(f"Row {row_num}: Switch with name '{name}' or IP '{ip}' already exists")
-                                skipped += 1
-                                continue
-                            
-                            # Create switch
-                            repo.create_switch(
-                                name=name,
-                                ip=ip,
-                                protocol=protocol,
-                                port=port,
-                                credential_id=credentials[credential_name],
-                                notes=notes
-                            )
-                            imported += 1
-                            self._write_console(f"Imported: {name} ({ip})")
-                            
-                        except Exception as e:
-                            errors.append(f"Row {row_num}: {str(e)}")
-                            skipped += 1
-            
-            # Show results
-            result_msg = f"Import completed!\n\nImported: {imported}\nSkipped: {skipped}"
-            
-            if errors:
-                result_msg += "\n\nErrors:\n" + "\n".join(errors[:10])  # Show first 10 errors
-                if len(errors) > 10:
-                    result_msg += f"\n... and {len(errors) - 10} more errors"
-            
-            if imported > 0:
-                Messagebox.show_info(result_msg, "Import Complete")
-            else:
-                Messagebox.show_warning(result_msg, "Import Complete")
-            
-            self._load_data()
-            
+                self._import_switch_bulk_text(csvfile.read(), filename)
         except Exception as e:
-            Messagebox.show_error(f"Failed to import CSV: {str(e)}", "Import Error")
+            Messagebox.show_error(f"Failed to read CSV: {e}", "Import Error")
             logger.exception("CSV import failed")
-    
-    def _get_data(self):
-        """Execute backup for selected switch - supports parallel execution"""
-        selected = self.tree.selection()
-        if not selected:
-            Messagebox.show_warning("Please select a switch", "No Selection")
-            return
-        
-        switch_id = self.tree.item(selected[0])['values'][0]
-        switch_name = self.tree.item(selected[0])['values'][1]
-        switch_ip = self.tree.item(selected[0])['values'][2]
-        switch_protocol = self.tree.item(selected[0])['values'][3]
-        switch_port = self.tree.item(selected[0])['values'][4]
-        
-        # Check if backup is already running for this switch
+
+    def _paste_bulk_import(self):
+        """Import switches from pasted CSV text"""
+        dialog = ttk.Toplevel(self.frame)
+        dialog.title("Paste Switches")
+        dialog.geometry("850x500")
+        dialog.transient(self.frame)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding=15)
+        frame.pack(fill=BOTH, expand=YES)
+
+        ttk.Label(
+            frame,
+            text="Paste rows as: name,ip,protocol,port,credential_name,notes",
+            font=("Segoe UI", 10)
+        ).pack(anchor=W, pady=(0, 8))
+
+        text = ttk.Text(frame, height=18, wrap=NONE, font=("Consolas", 10))
+        text.pack(fill=BOTH, expand=YES)
+        text.insert("1.0", "name,ip,protocol,port,credential_name,notes\nSwitch01,192.168.1.1,ssh,22,admin_cred,Main switch")
+
+        button_frame = ttk.Frame(frame)
+        button_frame.pack(fill=X, pady=(10, 0))
+
+        def import_pasted():
+            value = text.get("1.0", END).strip()
+            if not value:
+                Messagebox.show_warning("Paste at least one row", "No Data")
+                return
+            dialog.destroy()
+            self._import_switch_bulk_text(value, "pasted text")
+
+        ttk.Button(button_frame, text="Import", command=import_pasted, bootstyle=SUCCESS).pack(side=LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy, bootstyle=SECONDARY).pack(side=LEFT, padx=5)
+
+    def _start_backup_for_switch(self, switch_id, switch_name, switch_ip, switch_protocol, switch_port):
         if switch_id in self.active_backups:
-            Messagebox.show_warning(
-                f"Backup for '{switch_name}' is already in progress.\n"
-                f"Please wait for it to complete.",
-                "Backup In Progress"
-            )
-            return
-        
-        # Add to active backups
+            self._write_console(f"Skipped active backup: {switch_name}")
+            return False
+
         self.active_backups.add(switch_id)
-        
-        # Run backup in background thread (allows parallel execution)
+
         def worker():
             try:
-                self.queue.put(('console', f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+                self.queue.put(('console', "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
                 self.queue.put(('console', f"[{len(self.active_backups)} active] Starting backup for: {switch_name}"))
                 self.queue.put(('console', f"Target: {switch_protocol}://{switch_ip}:{switch_port}"))
                 self.queue.put(('console', f"Connecting via {switch_protocol}..."))
-                
+
                 logger.info(f"[PARALLEL BACKUP] Starting backup for {switch_name} ({len(self.active_backups)} active)")
                 result = self.backup_service.execute_backup(switch_id, backup_type='manual')
-                
+
                 if result['success']:
                     self.queue.put(('console', f"✓ Backup completed successfully for {switch_name}"))
                     self.queue.put(('console', f"  - Size: {result['size_kb']:.1f} KB"))
@@ -569,16 +766,37 @@ class InventoryView:
                 self.queue.put(('console', f"✗ Error for {switch_name}: {str(e)}"))
                 self.queue.put(('error', switch_name, str(e), switch_id))
             finally:
-                # Remove from active backups
                 self.queue.put(('cleanup', switch_id))
-        
+
         thread = threading.Thread(target=worker, daemon=True, name=f"Backup-{switch_name}")
         thread.start()
-        
-        active_count = len(self.active_backups)
-        self._write_console(f"[{active_count} active] Backup initiated for {switch_name}")
-        logger.info(f"Backup thread started for {switch_name} - Total active: {active_count}")
-    
+        return True
+
+    def _get_data(self):
+        """Execute backup for selected switches"""
+        rows = self._get_selected_switch_rows()
+        if not rows:
+            Messagebox.show_warning("Please select one or more switches", "No Selection")
+            return
+
+        started = 0
+        skipped = 0
+        for row in rows:
+            if self._start_backup_for_switch(
+                row['id'], row['name'], row['ip'], row['protocol'], row['port']
+            ):
+                started += 1
+            else:
+                skipped += 1
+
+        self._write_console(f"Bulk backup requested: started={started}, skipped={skipped}")
+        if skipped:
+            Messagebox.show_info(
+                f"Started {started} backup(s). Skipped {skipped} active backup(s).",
+                "Backups Started"
+            )
+        logger.info(f"Bulk backup request complete - started={started}, skipped={skipped}")
+
     def _open_ssh_console(self):
         selected = self.tree.selection()
         if not selected:
