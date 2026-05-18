@@ -20,12 +20,10 @@ class TestDiffService(unittest.TestCase):
         """Test unified diff with identical texts"""
         text1 = "line1\nline2\nline3"
         text2 = "line1\nline2\nline3"
-        
+
         diff = self.diff_service.unified_diff(text1, text2)
-        
-        # Should be empty or minimal
-        self.assertIn("---", diff)
-        self.assertIn("+++", diff)
+
+        self.assertEqual("", diff)
     
     def test_unified_diff_line_added(self):
         """Test unified diff with added line"""
