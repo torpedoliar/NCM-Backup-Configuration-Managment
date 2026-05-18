@@ -45,3 +45,5 @@ Thumbs.db
 appsettings.yaml
 .service_passphrase
 memory.md
+.superpowers/
+.claude/

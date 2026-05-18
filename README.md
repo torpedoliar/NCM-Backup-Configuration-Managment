@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.5.6-blue.svg" alt="Version"/>
+  <img src="https://img.shields.io/badge/version-3.5.7-blue.svg" alt="Version"/>
   <img src="https://img.shields.io/badge/python-3.11+-green.svg" alt="Python"/>
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform"/>
   <img src="https://img.shields.io/badge/license-Proprietary-red.svg" alt="License"/>
