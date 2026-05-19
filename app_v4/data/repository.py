@@ -239,6 +239,118 @@ class Repository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    # ----- backups -----
+
+    async def create_backup(
+        self,
+        switch_id: int,
+        file_path: str,
+        content_hash: str,
+        size_bytes: int,
+        success: bool,
+        message: str | None = None,
+        backup_type: str = "manual",
+        job_id: int | None = None,
+        triggered_by_user_id: int | None = None,
+    ) -> Backup:
+        backup = Backup(
+            switch_id=switch_id,
+            file_path=file_path,
+            content_hash=content_hash,
+            size_bytes=size_bytes,
+            success=success,
+            message=message,
+            backup_type=backup_type,
+            job_id=job_id,
+            triggered_by_user_id=triggered_by_user_id,
+        )
+        self.session.add(backup)
+        await self.session.flush()
+        return backup
+
+    async def get_backup(self, backup_id: int) -> Backup | None:
+        return await self.session.get(Backup, backup_id)
+
+    async def list_backups(
+        self,
+        switch_id: int | None = None,
+        limit: int | None = None,
+    ) -> list[Backup]:
+        stmt = select(Backup).order_by(Backup.taken_at.desc())
+        if switch_id is not None:
+            stmt = stmt.where(Backup.switch_id == switch_id)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_latest_backup(self, switch_id: int) -> Backup | None:
+        result = await self.session.execute(
+            select(Backup)
+            .where(Backup.switch_id == switch_id, Backup.success.is_(True))
+            .order_by(Backup.taken_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_backup(self, backup_id: int) -> bool:
+        backup = await self.get_backup(backup_id)
+        if backup is None:
+            return False
+        await self.session.delete(backup)
+        return True
+
+    # ----- jobs -----
+
+    async def create_job(
+        self,
+        switch_id: int,
+        interval_minutes: int,
+        enabled: bool = True,
+        schedule_hour: int = 8,
+        schedule_minute: int = 0,
+    ) -> Job:
+        job = Job(
+            switch_id=switch_id,
+            interval_minutes=interval_minutes,
+            enabled=enabled,
+            schedule_hour=schedule_hour,
+            schedule_minute=schedule_minute,
+        )
+        self.session.add(job)
+        await self.session.flush()
+        return job
+
+    async def get_job(self, job_id: int) -> Job | None:
+        result = await self.session.execute(
+            select(Job).options(selectinload(Job.switch)).where(Job.id == job_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_jobs(self, enabled_only: bool = False) -> list[Job]:
+        stmt = select(Job).options(selectinload(Job.switch)).order_by(Job.id)
+        if enabled_only:
+            stmt = stmt.where(Job.enabled.is_(True))
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_job(self, job_id: int, **kwargs) -> Job | None:
+        job = await self.get_job(job_id)
+        if job is None:
+            return None
+        for key, value in kwargs.items():
+            if value is not None and hasattr(job, key):
+                setattr(job, key, value)
+        job.updated_at = datetime.utcnow()
+        return job
+
+    async def delete_job(self, job_id: int) -> bool:
+        job = await self.get_job(job_id)
+        if job is None:
+            return False
+        await self.session.delete(job)
+        return True
+
     # ----- system -----
 
     async def system_metrics(self) -> dict[str, int]:
