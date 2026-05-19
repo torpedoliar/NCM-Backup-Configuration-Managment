@@ -16,6 +16,18 @@ class Settings(BaseSettings):
     jwt_refresh_days: int = 7
     scheduler_lock_seconds: int = 180
 
+    backup_min_keep: int = 1
+    backup_retention_days: int = 365
+    backup_root_folder: str = "backups"
+    diff_context_lines: int = 3
+
+    network_max_retries: int = 3
+    network_retry_delay: int = 2
+    network_backoff_multiplier: int = 2
+    network_connect_timeout: int = 15
+    network_command_timeout: int = 60
+    network_read_timeout: int = 30
+
     @property
     def database_url(self) -> str:
         db_path = self.base_dir / "data" / "app.db"
