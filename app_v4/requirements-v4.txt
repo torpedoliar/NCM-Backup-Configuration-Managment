@@ -11,3 +11,6 @@ pywin32>=306
 httpx>=0.28.0
 pytest>=8.3.0
 pytest-asyncio>=0.25.0
+asyncssh>=2.14.2
+telnetlib3>=2.0.4
+apscheduler>=3.10.4
