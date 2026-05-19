@@ -67,3 +67,37 @@ async def test_backup_service_creates_failed_record(test_settings, session_facto
         repo = Repository(session)
         backup = await repo.get_backup(result["backup_id"])
     assert backup.success is False
+
+
+@pytest.mark.asyncio
+async def test_backup_service_runs_websmart_switch(test_settings, session_factory, crypto_service):
+    calls = []
+
+    @dataclass
+    class RecordingRunner:
+        result: BackupRunResult
+
+        async def execute_backup(self, protocol, host, port, username, password, enable_password=""):
+            calls.append((protocol, host, port, username, password, enable_password))
+            return self.result
+
+    service = BackupService(
+        settings=test_settings,
+        session_factory=session_factory,
+        crypto_service=crypto_service,
+        runner=RecordingRunner(BackupRunResult(True, "hostname websmart", "Backup completed successfully")),
+        diff_service=DiffService(test_settings),
+    )
+    async with session_factory() as session:
+        repo = Repository(session)
+        blob = crypto_service.encrypt_credential("manager", "friend", "")
+        cred = await repo.create_credential("web", blob)
+        switch = await repo.create_switch("websw", "10.0.0.20", "websmart", 80, cred.id)
+        await session.commit()
+        switch_id = switch.id
+
+    result = await service.execute_backup(switch_id=switch_id, backup_type="manual", triggered_by_user_id=None)
+
+    assert result["success"] is True
+    assert result["backup_id"] > 0
+    assert calls == [("websmart", "10.0.0.20", 80, "manager", "friend", "")]
