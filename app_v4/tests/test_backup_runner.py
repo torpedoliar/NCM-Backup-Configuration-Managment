@@ -48,7 +48,7 @@ async def test_backup_runner_normalizes_success_output():
 async def test_backup_runner_rejects_unsupported_protocol():
     runner = BackupRunner(settings=Settings(), client_factory=lambda **kwargs: FakeClient("x"))
 
-    result = await runner.execute_backup("websmart", "host", 80, "u", "p")
+    result = await runner.execute_backup("snmp", "host", 161, "u", "p")
 
     assert result.success is False
     assert "Unsupported protocol" in result.message
@@ -74,3 +74,25 @@ async def test_backup_runner_returns_failure_after_retries():
     assert attempts == 2
     assert result.success is False
     assert "boom" in result.message
+
+
+@pytest.mark.asyncio
+async def test_backup_runner_accepts_websmart_protocol_from_client_factory():
+    created = {}
+
+    def factory(**kwargs):
+        created.update(kwargs)
+        return FakeClient("websmart config")
+
+    runner = BackupRunner(
+        settings=Settings(network_max_retries=1),
+        client_factory=factory,
+    )
+
+    result = await runner.execute_backup("websmart", "10.0.0.10", 80, "admin", "secret")
+
+    assert result.success is True
+    assert result.config_text == "websmart config"
+    assert created["protocol"] == "websmart"
+    assert created["host"] == "10.0.0.10"
+    assert created["port"] == 80

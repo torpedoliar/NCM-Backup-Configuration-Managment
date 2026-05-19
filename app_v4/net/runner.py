@@ -8,6 +8,7 @@ from app_v4.core.config import Settings
 from app_v4.core.network_config import load_network_config
 from app_v4.net.ssh_client import AsyncSshClient
 from app_v4.net.telnet_client import AsyncTelnetClient
+from app_v4.net.websmart_client import AsyncWebSmartClient
 
 
 class BackupClient(Protocol):
@@ -41,8 +42,9 @@ class BackupRunner:
         enable_password: str = "",
     ) -> BackupRunResult:
         protocol = protocol.lower()
-        if protocol not in {"ssh", "telnet"}:
-            return BackupRunResult(False, "", f"Unsupported protocol in Phase 1: {protocol}")
+        allowed_protocols = {"ssh", "telnet", "http", "https", "websmart", "websmart-v2"}
+        if protocol not in allowed_protocols:
+            return BackupRunResult(False, "", f"Unsupported protocol: {protocol}")
 
         last_error = "Backup failed"
         for attempt in range(self.config.max_retries):
@@ -81,7 +83,18 @@ class BackupRunner:
             )
         if protocol == "ssh":
             return AsyncSshClient(host, port, username, password, enable_password, self.config.connect_timeout)
-        return AsyncTelnetClient(host, port, username, password, enable_password, self.config.connect_timeout)
+        if protocol == "telnet":
+            return AsyncTelnetClient(host, port, username, password, enable_password, self.config.connect_timeout)
+        scheme = "https" if protocol == "https" else "http"
+        return AsyncWebSmartClient(
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=self.config.connect_timeout,
+            scheme=scheme,
+            force_v2_only=protocol == "websmart-v2",
+        )
 
     def _normalize_output(self, text: str) -> str:
         text = text.replace("\r\n", "\n").replace("\r", "\n")
