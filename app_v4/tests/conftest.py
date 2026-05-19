@@ -6,6 +6,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app_v4.core.config import Settings
+from app_v4.core.crypto_service import CryptoService
 from app_v4.data.db import create_session_factory, init_db
 
 
@@ -20,3 +21,8 @@ async def session_factory(test_settings: Settings) -> AsyncIterator[async_sessio
     await init_db(engine)
     yield factory
     await engine.dispose()
+
+
+@pytest.fixture
+def crypto_service(test_settings: Settings) -> CryptoService:
+    return CryptoService(settings=test_settings, passphrase="test-passphrase")
