@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +48,7 @@ def _to_out(backup) -> BackupOut:
     )
 
 
-async def _run_backup(runtime: ServiceRuntime, switch_id: int, user_id: int) -> BackupRunResponse:
+async def _run_backup(runtime: ServiceRuntime, switch_id: int, user_id: int, request: Request) -> BackupRunResponse:
     if runtime.backup_service is None:
         raise problem(503, "Service Unavailable", "Backup service is not initialized")
     try:
@@ -59,25 +59,39 @@ async def _run_backup(runtime: ServiceRuntime, switch_id: int, user_id: int) -> 
         )
     except ValueError as exc:
         raise problem(404, "Not Found", str(exc)) from exc
+    await runtime.audit_writer.record(
+        action="backup.manual_triggered",
+        user_id=user_id,
+        target_type="switch",
+        target_id=str(switch_id),
+        ip=request.client.host if request.client else None,
+        detail={
+            "switch_id": switch_id,
+            "backup_id": result.get("backup_id"),
+            "success": result.get("success"),
+        },
+    )
     return BackupRunResponse(**result)
 
 
 @router.post("/switches/{switch_id}/backup", response_model=BackupRunResponse, status_code=status.HTTP_202_ACCEPTED)
 async def trigger_backup_spec_alias(
     switch_id: int,
+    request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     user: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> BackupRunResponse:
-    return await _run_backup(runtime, switch_id, user.user_id)
+    return await _run_backup(runtime, switch_id, user.user_id, request)
 
 
 @router.post("/switches/{switch_id}/backups", response_model=BackupRunResponse, status_code=status.HTTP_202_ACCEPTED)
 async def trigger_backup(
     switch_id: int,
+    request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     user: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> BackupRunResponse:
-    return await _run_backup(runtime, switch_id, user.user_id)
+    return await _run_backup(runtime, switch_id, user.user_id, request)
 
 
 @router.get("/backups", response_model=list[BackupOut])

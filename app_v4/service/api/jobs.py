@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims
 from app_v4.data.repository import Repository
-from app_v4.service.deps import get_db, require_role
+from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.problem import problem
+from app_v4.service.runtime import ServiceRuntime
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -59,14 +60,24 @@ async def list_jobs(
 @router.post("", response_model=JobOut, status_code=status.HTTP_201_CREATED)
 async def create_job(
     payload: JobCreate,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    _user: AccessClaims = Depends(require_role("admin", "operator")),
+    actor: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> JobOut:
     repo = Repository(session)
     if await repo.get_switch(payload.switch_id) is None:
         raise problem(422, "Unprocessable Entity", "Referenced switch does not exist")
     job = await repo.create_job(payload.switch_id, payload.interval_minutes, payload.enabled, payload.schedule_hour, payload.schedule_minute)
     await session.commit()
+    await runtime.audit_writer.record(
+        action="job.created",
+        user_id=actor.user_id,
+        target_type="job",
+        target_id=str(job.id),
+        ip=request.client.host if request.client else None,
+        detail=payload.model_dump(),
+    )
     return _to_out(job)
 
 
@@ -74,26 +85,46 @@ async def create_job(
 async def update_job(
     job_id: int,
     payload: JobUpdate,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    _user: AccessClaims = Depends(require_role("admin", "operator")),
+    actor: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> JobOut:
     repo = Repository(session)
-    job = await repo.update_job(job_id, **payload.model_dump(exclude_none=True))
+    changes = payload.model_dump(exclude_none=True)
+    job = await repo.update_job(job_id, **changes)
     if job is None:
         raise problem(404, "Not Found", "Job not found")
     await session.commit()
+    await runtime.audit_writer.record(
+        action="job.updated",
+        user_id=actor.user_id,
+        target_type="job",
+        target_id=str(job_id),
+        ip=request.client.host if request.client else None,
+        detail=changes,
+    )
     return _to_out(job)
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_job(
     job_id: int,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    _user: AccessClaims = Depends(require_role("admin", "operator")),
+    actor: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> Response:
     repo = Repository(session)
     deleted = await repo.delete_job(job_id)
     if not deleted:
         raise problem(404, "Not Found", "Job not found")
     await session.commit()
+    await runtime.audit_writer.record(
+        action="job.deleted",
+        user_id=actor.user_id,
+        target_type="job",
+        target_id=str(job_id),
+        ip=request.client.host if request.client else None,
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
