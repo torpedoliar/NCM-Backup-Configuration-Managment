@@ -47,3 +47,10 @@ appsettings.yaml
 memory.md
 .superpowers/
 .claude/
+
+# v4 local runtime
+app_v4/service/static/
+app_v4/**/*.db
+app_v4/**/*.db-shm
+app_v4/**/*.db-wal
+app_v4/**/*.log
