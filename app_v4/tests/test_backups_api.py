@@ -33,6 +33,12 @@ async def test_trigger_backup_requires_operator(test_settings, session_factory):
         jwt_secret=b"b" * 32,
         backup_service=FakeBackupService({"success": True, "message": "ok", "backup_id": 9, "file_path": "", "size_kb": 1}),
     )
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "hash", "operator")
+        await repo.create_user("viewer", "hash", "viewer")
+        await session.commit()
+
     client = TestClient(create_app(runtime))
 
     viewer = client.post("/api/v1/switches/1/backups", headers={"Authorization": f"Bearer {_viewer_token(runtime)}"})

@@ -19,6 +19,8 @@ async def test_jobs_crud(test_settings, session_factory):
     runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"j" * 32)
     async with session_factory() as session:
         repo = Repository(session)
+        await repo.create_user("ops", "hash", "operator")
+        await repo.create_user("viewer", "hash", "viewer")
         cred = await repo.create_credential("cred", b"x")
         switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
         await session.commit()
