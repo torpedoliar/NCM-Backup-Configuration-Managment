@@ -58,14 +58,15 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     crypto = CryptoService(settings=settings, passphrase=envelope.master_passphrase)
     engine, session_factory = create_session_factory(settings)
     await init_db(engine)
-    backup_service = BackupService(settings, session_factory, crypto)
-    scheduler_service = SchedulerService(settings, session_factory, backup_service)
+    event_hub = EventHub()
+    backup_service = BackupService(settings, session_factory, crypto, event_hub=event_hub)
+    scheduler_service = SchedulerService(settings, session_factory, backup_service, event_hub=event_hub)
     await scheduler_service.start()
     runtime = ServiceRuntime(
         settings=settings,
         session_factory=session_factory,
         auth_service=AuthService(settings=settings, jwt_secret=envelope.jwt_secret),
-        event_hub=EventHub(),
+        event_hub=event_hub,
         audit_writer=AuditWriter(session_factory),
         crypto_service=crypto,
         backup_service=backup_service,

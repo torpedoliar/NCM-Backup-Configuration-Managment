@@ -13,6 +13,10 @@ class EventMessage:
     payload: dict[str, Any]
     ts: str
 
+    @classmethod
+    def create(cls, event_type: str, payload: dict[str, Any]) -> "EventMessage":
+        return cls(type=event_type, payload=payload, ts=datetime.utcnow().isoformat() + "Z")
+
 
 class EventHub:
     def __init__(self):
@@ -26,11 +30,11 @@ class EventHub:
         self._clients.discard(websocket)
 
     async def send(self, websocket: WebSocket, event_type: str, payload: dict[str, Any]) -> None:
-        await websocket.send_json(self._message(event_type, payload).__dict__)
+        await websocket.send_json(EventMessage.create(event_type, payload).__dict__)
 
-    async def broadcast(self, event_type: str, payload: dict[str, Any]) -> None:
+    async def broadcast(self, event: EventMessage) -> None:
         dead: list[WebSocket] = []
-        message = self._message(event_type, payload).__dict__
+        message = event.__dict__
         for websocket in list(self._clients):
             try:
                 await websocket.send_json(message)
@@ -39,5 +43,8 @@ class EventHub:
         for websocket in dead:
             self.disconnect(websocket)
 
-    def _message(self, event_type: str, payload: dict[str, Any]) -> EventMessage:
-        return EventMessage(type=event_type, payload=payload, ts=datetime.utcnow().isoformat() + "Z")
+
+async def publish(hub: EventHub | None, event_type: str, payload: dict[str, Any]) -> None:
+    if hub is None:
+        return
+    await hub.broadcast(EventMessage.create(event_type, payload))

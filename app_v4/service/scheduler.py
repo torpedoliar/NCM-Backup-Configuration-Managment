@@ -14,13 +14,21 @@ from app_v4.core.config import Settings
 from app_v4.core.paths import resolve_paths
 from app_v4.data.repository import Repository
 from app_v4.service.backup_service import BackupService
+from app_v4.service.events import EventHub, publish
 
 
 class SchedulerService:
-    def __init__(self, settings: Settings, session_factory: async_sessionmaker[AsyncSession], backup_service: BackupService):
+    def __init__(
+        self,
+        settings: Settings,
+        session_factory: async_sessionmaker[AsyncSession],
+        backup_service: BackupService,
+        event_hub: EventHub | None = None,
+    ):
         self.settings = settings
         self.session_factory = session_factory
         self.backup_service = backup_service
+        self.event_hub = event_hub
         self.scheduler = AsyncIOScheduler(job_defaults={"coalesce": False, "max_instances": 3})
         self.job_map: dict[int, str] = {}
         self.job_interval_map: dict[int, int] = {}
@@ -90,6 +98,7 @@ class SchedulerService:
 
     async def execute_scheduled_backup(self, job_id: int, switch_id: int) -> None:
         started_at = datetime.utcnow()
+        await publish(self.event_hub, "job_triggered", {"job_id": job_id, "switch_id": switch_id})
         await self.backup_service.execute_backup(
             switch_id=switch_id,
             backup_type="automatic",
