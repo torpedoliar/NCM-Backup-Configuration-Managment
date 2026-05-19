@@ -12,6 +12,7 @@ from app_v4.core.paths import resolve_paths
 from app_v4.data.repository import Repository
 from app_v4.net.runner import BackupRunner
 from app_v4.service.diff_service import DiffService
+from app_v4.service.events import EventHub, publish
 
 
 class BackupService:
@@ -22,12 +23,14 @@ class BackupService:
         crypto_service: CryptoService,
         runner: BackupRunner | None = None,
         diff_service: DiffService | None = None,
+        event_hub: EventHub | None = None,
     ):
         self.settings = settings
         self.session_factory = session_factory
         self.crypto_service = crypto_service
         self.runner = runner or BackupRunner(settings)
         self.diff_service = diff_service or DiffService(settings)
+        self.event_hub = event_hub
 
     async def execute_backup(
         self,
@@ -47,6 +50,7 @@ class BackupService:
             port = switch.port
             enc_blob = switch.credential.enc_blob
 
+        await publish(self.event_hub, "backup_started", {"switch_id": switch_id, "switch_name": switch_name, "backup_type": backup_type})
         credentials = self.crypto_service.decrypt_credential(enc_blob)
         run_result = await self.runner.execute_backup(
             protocol=protocol,
@@ -58,13 +62,19 @@ class BackupService:
         )
 
         if not run_result.success:
-            return await self._record_failed_backup(
+            result = await self._record_failed_backup(
                 switch_id=switch_id,
                 message=run_result.message,
                 backup_type=backup_type,
                 job_id=job_id,
                 triggered_by_user_id=triggered_by_user_id,
             )
+            await publish(
+                self.event_hub,
+                "backup_failed",
+                {"switch_id": switch_id, "switch_name": switch_name, "backup_id": result["backup_id"], "message": run_result.message},
+            )
+            return result
 
         content_hash = hashlib.sha256(run_result.config_text.encode("utf-8")).hexdigest()
         changed = False
@@ -110,6 +120,7 @@ class BackupService:
             await session.commit()
             backup_id = backup.id
 
+        await publish(self.event_hub, "backup_completed", {"switch_id": switch_id, "switch_name": switch_name, "backup_id": backup_id})
         return {
             "success": True,
             "message": message,
