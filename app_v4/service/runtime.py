@@ -13,6 +13,7 @@ from app_v4.core.key_envelope import KeyEnvelopeStore
 from app_v4.core.paths import resolve_paths
 from app_v4.data.db import create_session_factory, init_db
 from app_v4.service.audit import AuditWriter
+from app_v4.service.backup_service import BackupService
 from app_v4.service.events import EventHub
 
 
@@ -24,6 +25,7 @@ class ServiceRuntime:
     event_hub: EventHub
     audit_writer: AuditWriter
     crypto_service: CryptoService | None = None
+    backup_service: BackupService | None = None
     started_at: datetime = field(default_factory=datetime.utcnow)
 
     @classmethod
@@ -33,6 +35,7 @@ class ServiceRuntime:
         session_factory: async_sessionmaker[AsyncSession],
         jwt_secret: bytes,
         crypto_service: CryptoService | None = None,
+        backup_service: BackupService | None = None,
     ) -> "ServiceRuntime":
         return cls(
             settings=settings,
@@ -41,6 +44,7 @@ class ServiceRuntime:
             event_hub=EventHub(),
             audit_writer=AuditWriter(session_factory),
             crypto_service=crypto_service,
+            backup_service=backup_service,
         )
 
 
@@ -50,6 +54,7 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     crypto = CryptoService(settings=settings, passphrase=envelope.master_passphrase)
     engine, session_factory = create_session_factory(settings)
     await init_db(engine)
+    backup_service = BackupService(settings, session_factory, crypto)
     runtime = ServiceRuntime(
         settings=settings,
         session_factory=session_factory,
@@ -57,5 +62,6 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
         event_hub=EventHub(),
         audit_writer=AuditWriter(session_factory),
         crypto_service=crypto,
+        backup_service=backup_service,
     )
     return runtime, engine
