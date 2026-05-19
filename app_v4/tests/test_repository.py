@@ -178,3 +178,70 @@ async def test_audit_write(session_factory):
         assert len(rows) == 1
         assert rows[0].action == "user.create"
         assert rows[0].target_id == str(user_id_for_assert)
+
+
+@pytest.mark.asyncio
+async def test_backup_repository_methods(session_factory):
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        backup = await repo.create_backup(
+            switch_id=switch.id,
+            file_path="backups/sw/2026-05-19/config.txt",
+            content_hash="abc",
+            size_bytes=3,
+            success=True,
+            message="ok",
+            backup_type="manual",
+            triggered_by_user_id=None,
+        )
+        await session.commit()
+        backup_id = backup.id
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        loaded = await repo.get_backup(backup_id)
+        backups = await repo.list_backups(switch_id=loaded.switch_id, limit=10)
+        latest = await repo.get_latest_backup(loaded.switch_id)
+
+    assert loaded is not None
+    assert loaded.content_hash == "abc"
+    assert [b.id for b in backups] == [backup_id]
+    assert latest.id == backup_id
+
+
+@pytest.mark.asyncio
+async def test_job_repository_methods(session_factory):
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(
+            switch_id=switch.id,
+            interval_minutes=60,
+            enabled=True,
+            schedule_hour=8,
+            schedule_minute=30,
+        )
+        await session.commit()
+        job_id = job.id
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        loaded = await repo.get_job(job_id)
+        jobs = await repo.list_jobs(enabled_only=True)
+        await repo.update_job(job_id, interval_minutes=120, enabled=False)
+        await session.commit()
+
+    assert loaded is not None
+    assert loaded.switch.name == "sw"
+    assert [j.id for j in jobs] == [job_id]
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        updated = await repo.get_job(job_id)
+        assert updated.interval_minutes == 120
+        assert updated.enabled is False
+        assert await repo.delete_job(job_id) is True
+        await session.commit()
