@@ -15,6 +15,7 @@ from app_v4.data.db import create_session_factory, init_db
 from app_v4.service.audit import AuditWriter
 from app_v4.service.backup_service import BackupService
 from app_v4.service.events import EventHub
+from app_v4.service.scheduler import SchedulerService
 
 
 @dataclass
@@ -26,6 +27,7 @@ class ServiceRuntime:
     audit_writer: AuditWriter
     crypto_service: CryptoService | None = None
     backup_service: BackupService | None = None
+    scheduler_service: SchedulerService | None = None
     started_at: datetime = field(default_factory=datetime.utcnow)
 
     @classmethod
@@ -36,6 +38,7 @@ class ServiceRuntime:
         jwt_secret: bytes,
         crypto_service: CryptoService | None = None,
         backup_service: BackupService | None = None,
+        scheduler_service: SchedulerService | None = None,
     ) -> "ServiceRuntime":
         return cls(
             settings=settings,
@@ -45,6 +48,7 @@ class ServiceRuntime:
             audit_writer=AuditWriter(session_factory),
             crypto_service=crypto_service,
             backup_service=backup_service,
+            scheduler_service=scheduler_service,
         )
 
 
@@ -55,6 +59,8 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     engine, session_factory = create_session_factory(settings)
     await init_db(engine)
     backup_service = BackupService(settings, session_factory, crypto)
+    scheduler_service = SchedulerService(settings, session_factory, backup_service)
+    await scheduler_service.start()
     runtime = ServiceRuntime(
         settings=settings,
         session_factory=session_factory,
@@ -63,5 +69,6 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
         audit_writer=AuditWriter(session_factory),
         crypto_service=crypto,
         backup_service=backup_service,
+        scheduler_service=scheduler_service,
     )
     return runtime, engine
