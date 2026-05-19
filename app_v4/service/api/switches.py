@@ -116,6 +116,19 @@ async def create_switch(
     return _to_out(fresh)
 
 
+@router.get("/{switch_id}", response_model=SwitchOut)
+async def get_switch(
+    switch_id: int,
+    session: AsyncSession = Depends(get_db),
+    _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
+) -> SwitchOut:
+    repo = Repository(session)
+    switch = await repo.get_switch(switch_id)
+    if switch is None:
+        raise problem(404, "Not Found", "Switch not found")
+    return _to_out(switch)
+
+
 @router.patch("/{switch_id}", response_model=SwitchOut)
 async def update_switch(
     switch_id: int,
@@ -162,7 +175,7 @@ async def delete_switch(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    actor: AccessClaims = Depends(require_role("admin")),
 ) -> Response:
     repo = Repository(session)
     deleted = await repo.delete_switch(switch_id)

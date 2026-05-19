@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app_v4.core.auth_service import AccessClaims
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
+from app_v4.service.diff_service import DiffService
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
 
@@ -47,20 +48,36 @@ def _to_out(backup) -> BackupOut:
     )
 
 
+async def _run_backup(runtime: ServiceRuntime, switch_id: int, user_id: int) -> BackupRunResponse:
+    if runtime.backup_service is None:
+        raise problem(503, "Service Unavailable", "Backup service is not initialized")
+    try:
+        result = await runtime.backup_service.execute_backup(
+            switch_id=switch_id,
+            backup_type="manual",
+            triggered_by_user_id=user_id,
+        )
+    except ValueError as exc:
+        raise problem(404, "Not Found", str(exc)) from exc
+    return BackupRunResponse(**result)
+
+
+@router.post("/switches/{switch_id}/backup", response_model=BackupRunResponse, status_code=status.HTTP_202_ACCEPTED)
+async def trigger_backup_spec_alias(
+    switch_id: int,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    user: AccessClaims = Depends(require_role("admin", "operator")),
+) -> BackupRunResponse:
+    return await _run_backup(runtime, switch_id, user.user_id)
+
+
 @router.post("/switches/{switch_id}/backups", response_model=BackupRunResponse, status_code=status.HTTP_202_ACCEPTED)
 async def trigger_backup(
     switch_id: int,
     runtime: ServiceRuntime = Depends(get_runtime),
     user: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> BackupRunResponse:
-    if runtime.backup_service is None:
-        raise problem(503, "Service Unavailable", "Backup service is not initialized")
-    result = await runtime.backup_service.execute_backup(
-        switch_id=switch_id,
-        backup_type="manual",
-        triggered_by_user_id=user.user_id,
-    )
-    return BackupRunResponse(**result)
+    return await _run_backup(runtime, switch_id, user.user_id)
 
 
 @router.get("/backups", response_model=list[BackupOut])
@@ -72,6 +89,32 @@ async def list_backups(
 ) -> list[BackupOut]:
     repo = Repository(session)
     return [_to_out(b) for b in await repo.list_backups(switch_id=switch_id, limit=limit)]
+
+
+@router.get("/backups/diff")
+async def diff_backups(
+    a: int,
+    b: int,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    session: AsyncSession = Depends(get_db),
+    _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
+) -> Response:
+    repo = Repository(session)
+    left = await repo.get_backup(a)
+    right = await repo.get_backup(b)
+    if left is None or right is None:
+        raise problem(404, "Not Found", "One or both backups were not found")
+    left_path = Path(left.file_path or "")
+    right_path = Path(right.file_path or "")
+    if not left_path.exists() or not right_path.exists():
+        raise problem(404, "Not Found", "One or both backup files were not found")
+    diff = DiffService(runtime.settings).unified_diff(
+        left_path.read_text(encoding="utf-8"),
+        right_path.read_text(encoding="utf-8"),
+        label1=f"backup-{a}",
+        label2=f"backup-{b}",
+    )
+    return Response(diff, media_type="text/plain")
 
 
 @router.get("/backups/{backup_id}", response_model=BackupOut)
