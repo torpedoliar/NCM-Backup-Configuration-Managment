@@ -12,6 +12,7 @@ from app_v4.core.dpapi import WindowsDpapiProvider
 from app_v4.core.key_envelope import KeyEnvelopeStore
 from app_v4.core.paths import resolve_paths
 from app_v4.data.db import create_session_factory, init_db
+from app_v4.service.audit import AuditWriter
 from app_v4.service.events import EventHub
 
 
@@ -21,6 +22,7 @@ class ServiceRuntime:
     session_factory: async_sessionmaker[AsyncSession]
     auth_service: AuthService
     event_hub: EventHub
+    audit_writer: AuditWriter
     crypto_service: CryptoService | None = None
     started_at: datetime = field(default_factory=datetime.utcnow)
 
@@ -30,13 +32,15 @@ class ServiceRuntime:
         settings: Settings,
         session_factory: async_sessionmaker[AsyncSession],
         jwt_secret: bytes,
+        crypto_service: CryptoService | None = None,
     ) -> "ServiceRuntime":
         return cls(
             settings=settings,
             session_factory=session_factory,
             auth_service=AuthService(settings=settings, jwt_secret=jwt_secret),
             event_hub=EventHub(),
-            crypto_service=None,
+            audit_writer=AuditWriter(session_factory),
+            crypto_service=crypto_service,
         )
 
 
@@ -51,6 +55,7 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
         session_factory=session_factory,
         auth_service=AuthService(settings=settings, jwt_secret=envelope.jwt_secret),
         event_hub=EventHub(),
+        audit_writer=AuditWriter(session_factory),
         crypto_service=crypto,
     )
     return runtime, engine
