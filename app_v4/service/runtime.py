@@ -32,6 +32,10 @@ class ServiceRuntime:
     retention_service: RetentionService | None = None
     started_at: datetime = field(default_factory=datetime.utcnow)
 
+    async def shutdown(self) -> None:
+        if self.scheduler_service is not None:
+            await self.scheduler_service.stop()
+
     @classmethod
     def for_tests(
         cls,

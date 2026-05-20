@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
+
+from app_v4.core.paths import resolve_paths
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +23,9 @@ class StatusResponse(BaseModel):
     started_at: datetime
     host: str
     port: int
+    uptime_seconds: int
+    scheduler_running: bool
+    db_size_bytes: int
 
 
 class MetricsResponse(BaseModel):
@@ -35,12 +40,16 @@ async def status(
     runtime: ServiceRuntime = Depends(get_runtime),
     _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
 ) -> StatusResponse:
+    paths = resolve_paths(runtime.settings)
     return StatusResponse(
         service="running",
         version=__version__,
         started_at=runtime.started_at,
         host=runtime.settings.service_host,
         port=runtime.settings.service_port,
+        uptime_seconds=int((datetime.utcnow() - runtime.started_at).total_seconds()),
+        scheduler_running=runtime.scheduler_service.scheduler.running if runtime.scheduler_service else False,
+        db_size_bytes=paths.database_file.stat().st_size if paths.database_file.exists() else 0,
     )
 
 
