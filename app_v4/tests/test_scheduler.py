@@ -83,7 +83,7 @@ async def test_scheduler_skips_jobs_for_inactive_switches(test_settings, session
 def test_build_trigger_weekly_uses_day_of_week(test_settings, session_factory):
     backup_service = FakeBackupService()
     scheduler = SchedulerService(test_settings, session_factory, backup_service)
-    trigger = scheduler._build_trigger_v2(
+    trigger = scheduler._build_trigger(
         interval_minutes=10080,
         schedule_hour=8,
         schedule_minute=30,
@@ -99,7 +99,7 @@ def test_build_trigger_weekly_uses_day_of_week(test_settings, session_factory):
 def test_build_trigger_monthly_uses_day_of_month(test_settings, session_factory):
     backup_service = FakeBackupService()
     scheduler = SchedulerService(test_settings, session_factory, backup_service)
-    trigger = scheduler._build_trigger_v2(
+    trigger = scheduler._build_trigger(
         interval_minutes=43200,
         schedule_hour=2,
         schedule_minute=0,

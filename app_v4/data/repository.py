@@ -10,6 +10,9 @@ from sqlalchemy.orm import selectinload
 from app_v4.data.models import AuditLog, Backup, Credential, Job, Session, Switch, User
 
 
+NULLABLE_FIELDS = {"day_of_week", "day_of_month"}
+
+
 class Repository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -367,7 +370,7 @@ class Repository:
         if job is None:
             return None
         for key, value in kwargs.items():
-            if value is not None and hasattr(job, key):
+            if hasattr(job, key) and (value is not None or key in NULLABLE_FIELDS):
                 setattr(job, key, value)
         job.updated_at = datetime.utcnow()
         return job

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app_v4.core.auth_service import AccessClaims
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
+from app_v4.service.events import publish
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
 
@@ -122,6 +123,8 @@ async def run_job_now(
         raise problem(404, "Not Found", "Job not found")
     if runtime.backup_service is None:
         raise problem(503, "Service Unavailable", "Backup service is not initialized")
+    # Audit captures intent (admin clicked run-now); backup outcome is recorded
+    # in the Backup table by execute_backup.
     await runtime.audit_writer.record(
         action="schedule.run_now",
         user_id=user.user_id,
@@ -129,12 +132,20 @@ async def run_job_now(
         target_id=str(job_id),
         ip=request.client.host if request.client else None,
     )
+    started_at = datetime.utcnow()
+    await publish(
+        runtime.event_hub,
+        "job_triggered",
+        {"job_id": job_id, "switch_id": job.switch_id},
+    )
     result = await runtime.backup_service.execute_backup(
         switch_id=job.switch_id,
         backup_type="manual_schedule",
         job_id=job_id,
         triggered_by_user_id=user.user_id,
     )
+    await Repository(session).update_job(job_id, last_ran_at=started_at)
+    await session.commit()
     return {"backup_id": result.get("backup_id"), "success": result.get("success")}
 
 
@@ -148,7 +159,7 @@ async def update_job(
     actor: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> JobOut:
     repo = Repository(session)
-    changes = payload.model_dump(exclude_none=True)
+    changes = payload.model_dump(exclude_unset=True)
     job = await repo.update_job(job_id, **changes)
     if job is None:
         raise problem(404, "Not Found", "Job not found")

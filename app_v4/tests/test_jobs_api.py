@@ -14,6 +14,10 @@ def _viewer_token(runtime: ServiceRuntime) -> str:
     return runtime.auth_service.issue_access_token(2, "viewer", "viewer")
 
 
+def _admin_token(runtime: ServiceRuntime) -> str:
+    return runtime.auth_service.issue_access_token(1, "admin", "admin")
+
+
 @pytest.mark.asyncio
 async def test_jobs_crud(test_settings, session_factory):
     runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"j" * 32)
@@ -95,6 +99,12 @@ async def test_run_job_now_triggers_backup(test_settings, session_factory):
     assert body["backup_id"] == 99
     assert body["success"] is True
 
+    # Verify last_ran_at was updated
+    async with session_factory() as session:
+        repo = Repository(session)
+        job = await repo.get_job(job_id)
+        assert job.last_ran_at is not None
+
 
 @pytest.mark.asyncio
 async def test_run_job_now_404_when_missing(test_settings, session_factory):
@@ -117,3 +127,34 @@ async def test_run_job_now_404_when_missing(test_settings, session_factory):
         headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
     )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_job_clears_day_of_week_to_null(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("admin", "h", "admin")
+        cred = await repo.create_credential(name="lab", enc_blob=b"x")
+        sw = await repo.create_switch(name="sw01", ip="10.0.0.1", protocol="ssh", port=22, credential_id=cred.id)
+        job = await repo.create_job(
+            switch_id=sw.id,
+            interval_minutes=10080,
+            schedule_hour=8,
+            schedule_minute=0,
+            day_of_week="fri",
+        )
+        await session.commit()
+        job_id = job.id
+
+    client = TestClient(create_app(runtime))
+    headers = {"Authorization": f"Bearer {_admin_token(runtime)}"}
+
+    # Switch from weekly to interval, explicitly nulling day_of_week
+    r = client.patch(
+        f"/api/v1/jobs/{job_id}",
+        headers=headers,
+        json={"interval_minutes": 60, "day_of_week": None},
+    )
+    assert r.status_code == 200
+    assert r.json()["day_of_week"] is None

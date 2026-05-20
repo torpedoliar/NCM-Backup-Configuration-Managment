@@ -116,7 +116,7 @@ class SchedulerService:
         aps_id = f"backup_job_{job_id}"
         self.scheduler.add_job(
             self.execute_scheduled_backup,
-            trigger=self._build_trigger_v2(
+            trigger=self._build_trigger(
                 interval_minutes,
                 schedule_hour,
                 schedule_minute,
@@ -153,7 +153,7 @@ class SchedulerService:
             await repo.update_job(job_id, last_ran_at=started_at)
             await session.commit()
 
-    def _build_trigger_v2(
+    def _build_trigger(
         self,
         interval_minutes: int,
         schedule_hour: int,
