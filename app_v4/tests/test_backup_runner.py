@@ -55,6 +55,19 @@ async def test_backup_runner_rejects_unsupported_protocol():
 
 
 @pytest.mark.asyncio
+async def test_backup_runner_categorizes_authentication_error():
+    class AuthFailClient(FakeClient):
+        async def connect(self):
+            raise PermissionError("authentication failed")
+
+    runner = BackupRunner(settings=Settings(network_max_retries=1), client_factory=lambda **kwargs: AuthFailClient(""))
+    result = await runner.execute_backup("ssh", "host", 22, "u", "p")
+
+    assert result.success is False
+    assert result.error_code == "AUTHENTICATION_ERROR"
+
+
+@pytest.mark.asyncio
 async def test_backup_runner_returns_failure_after_retries():
     attempts = 0
 

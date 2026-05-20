@@ -24,6 +24,7 @@ class BackupRunResult:
     success: bool
     config_text: str
     message: str
+    error_code: str | None = None
 
 
 class BackupRunner:
@@ -44,9 +45,10 @@ class BackupRunner:
         protocol = protocol.lower()
         allowed_protocols = {"ssh", "telnet", "http", "https", "websmart", "websmart-v2"}
         if protocol not in allowed_protocols:
-            return BackupRunResult(False, "", f"Unsupported protocol: {protocol}")
+            return BackupRunResult(False, "", f"Unsupported protocol: {protocol}", "UNKNOWN")
 
         last_error = "Backup failed"
+        last_code = "UNKNOWN"
         for attempt in range(self.config.max_retries):
             if attempt > 0:
                 delay = self.config.retry_delay * (self.config.backoff_multiplier ** (attempt - 1))
@@ -63,12 +65,23 @@ class BackupRunner:
                 return BackupRunResult(True, config_text, "Backup completed successfully")
             except Exception as exc:
                 last_error = str(exc)
+                last_code = self._categorize_error(exc)
             finally:
                 try:
                     await client.disconnect()
                 except Exception:
                     pass
-        return BackupRunResult(False, "", f"Backup failed after {self.config.max_retries} attempts: {last_error}")
+        return BackupRunResult(False, "", f"Backup failed after {self.config.max_retries} attempts: {last_error}", last_code)
+
+    def _categorize_error(self, exc: Exception) -> str:
+        text = str(exc).lower()
+        if isinstance(exc, TimeoutError) or "timeout" in text:
+            return "CONNECTION_TIMEOUT"
+        if isinstance(exc, PermissionError) or "auth" in text or "password" in text:
+            return "AUTHENTICATION_ERROR"
+        if "prompt" in text:
+            return "PROMPT_NOT_DETECTED"
+        return "UNKNOWN"
 
     def _make_client(self, protocol: str, host: str, port: int, username: str, password: str, enable_password: str) -> BackupClient:
         if self.client_factory is not None:

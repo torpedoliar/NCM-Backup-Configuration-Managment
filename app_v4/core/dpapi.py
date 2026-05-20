@@ -13,6 +13,9 @@ class ProtectionProvider(Protocol):
         raise NotImplementedError
 
 
+CRYPTPROTECT_UI_FORBIDDEN = 0x1
+
+
 class WindowsDpapiProvider:
     def protect(self, plaintext: bytes) -> bytes:
         import win32crypt
@@ -23,13 +26,13 @@ class WindowsDpapiProvider:
             None,
             None,
             None,
-            0,
+            CRYPTPROTECT_UI_FORBIDDEN,
         )
 
     def unprotect(self, ciphertext: bytes) -> bytes:
         import win32crypt
 
-        _description, plaintext = win32crypt.CryptUnprotectData(ciphertext, None, None, None, 0)
+        _description, plaintext = win32crypt.CryptUnprotectData(ciphertext, None, None, None, CRYPTPROTECT_UI_FORBIDDEN)
         return plaintext
 
 
