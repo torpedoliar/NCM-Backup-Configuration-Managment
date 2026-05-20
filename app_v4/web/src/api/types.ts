@@ -44,6 +44,15 @@ export interface SwitchCreateInput {
 
 export type SwitchUpdateInput = Partial<SwitchCreateInput>;
 
+export interface BackupFilters {
+  switch_id?: number;
+  success?: boolean;
+  backup_type?: 'manual' | 'automatic' | 'manual_schedule';
+  from_ts?: string;
+  to_ts?: string;
+  q?: string;
+}
+
 export interface CredentialCreateInput {
   name: string;
   username: string;

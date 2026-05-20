@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import type {
+  BackupFilters,
   BackupRecord,
   CredentialCreateInput,
   CredentialRecord,
@@ -232,4 +233,28 @@ export function useResetUserPassword() {
     mutationFn: async (vars: { id: number; password: string }) =>
       (await api.post(`/users/${vars.id}/password`, { password: vars.password })).data,
   });
+}
+
+export function useFilteredBackups(filters: BackupFilters) {
+  return useQuery({
+    queryKey: ['backups', 'filtered', filters],
+    queryFn: async () => (await api.get<BackupRecord[]>('/backups', { params: filters })).data,
+    staleTime: 15 * SECOND,
+  });
+}
+
+export async function fetchBackupContent(id: number): Promise<string> {
+  return (await api.get<string>(`/backups/${id}/content`, { responseType: 'text' })).data as unknown as string;
+}
+
+export function useDeleteBackup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/backups/${id}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['backups'] }),
+  });
+}
+
+export function downloadBackupUrl(id: number): string {
+  return `/api/v1/backups/${id}/content?download=true`;
 }
