@@ -101,3 +101,29 @@ async def test_backup_service_runs_websmart_switch(test_settings, session_factor
     assert result["success"] is True
     assert result["backup_id"] > 0
     assert calls == [("websmart", "10.0.0.20", 80, "manager", "friend", "")]
+
+
+@pytest.mark.asyncio
+async def test_manual_backup_blocked_for_inactive_switch(test_settings, session_factory, crypto_service):
+    service = BackupService(
+        settings=test_settings,
+        session_factory=session_factory,
+        crypto_service=crypto_service,
+        runner=FakeRunner(BackupRunResult(True, "config text", "ok")),
+        diff_service=DiffService(test_settings),
+    )
+    async with session_factory() as session:
+        repo = Repository(session)
+        blob = crypto_service.encrypt_credential("admin", "secret", "")
+        cred = await repo.create_credential("cred", blob)
+        switch = await repo.create_switch("sw_off", "10.0.0.99", "ssh", 22, cred.id)
+        await session.commit()
+        switch_id = switch.id
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.deactivate_switch(switch_id)
+        await session.commit()
+
+    with pytest.raises(ValueError, match="inactive"):
+        await service.execute_backup(switch_id=switch_id, backup_type="manual", triggered_by_user_id=None)

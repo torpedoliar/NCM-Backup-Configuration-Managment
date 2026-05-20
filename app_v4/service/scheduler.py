@@ -71,12 +71,14 @@ class SchedulerService:
         async with self.session_factory() as session:
             repo = Repository(session)
             jobs = await repo.list_jobs()
-        enabled_ids = {job.id for job in jobs if job.enabled}
+            switches = await repo.list_switches(include_inactive=True)
+        active_switch_ids = {sw.id for sw in switches if sw.is_active}
+        runnable_ids = {job.id for job in jobs if job.enabled and job.switch_id in active_switch_ids}
         for job_id in list(self.job_map):
-            if job_id not in enabled_ids:
+            if job_id not in runnable_ids:
                 self.remove_job(job_id)
         for job in jobs:
-            if not job.enabled:
+            if not job.enabled or job.switch_id not in active_switch_ids:
                 continue
             time_pair = (job.schedule_hour, job.schedule_minute)
             if job.id not in self.job_map:

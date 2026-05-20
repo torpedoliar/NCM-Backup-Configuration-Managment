@@ -44,6 +44,8 @@ class BackupService:
             switch = await repo.get_switch(switch_id)
             if switch is None:
                 raise ValueError(f"Switch ID {switch_id} not found")
+            if not switch.is_active:
+                raise ValueError(f"Switch {switch_id} is inactive")
             switch_name = switch.name
             protocol = switch.protocol
             host = switch.ip

@@ -61,6 +61,8 @@ async def _run_backup(runtime: ServiceRuntime, switch_id: int, user_id: int, req
             triggered_by_user_id=user_id,
         )
     except ValueError as exc:
+        if "inactive" in str(exc).lower():
+            raise problem(409, "Conflict", str(exc)) from exc
         raise problem(404, "Not Found", str(exc)) from exc
     await runtime.audit_writer.record(
         action="backup.manual_triggered",

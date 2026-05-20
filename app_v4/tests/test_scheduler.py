@@ -51,3 +51,30 @@ async def test_scheduler_execute_job_runs_backup_and_updates_last_run(test_setti
         repo = Repository(session)
         loaded = await repo.get_job(job_id)
     assert loaded.last_ran_at is not None
+
+
+@pytest.mark.asyncio
+async def test_scheduler_skips_jobs_for_inactive_switches(test_settings, session_factory):
+    backup_service = FakeBackupService()
+    scheduler = SchedulerService(test_settings, session_factory, backup_service)
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(switch.id, 60, True, 8, 30)
+        await session.commit()
+        job_id = job.id
+        switch_id = switch.id
+
+    await scheduler.sync_once()
+    assert job_id in scheduler.job_map
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.deactivate_switch(switch_id)
+        await session.commit()
+
+    await scheduler.sync_once()
+    assert job_id not in scheduler.job_map
+
+    await scheduler.stop()
