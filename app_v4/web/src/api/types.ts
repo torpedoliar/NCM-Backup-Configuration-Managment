@@ -32,3 +32,25 @@ export interface BackupRecord { id: number; switch_id: number; backup_type: stri
 export interface JobRecord { id: number; switch_id: number; name: string; interval_minutes: number; schedule_hour: number; schedule_minute: number; enabled: boolean; last_run_at?: string | null; }
 export interface UserRecord { id: number; username: string; role: Role; is_active: boolean; created_at: string; last_login_at?: string | null; }
 export interface ProblemDetails { type: string; title: string; status: number; detail: string; }
+
+export interface SwitchCreateInput {
+  name: string;
+  ip: string;
+  protocol: string;
+  port: number;
+  credential_id: number;
+  notes?: string | null;
+}
+
+export interface SwitchUpdateInput extends Partial<SwitchCreateInput> {
+  is_active?: boolean;
+}
+
+export interface CredentialCreateInput {
+  name: string;
+  username: string;
+  password: string;
+  enable_password?: string;
+}
+
+export type CredentialUpdateInput = Partial<CredentialCreateInput>;
