@@ -139,6 +139,13 @@ class SchedulerService:
         if aps_id and self.scheduler.get_job(aps_id):
             self.scheduler.remove_job(aps_id)
 
+    def reschedule_retention(self, hour: int, minute: int) -> None:
+        if self.scheduler.get_job("retention-nightly"):
+            self.scheduler.reschedule_job(
+                "retention-nightly",
+                trigger=CronTrigger(hour=hour, minute=minute),
+            )
+
     async def execute_scheduled_backup(self, job_id: int, switch_id: int) -> None:
         started_at = datetime.utcnow()
         await publish(self.event_hub, "job_triggered", {"job_id": job_id, "switch_id": switch_id})
