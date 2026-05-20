@@ -15,3 +15,11 @@ def test_main_window_switches_to_inventory(qtbot):
     qtbot.addWidget(window)
     window.sidebar.buttons["Switches"].click()
     assert window.stack.currentWidget().__class__.__name__ == "InventoryView"
+
+
+def test_desktop_shell_has_ops_terminal_status(qtbot):
+    window = MainWindow(service_url="http://127.0.0.1:8443")
+    qtbot.addWidget(window)
+
+    assert window.topbar.service_pulse.text() == "SERVICE / RUNNING"
+    assert window.sidebar.version_tag.text() == "V3.5.7 / PROD"
