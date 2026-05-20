@@ -13,6 +13,7 @@ const DiffPage = lazy(() => import('./pages/DiffPage').then((m) => ({ default: m
 const SchedulesPage = lazy(() => import('./pages/SchedulesPage').then((m) => ({ default: m.SchedulesPage })));
 const UsersPage = lazy(() => import('./pages/UsersPage').then((m) => ({ default: m.UsersPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const AuditPage = lazy(() => import('./pages/AuditPage').then((m) => ({ default: m.AuditPage })));
 
 function PageFallback() {
   return <div className="marker" style={{ padding: 24 }}>/LOADING</div>;
@@ -34,6 +35,7 @@ export function App() {
               <Route path="/schedules" component={SchedulesPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/settings" component={SettingsPage} />
+              <Route path="/audit" component={AuditPage} />
             </Suspense>
           </Shell>
         </ProtectedRoute>

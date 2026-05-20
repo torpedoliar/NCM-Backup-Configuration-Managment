@@ -83,3 +83,28 @@ export interface UserCreateInput {
 }
 
 export type UserUpdateInput = Partial<Omit<UserCreateInput, 'password'>>;
+
+export interface AuditEntry {
+  id: number;
+  user_id: number | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  ip: string | null;
+  ts: string;
+  detail_json: Record<string, unknown> | null;
+}
+
+export interface AuditFilters {
+  action?: string;
+  user_id?: number;
+  from_ts?: string;
+  to_ts?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuditPageData {
+  rows: AuditEntry[];
+  total: number;
+}

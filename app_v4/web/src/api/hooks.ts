@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import type {
+  AuditEntry,
+  AuditFilters,
+  AuditPageData,
   BackupFilters,
   BackupRecord,
   CredentialCreateInput,
@@ -269,4 +272,17 @@ export async function downloadBackup(id: number): Promise<void> {
   a.download = match?.[1] ?? `backup-${id}.txt`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export function useAudit(filters: AuditFilters) {
+  return useQuery<AuditPageData>({
+    queryKey: ['audit', filters],
+    queryFn: async () => {
+      const response = await api.get<AuditEntry[]>('/audit', { params: filters });
+      const headerTotal = response.headers['x-total-count'];
+      const total = Number(headerTotal ?? response.data.length);
+      return { rows: response.data, total: Number.isFinite(total) ? total : response.data.length };
+    },
+    staleTime: 30 * SECOND,
+  });
 }
