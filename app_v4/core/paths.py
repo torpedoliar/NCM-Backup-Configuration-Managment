@@ -13,6 +13,7 @@ class AppPaths:
     logs_dir: Path
     backups_dir: Path
     static_dir: Path
+    database_file: Path
     master_envelope_file: Path
     master_key_file: Path
     scheduler_lock_file: Path
@@ -28,6 +29,7 @@ def resolve_paths(settings: Settings) -> AppPaths:
         logs_dir=base_dir / "logs",
         backups_dir=backups_dir,
         static_dir=base_dir / "app_v4" / "service" / "static",
+        database_file=base_dir / "data" / "app.db",
         master_envelope_file=base_dir / "data" / "master.dpapi",
         master_key_file=base_dir / "data" / "master.key",
         scheduler_lock_file=base_dir / "data" / "scheduler.lock",
