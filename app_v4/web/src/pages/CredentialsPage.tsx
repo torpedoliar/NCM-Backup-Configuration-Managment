@@ -5,6 +5,7 @@ import {
   useDeleteCredential,
   useUpdateCredential,
 } from '../api/hooks';
+import type { CredentialUpdateInput } from '../api/types';
 
 interface DraftCred {
   id: number | null;
@@ -44,9 +45,9 @@ export function CredentialsPage() {
       );
     } else {
       // On update, only send fields that were typed (don't accidentally blank password).
-      const input: Partial<DraftCred> = { name: draft.name, username: draft.username };
-      if (draft.password) (input as { password: string }).password = draft.password;
-      if (draft.enable_password) (input as { enable_password: string }).enable_password = draft.enable_password;
+      const input: CredentialUpdateInput = { name: draft.name, username: draft.username };
+      if (draft.password) input.password = draft.password;
+      if (draft.enable_password) input.enable_password = draft.enable_password;
       update.mutate({ id: draft.id, input }, { onSuccess: cancel });
     }
   }

@@ -11,7 +11,7 @@ import {
   useUpdateSwitch,
 } from '../api/hooks';
 import { CredentialCombo } from '../components/CredentialCombo';
-import type { SwitchRecord } from '../api/types';
+import type { CredentialRecord, SwitchRecord } from '../api/types';
 
 const PROTOCOLS = ['ssh', 'telnet', 'websmart'] as const;
 const DEFAULT_PORT: Record<string, number> = { ssh: 22, telnet: 23, websmart: 443 };
@@ -164,7 +164,7 @@ export function SwitchesPage() {
 function DraftRow(props: {
   draft: DraftSwitch;
   setDraft: (d: DraftSwitch) => void;
-  credentials: { id: number; name: string }[];
+  credentials: CredentialRecord[];
   showNewCred: boolean;
   setShowNewCred: (v: boolean) => void;
   newCred: { name: string; username: string; password: string; enable_password: string };
@@ -173,6 +173,10 @@ function DraftRow(props: {
   onCancel: () => void;
 }) {
   const { draft, setDraft, credentials, showNewCred, setShowNewCred, newCred, setNewCred, onSave, onCancel } = props;
+  const credentialReady = showNewCred
+    ? !!newCred.name && !!newCred.username && !!newCred.password
+    : draft.credential_id !== null;
+  const canSave = !!draft.name && !!draft.ip && credentialReady;
   return (
     <>
       <tr className="draft-row">
@@ -186,7 +190,7 @@ function DraftRow(props: {
         <td><input type="number" value={draft.port} min={1} max={65535} onChange={(e) => setDraft({ ...draft, port: Number(e.target.value) })} /></td>
         <td>
           <CredentialCombo
-            credentials={credentials as never}
+            credentials={credentials}
             value={draft.credential_id}
             onChange={(id) => { setDraft({ ...draft, credential_id: id }); setShowNewCred(false); }}
             onCreateNew={() => setShowNewCred(true)}
@@ -194,7 +198,7 @@ function DraftRow(props: {
         </td>
         <td>—</td>
         <td className="row-actions">
-          <button onClick={onSave}>Save</button>
+          <button onClick={onSave} disabled={!canSave}>Save</button>
           <button onClick={onCancel}>Cancel</button>
         </td>
       </tr>

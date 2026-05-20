@@ -13,6 +13,7 @@ from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.diff_service import DiffService
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
+from app_v4.service.backup_service import SwitchInactiveError
 
 router = APIRouter(tags=["backups"])
 
@@ -60,9 +61,9 @@ async def _run_backup(runtime: ServiceRuntime, switch_id: int, user_id: int, req
             backup_type="manual",
             triggered_by_user_id=user_id,
         )
+    except SwitchInactiveError as exc:
+        raise problem(409, "Conflict", str(exc)) from exc
     except ValueError as exc:
-        if "inactive" in str(exc).lower():
-            raise problem(409, "Conflict", str(exc)) from exc
         raise problem(404, "Not Found", str(exc)) from exc
     await runtime.audit_writer.record(
         action="backup.manual_triggered",

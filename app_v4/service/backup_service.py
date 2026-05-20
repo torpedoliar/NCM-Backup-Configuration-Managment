@@ -15,6 +15,10 @@ from app_v4.service.diff_service import DiffService
 from app_v4.service.events import EventHub, publish
 
 
+class SwitchInactiveError(ValueError):
+    """Raised by execute_backup when the target switch is inactive."""
+
+
 class BackupService:
     def __init__(
         self,
@@ -45,7 +49,7 @@ class BackupService:
             if switch is None:
                 raise ValueError(f"Switch ID {switch_id} not found")
             if not switch.is_active:
-                raise ValueError(f"Switch {switch_id} is inactive")
+                raise SwitchInactiveError(f"Switch {switch_id} is inactive")
             switch_name = switch.name
             protocol = switch.protocol
             host = switch.ip

@@ -42,9 +42,7 @@ export interface SwitchCreateInput {
   notes?: string | null;
 }
 
-export interface SwitchUpdateInput extends Partial<SwitchCreateInput> {
-  is_active?: boolean;
-}
+export type SwitchUpdateInput = Partial<SwitchCreateInput>;
 
 export interface CredentialCreateInput {
   name: string;

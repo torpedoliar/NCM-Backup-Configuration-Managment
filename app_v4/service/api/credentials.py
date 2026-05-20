@@ -78,7 +78,7 @@ async def create_credential(
 
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="credential.create",
+        action="credential.created",
         target_type="credential",
         target_id=str(cred.id),
         ip=request.client.host if request.client else None,
@@ -125,7 +125,7 @@ async def update_credential(
 
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="credential.update",
+        action="credential.updated",
         target_type="credential",
         target_id=str(cred_id),
         ip=request.client.host if request.client else None,
@@ -156,7 +156,7 @@ async def delete_credential(
 
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="credential.delete",
+        action="credential.deleted",
         target_type="credential",
         target_id=str(cred_id),
         ip=request.client.host if request.client else None,
