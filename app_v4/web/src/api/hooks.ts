@@ -63,3 +63,11 @@ export function useTriggerBackup() {
     },
   });
 }
+
+export function useLatestBackupPerSwitch() {
+  return useQuery({
+    queryKey: ['backups', 'latest-per-switch'],
+    queryFn: async () => (await api.get<BackupRecord[]>('/backups', { params: { limit: 1000 } })).data,
+    staleTime: 30 * SECOND,
+  });
+}
