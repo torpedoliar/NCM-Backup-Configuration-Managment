@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,10 +18,12 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 class JobOut(BaseModel):
     id: int
     switch_id: int
+    name: str
     interval_minutes: int
     enabled: bool
     schedule_hour: int
     schedule_minute: int
+    last_run_at: datetime | None = None
 
 
 class JobCreate(BaseModel):
@@ -38,13 +42,16 @@ class JobUpdate(BaseModel):
 
 
 def _to_out(job) -> JobOut:
+    switch_name = job.switch.name if getattr(job, "switch", None) is not None else f"job-{job.id}"
     return JobOut(
         id=job.id,
         switch_id=job.switch_id,
+        name=switch_name,
         interval_minutes=job.interval_minutes,
         enabled=job.enabled,
         schedule_hour=job.schedule_hour,
         schedule_minute=job.schedule_minute,
+        last_run_at=job.last_ran_at,
     )
 
 
@@ -70,6 +77,7 @@ async def create_job(
         raise problem(422, "Unprocessable Entity", "Referenced switch does not exist")
     job = await repo.create_job(payload.switch_id, payload.interval_minutes, payload.enabled, payload.schedule_hour, payload.schedule_minute)
     await session.commit()
+    job = await repo.get_job(job.id)
     await runtime.audit_writer.record(
         action="job.created",
         user_id=actor.user_id,

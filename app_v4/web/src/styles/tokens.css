@@ -1,0 +1,21 @@
+:root {
+  --ink: #0a0a0a;
+  --ink-2: #111111;
+  --surface: #141414;
+  --surface-2: #1a1a1a;
+  --line: #262626;
+  --line-2: #333333;
+  --bone: #fafaf7;
+  --bone-2: #e5e5e2;
+  --muted: #737373;
+  --muted-2: #525252;
+  --amber: #ffb800;
+  --amber-2: #ffd166;
+  --red: #ff3838;
+  --green: #4ade80;
+  --cyan: #22d3ee;
+  --violet: #a78bfa;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-body: 'Geist', system-ui, sans-serif;
+  --font-display: 'Instrument Serif', serif;
+}

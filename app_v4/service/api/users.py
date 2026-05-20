@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +20,8 @@ class UserOut(BaseModel):
     username: str
     role: str
     is_active: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
 
 
 class UserCreate(BaseModel):
@@ -33,7 +37,14 @@ class UserUpdate(BaseModel):
 
 
 def _to_out(user) -> UserOut:
-    return UserOut(id=user.id, username=user.username, role=user.role, is_active=user.is_active)
+    return UserOut(
+        id=user.id,
+        username=user.username,
+        role=user.role,
+        is_active=user.is_active,
+        created_at=user.created_at,
+        last_login_at=user.last_login_at,
+    )
 
 
 @router.get("", response_model=list[UserOut])

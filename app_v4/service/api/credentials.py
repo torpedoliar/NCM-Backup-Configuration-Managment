@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +18,17 @@ router = APIRouter(prefix="/credentials", tags=["credentials"])
 class CredentialOut(BaseModel):
     id: int
     name: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+def _credential_to_out(cred) -> CredentialOut:
+    return CredentialOut(
+        id=cred.id,
+        name=cred.name,
+        created_at=getattr(cred, "created_at", None),
+        updated_at=getattr(cred, "updated_at", None),
+    )
 
 
 class CredentialCreate(BaseModel):
@@ -44,7 +57,7 @@ async def list_credentials(
     _user: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> list[CredentialOut]:
     repo = Repository(session)
-    return [CredentialOut(id=c.id, name=c.name) for c in await repo.list_credentials()]
+    return [_credential_to_out(c) for c in await repo.list_credentials()]
 
 
 @router.post("", response_model=CredentialOut, status_code=status.HTTP_201_CREATED)
@@ -71,7 +84,7 @@ async def create_credential(
         ip=request.client.host if request.client else None,
         detail={"name": cred.name},
     )
-    return CredentialOut(id=cred.id, name=cred.name)
+    return _credential_to_out(cred)
 
 
 @router.patch("/{cred_id}", response_model=CredentialOut)
@@ -121,7 +134,7 @@ async def update_credential(
             "secret_changed": secret_changed,
         },
     )
-    return CredentialOut(id=updated.id, name=updated.name)
+    return _credential_to_out(updated)
 
 
 @router.delete("/{cred_id}", status_code=status.HTTP_204_NO_CONTENT)
