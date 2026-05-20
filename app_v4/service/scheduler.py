@@ -82,16 +82,47 @@ class SchedulerService:
                 continue
             time_pair = (job.schedule_hour, job.schedule_minute)
             if job.id not in self.job_map:
-                self.add_job(job.id, job.switch_id, job.interval_minutes, job.schedule_hour, job.schedule_minute)
+                self.add_job(
+                    job.id,
+                    job.switch_id,
+                    job.interval_minutes,
+                    job.schedule_hour,
+                    job.schedule_minute,
+                    job.day_of_week,
+                    job.day_of_month,
+                )
             elif self.job_interval_map.get(job.id) != job.interval_minutes or self.job_time_map.get(job.id) != time_pair:
                 self.remove_job(job.id)
-                self.add_job(job.id, job.switch_id, job.interval_minutes, job.schedule_hour, job.schedule_minute)
+                self.add_job(
+                    job.id,
+                    job.switch_id,
+                    job.interval_minutes,
+                    job.schedule_hour,
+                    job.schedule_minute,
+                    job.day_of_week,
+                    job.day_of_month,
+                )
 
-    def add_job(self, job_id: int, switch_id: int, interval_minutes: int, schedule_hour: int, schedule_minute: int) -> None:
+    def add_job(
+        self,
+        job_id: int,
+        switch_id: int,
+        interval_minutes: int,
+        schedule_hour: int,
+        schedule_minute: int,
+        day_of_week: str | None = None,
+        day_of_month: int | None = None,
+    ) -> None:
         aps_id = f"backup_job_{job_id}"
         self.scheduler.add_job(
             self.execute_scheduled_backup,
-            trigger=self._build_trigger(interval_minutes, schedule_hour, schedule_minute),
+            trigger=self._build_trigger_v2(
+                interval_minutes,
+                schedule_hour,
+                schedule_minute,
+                day_of_week,
+                day_of_month,
+            ),
             id=aps_id,
             args=[job_id, switch_id],
             replace_existing=True,
@@ -122,13 +153,20 @@ class SchedulerService:
             await repo.update_job(job_id, last_ran_at=started_at)
             await session.commit()
 
-    def _build_trigger(self, interval_minutes: int, schedule_hour: int, schedule_minute: int):
+    def _build_trigger_v2(
+        self,
+        interval_minutes: int,
+        schedule_hour: int,
+        schedule_minute: int,
+        day_of_week: str | None,
+        day_of_month: int | None,
+    ):
         if interval_minutes == 1440:
             return CronTrigger(hour=schedule_hour, minute=schedule_minute)
         if interval_minutes == 10080:
-            return CronTrigger(day_of_week="mon", hour=schedule_hour, minute=schedule_minute)
+            return CronTrigger(day_of_week=day_of_week or "mon", hour=schedule_hour, minute=schedule_minute)
         if interval_minutes == 43200:
-            return CronTrigger(day=1, hour=schedule_hour, minute=schedule_minute)
+            return CronTrigger(day=day_of_month or 1, hour=schedule_hour, minute=schedule_minute)
         return IntervalTrigger(minutes=interval_minutes)
 
     async def _sync_loop(self) -> None:

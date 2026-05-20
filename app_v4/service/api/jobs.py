@@ -23,22 +23,30 @@ class JobOut(BaseModel):
     enabled: bool
     schedule_hour: int
     schedule_minute: int
+    day_of_week: str | None = None
+    day_of_month: int | None = None
     last_run_at: datetime | None = None
 
 
 class JobCreate(BaseModel):
     switch_id: int
+    name: str | None = None
     interval_minutes: int = Field(gt=0)
     enabled: bool = True
     schedule_hour: int = Field(default=8, ge=0, le=23)
     schedule_minute: int = Field(default=0, ge=0, le=59)
+    day_of_week: str | None = None
+    day_of_month: int | None = None
 
 
 class JobUpdate(BaseModel):
+    name: str | None = None
     interval_minutes: int | None = Field(default=None, gt=0)
     enabled: bool | None = None
     schedule_hour: int | None = Field(default=None, ge=0, le=23)
     schedule_minute: int | None = Field(default=None, ge=0, le=59)
+    day_of_week: str | None = None
+    day_of_month: int | None = None
 
 
 def _to_out(job) -> JobOut:
@@ -51,6 +59,8 @@ def _to_out(job) -> JobOut:
         enabled=job.enabled,
         schedule_hour=job.schedule_hour,
         schedule_minute=job.schedule_minute,
+        day_of_week=job.day_of_week,
+        day_of_month=job.day_of_month,
         last_run_at=job.last_ran_at,
     )
 
@@ -75,7 +85,16 @@ async def create_job(
     repo = Repository(session)
     if await repo.get_switch(payload.switch_id) is None:
         raise problem(422, "Unprocessable Entity", "Referenced switch does not exist")
-    job = await repo.create_job(payload.switch_id, payload.interval_minutes, payload.enabled, payload.schedule_hour, payload.schedule_minute)
+    # `name` is accepted for forward compatibility but ignored — JobOut.name is derived from the switch.
+    job = await repo.create_job(
+        switch_id=payload.switch_id,
+        interval_minutes=payload.interval_minutes,
+        enabled=payload.enabled,
+        schedule_hour=payload.schedule_hour,
+        schedule_minute=payload.schedule_minute,
+        day_of_week=payload.day_of_week,
+        day_of_month=payload.day_of_month,
+    )
     await session.commit()
     job = await repo.get_job(job.id)
     await runtime.audit_writer.record(

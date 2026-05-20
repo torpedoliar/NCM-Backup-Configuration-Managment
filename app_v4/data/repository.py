@@ -333,6 +333,8 @@ class Repository:
         enabled: bool = True,
         schedule_hour: int = 8,
         schedule_minute: int = 0,
+        day_of_week: str | None = None,
+        day_of_month: int | None = None,
     ) -> Job:
         job = Job(
             switch_id=switch_id,
@@ -340,6 +342,8 @@ class Repository:
             enabled=enabled,
             schedule_hour=schedule_hour,
             schedule_minute=schedule_minute,
+            day_of_week=day_of_week,
+            day_of_month=day_of_month,
         )
         self.session.add(job)
         await self.session.flush()

@@ -78,3 +78,34 @@ async def test_scheduler_skips_jobs_for_inactive_switches(test_settings, session
     assert job_id not in scheduler.job_map
 
     await scheduler.stop()
+
+
+def test_build_trigger_weekly_uses_day_of_week(test_settings, session_factory):
+    backup_service = FakeBackupService()
+    scheduler = SchedulerService(test_settings, session_factory, backup_service)
+    trigger = scheduler._build_trigger_v2(
+        interval_minutes=10080,
+        schedule_hour=8,
+        schedule_minute=30,
+        day_of_week="fri",
+        day_of_month=None,
+    )
+    fields = {f.name: str(f) for f in trigger.fields}
+    assert fields["day_of_week"] == "fri"
+    assert fields["hour"] == "8"
+    assert fields["minute"] == "30"
+
+
+def test_build_trigger_monthly_uses_day_of_month(test_settings, session_factory):
+    backup_service = FakeBackupService()
+    scheduler = SchedulerService(test_settings, session_factory, backup_service)
+    trigger = scheduler._build_trigger_v2(
+        interval_minutes=43200,
+        schedule_hour=2,
+        schedule_minute=0,
+        day_of_week=None,
+        day_of_month=15,
+    )
+    fields = {f.name: str(f) for f in trigger.fields}
+    assert fields["day"] == "15"
+    assert fields["hour"] == "2"
