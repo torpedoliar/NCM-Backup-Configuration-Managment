@@ -302,10 +302,25 @@ class Repository:
         self,
         switch_id: int | None = None,
         limit: int | None = None,
+        success: bool | None = None,
+        backup_type: str | None = None,
+        from_ts: datetime | None = None,
+        to_ts: datetime | None = None,
+        q: str | None = None,
     ) -> list[Backup]:
         stmt = select(Backup).order_by(Backup.taken_at.desc())
         if switch_id is not None:
             stmt = stmt.where(Backup.switch_id == switch_id)
+        if success is not None:
+            stmt = stmt.where(Backup.success.is_(success))
+        if backup_type is not None:
+            stmt = stmt.where(Backup.backup_type == backup_type)
+        if from_ts is not None:
+            stmt = stmt.where(Backup.taken_at >= from_ts)
+        if to_ts is not None:
+            stmt = stmt.where(Backup.taken_at <= to_ts)
+        if q:
+            stmt = stmt.where(Backup.message.ilike(f"%{q}%"))
         if limit is not None:
             stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)

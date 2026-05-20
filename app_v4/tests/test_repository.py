@@ -212,6 +212,46 @@ async def test_backup_repository_methods(session_factory):
 
 
 @pytest.mark.asyncio
+async def test_list_backups_filters_by_success_type_q_and_date(session_factory):
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("c", b"x")
+        sw = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        await repo.create_backup(
+            switch_id=sw.id,
+            file_path="",
+            content_hash="x",
+            size_bytes=10,
+            success=True,
+            message="ok manual",
+            backup_type="manual",
+        )
+        await repo.create_backup(
+            switch_id=sw.id,
+            file_path="",
+            content_hash="y",
+            size_bytes=20,
+            success=False,
+            message="timeout",
+            backup_type="automatic",
+        )
+        await session.commit()
+        sw_id = sw.id
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        success_only = await repo.list_backups(switch_id=sw_id, success=True)
+        failed_only = await repo.list_backups(switch_id=sw_id, success=False)
+        manual_only = await repo.list_backups(switch_id=sw_id, backup_type="manual")
+        searched = await repo.list_backups(switch_id=sw_id, q="time")
+
+    assert len(success_only) == 1 and success_only[0].success is True
+    assert len(failed_only) == 1 and failed_only[0].success is False
+    assert len(manual_only) == 1 and manual_only[0].backup_type == "manual"
+    assert len(searched) == 1 and "time" in (searched[0].message or "")
+
+
+@pytest.mark.asyncio
 async def test_job_repository_methods(session_factory):
     async with session_factory() as session:
         repo = Repository(session)
