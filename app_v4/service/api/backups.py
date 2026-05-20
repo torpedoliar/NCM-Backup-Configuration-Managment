@@ -104,11 +104,27 @@ async def trigger_backup(
 async def list_backups(
     switch_id: int | None = None,
     limit: int = 100,
+    success: bool | None = None,
+    backup_type: str | None = None,
+    from_ts: datetime | None = None,
+    to_ts: datetime | None = None,
+    q: str | None = None,
     session: AsyncSession = Depends(get_db),
     _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
 ) -> list[BackupOut]:
     repo = Repository(session)
-    return [_to_out(b) for b in await repo.list_backups(switch_id=switch_id, limit=limit)]
+    return [
+        _to_out(b)
+        for b in await repo.list_backups(
+            switch_id=switch_id,
+            limit=limit,
+            success=success,
+            backup_type=backup_type,
+            from_ts=from_ts,
+            to_ts=to_ts,
+            q=q,
+        )
+    ]
 
 
 @router.get("/backups/diff")
@@ -153,6 +169,7 @@ async def get_backup(
 @router.get("/backups/{backup_id}/content")
 async def get_backup_content(
     backup_id: int,
+    download: bool = False,
     session: AsyncSession = Depends(get_db),
     _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
 ) -> Response:
@@ -163,7 +180,44 @@ async def get_backup_content(
     path = Path(backup.file_path)
     if not path.exists():
         raise problem(404, "Not Found", "Backup file not found")
-    return Response(path.read_text(encoding="utf-8"), media_type="text/plain")
+    headers: dict[str, str] = {}
+    if download:
+        switch = await repo.get_switch(backup.switch_id)
+        switch_name = switch.name if switch is not None else f"switch-{backup.switch_id}"
+        ts = backup.taken_at.strftime("%Y%m%dT%H%M%S")
+        filename = f"{switch_name}_{ts}.txt".replace(" ", "_")
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return Response(path.read_text(encoding="utf-8"), media_type="text/plain", headers=headers)
+
+
+@router.delete("/backups/{backup_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_backup(
+    backup_id: int,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    session: AsyncSession = Depends(get_db),
+    actor: AccessClaims = Depends(require_role("admin")),
+) -> Response:
+    repo = Repository(session)
+    backup = await repo.get_backup(backup_id)
+    if backup is None:
+        raise problem(404, "Not Found", "Backup not found")
+    file_path = backup.file_path
+    await repo.delete_backup(backup_id)
+    await session.commit()
+    if file_path:
+        try:
+            Path(file_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="backup.deleted",
+        target_type="backup",
+        target_id=str(backup_id),
+        ip=request.client.host if request.client else None,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/backups/{backup_id}/diff")
