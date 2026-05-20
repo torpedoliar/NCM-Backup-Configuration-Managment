@@ -42,3 +42,72 @@ def test_audit_endpoint_is_admin_only(test_settings, session_factory):
     assert admin.status_code == 200
     assert admin.json()[0]["action"] == "switch.created"
     assert admin.json()[0]["detail_json"] == {"name": "sw01"}
+
+
+def test_list_audit_action_prefix(test_settings, session_factory):
+    async def seed():
+        async with session_factory() as session:
+            repo = Repository(session)
+            admin = await repo.create_user("admin", "h", "admin")
+            from app_v4.data.models import AuditLog
+
+            session.add(AuditLog(action="auth.login_success", user_id=admin.id))
+            session.add(AuditLog(action="switch.created", user_id=admin.id))
+            await session.commit()
+            return admin.id
+
+    import anyio
+
+    admin_id = anyio.run(seed)
+    client = TestClient(
+        create_app(
+            ServiceRuntime.for_tests(
+                test_settings,
+                session_factory=session_factory,
+                jwt_secret=JWT_SECRET,
+            )
+        )
+    )
+
+    r = client.get(
+        "/api/v1/audit?action=auth.",
+        headers={"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"},
+    )
+    assert r.status_code == 200
+    rows = r.json()
+    assert all(row["action"].startswith("auth.") for row in rows)
+    assert "x-total-count" in {k.lower() for k in r.headers.keys()}
+
+
+def test_audit_endpoint_pagination(test_settings, session_factory):
+    async def seed():
+        async with session_factory() as session:
+            repo = Repository(session)
+            admin = await repo.create_user("admin", "h", "admin")
+            from app_v4.data.models import AuditLog
+
+            for i in range(5):
+                session.add(AuditLog(action=f"event.{i}", user_id=admin.id))
+            await session.commit()
+            return admin.id
+
+    import anyio
+
+    admin_id = anyio.run(seed)
+    client = TestClient(
+        create_app(
+            ServiceRuntime.for_tests(
+                test_settings,
+                session_factory=session_factory,
+                jwt_secret=JWT_SECRET,
+            )
+        )
+    )
+
+    r = client.get(
+        "/api/v1/audit?limit=2&offset=1",
+        headers={"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"},
+    )
+    assert r.status_code == 200
+    assert len(r.json()) <= 2
+    assert r.headers["x-total-count"] == "5"

@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,10 +36,30 @@ class AuditOut(BaseModel):
 
 @router.get("/audit", response_model=list[AuditOut])
 async def list_audit(
+    response: Response,
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    action: str | None = Query(default=None),
+    user_id: int | None = Query(default=None),
+    from_ts: datetime | None = Query(default=None),
+    to_ts: datetime | None = Query(default=None),
     session: AsyncSession = Depends(get_db),
     _user=Depends(require_role("admin")),
 ) -> list[AuditOut]:
     repo = Repository(session)
-    rows = await repo.list_audit(limit=limit)
+    rows = await repo.list_audit(
+        limit=limit,
+        offset=offset,
+        action_prefix=action,
+        user_id=user_id,
+        from_ts=from_ts,
+        to_ts=to_ts,
+    )
+    total = await repo.count_audit(
+        action_prefix=action,
+        user_id=user_id,
+        from_ts=from_ts,
+        to_ts=to_ts,
+    )
+    response.headers["X-Total-Count"] = str(total)
     return [AuditOut.model_validate(row) for row in rows]
