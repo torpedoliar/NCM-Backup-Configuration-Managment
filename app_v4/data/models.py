@@ -33,6 +33,8 @@ class Switch(Base):
     port: Mapped[int] = mapped_column(Integer, nullable=False)
     credential_id: Mapped[int] = mapped_column(ForeignKey("credentials.id"), nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="1")
+    deactivated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
