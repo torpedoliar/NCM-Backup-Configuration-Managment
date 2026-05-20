@@ -91,3 +91,15 @@ async def test_init_db_adds_is_active_to_existing_switches(tmp_path: Path):
 
     assert "is_active" in columns
     assert "deactivated_at" in columns
+
+
+@pytest.mark.asyncio
+async def test_jobs_table_has_day_of_week_and_day_of_month(tmp_path):
+    db_url = f"sqlite+aiosqlite:///{(tmp_path / 'app.db').as_posix()}"
+    engine = create_async_engine(db_url)
+    await init_db(engine)
+    async with engine.begin() as conn:
+        cols = await conn.run_sync(lambda sync_conn: {c['name'] for c in inspect(sync_conn).get_columns('jobs')})
+    await engine.dispose()
+    assert 'day_of_week' in cols
+    assert 'day_of_month' in cols

@@ -73,6 +73,8 @@ class Job(Base):
     last_ran_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     schedule_hour: Mapped[int] = mapped_column(Integer, default=8, nullable=False)
     schedule_minute: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    day_of_week: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+    day_of_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
