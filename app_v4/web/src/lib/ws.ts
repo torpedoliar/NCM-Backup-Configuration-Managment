@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useLiveActivity } from '../store/liveActivity';
+import { useLiveEvents } from '../store/live-events';
 import type { LiveEvent } from '../api/types';
 
 export function openLiveSocket(token: string, onEvent: (event: LiveEvent) => void): WebSocket {
@@ -7,7 +7,11 @@ export function openLiveSocket(token: string, onEvent: (event: LiveEvent) => voi
   const socket = new WebSocket(`${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`);
   socket.onmessage = (message) => {
     try {
-      onEvent(JSON.parse(message.data) as LiveEvent);
+      const data: unknown = JSON.parse(message.data);
+      if (data && typeof data === 'object' && 'type' in data && 'ts' in data) {
+        useLiveEvents.getState().push(data as LiveEvent);
+        onEvent(data as LiveEvent);
+      }
     } catch {
       // ignore malformed frames
     }
@@ -16,7 +20,7 @@ export function openLiveSocket(token: string, onEvent: (event: LiveEvent) => voi
 }
 
 export function useLiveSocket(token: string | null) {
-  const push = useLiveActivity((state) => state.push);
+  const push = useLiveEvents((state) => state.push);
   useEffect(() => {
     if (!token) return;
     const socket = openLiveSocket(token, push);
