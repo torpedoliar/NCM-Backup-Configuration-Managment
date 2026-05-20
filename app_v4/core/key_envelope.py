@@ -16,6 +16,10 @@ class KeyEnvelope:
     version: int = 1
 
 
+class MasterKeyUnavailableError(RuntimeError):
+    pass
+
+
 class KeyEnvelopeStore:
     def __init__(self, path: Path, provider: ProtectionProvider):
         self.path = path
@@ -48,4 +52,4 @@ class KeyEnvelopeStore:
                 jwt_secret=base64.urlsafe_b64decode(payload["jwt_secret_b64"].encode("ascii")),
             )
         except Exception as exc:
-            raise ValueError("Unable to decrypt master key envelope") from exc
+            raise MasterKeyUnavailableError("MASTER_KEY_UNAVAILABLE: unable to decrypt master key envelope") from exc

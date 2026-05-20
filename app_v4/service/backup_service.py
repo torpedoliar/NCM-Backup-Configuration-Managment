@@ -68,6 +68,7 @@ class BackupService:
                 backup_type=backup_type,
                 job_id=job_id,
                 triggered_by_user_id=triggered_by_user_id,
+                error_code=run_result.error_code,
             )
             await publish(
                 self.event_hub,
@@ -136,6 +137,7 @@ class BackupService:
         backup_type: str,
         job_id: int | None,
         triggered_by_user_id: int | None,
+        error_code: str | None = None,
     ) -> dict:
         async with self.session_factory() as session:
             repo = Repository(session)
@@ -152,7 +154,7 @@ class BackupService:
             )
             await session.commit()
             backup_id = backup.id
-        return {"success": False, "message": message, "file_path": "", "size_kb": 0, "backup_id": backup_id}
+        return {"success": False, "message": message, "file_path": "", "size_kb": 0, "backup_id": backup_id, "error_code": error_code}
 
     def _save_config_file(self, switch_name: str, config_text: str, changed: bool) -> Path:
         paths = resolve_paths(self.settings)
