@@ -19,7 +19,7 @@
 }
 
 .login-marker {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 2px;
   color: var(--muted, #737373);
