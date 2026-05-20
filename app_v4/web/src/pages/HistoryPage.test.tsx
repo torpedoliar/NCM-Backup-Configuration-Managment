@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HistoryPage } from './HistoryPage';
 
-const filteredFactory = vi.fn(() => ({
+const filteredFactory = vi.fn((_filters: unknown) => ({
   data: [
     { id: 100, switch_id: 1, backup_type: 'manual', success: true,
       created_at: '2026-05-20T01:00:00Z', size_bytes: 2048, message: 'ok' },
@@ -30,7 +30,8 @@ describe('HistoryPage', () => {
     filteredFactory.mockClear();
     render(<HistoryPage />);
     await user.selectOptions(screen.getByLabelText(/state/i), 'success');
-    const lastCall = filteredFactory.mock.calls.at(-1)![0] as { success?: boolean };
+    const calls = filteredFactory.mock.calls;
+    const lastCall = calls[calls.length - 1]![0] as { success?: boolean };
     expect(lastCall.success).toBe(true);
   });
 
