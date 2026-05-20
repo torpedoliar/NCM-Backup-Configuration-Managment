@@ -1,20 +1,44 @@
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { it, expect, vi } from 'vitest';
-import { AuthContext } from './AuthProvider';
 import { LoginPage } from './LoginPage';
+import { AuthProvider } from './AuthProvider';
 
-it('submits username and password', async () => {
-  const login = vi.fn().mockResolvedValue(undefined);
-  render(
-    <AuthContext.Provider value={{ accessToken: null, user: null, login, logout: vi.fn() }}>
-      <LoginPage />
-    </AuthContext.Provider>,
-  );
+const loginMock = vi.fn();
+vi.mock('./AuthProvider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./AuthProvider')>();
+  return {
+    ...actual,
+    useAuth: () => ({ login: loginMock, logout: vi.fn(), user: null, accessToken: null, refreshToken: null }),
+  };
+});
 
-  await userEvent.type(screen.getByLabelText(/username/i), 'admin');
-  await userEvent.type(screen.getByLabelText(/password/i), 'secret');
-  await userEvent.click(screen.getByRole('button', { name: /enter terminal/i }));
+describe('LoginPage', () => {
+  it('renders inside a centered login card with form fields and submit', async () => {
+    render(
+      <AuthProvider>
+        <LoginPage />
+      </AuthProvider>,
+    );
 
-  expect(login).toHaveBeenCalledWith('admin', 'secret');
+    const card = document.querySelector('.login-card');
+    expect(card).toBeTruthy();
+
+    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /enter terminal/i })).toBeInTheDocument();
+  });
+
+  it('submits username and password', async () => {
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <LoginPage />
+      </AuthProvider>,
+    );
+    await user.type(screen.getByLabelText(/username/i), 'admin');
+    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.click(screen.getByRole('button', { name: /enter terminal/i }));
+    expect(loginMock).toHaveBeenCalledWith('admin', 'password123');
+  });
 });
