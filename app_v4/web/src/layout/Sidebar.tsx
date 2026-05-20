@@ -64,7 +64,7 @@ export function Sidebar() {
                 {item.count ? <span className="nav-count">{item.count}</span> : null}
               </Link>
             ))}
-            {group.label === 'Administration' && role === 'admin' ? (
+            {group.label === 'Monitoring' && role === 'admin' ? (
               <Link
                 href="/audit"
                 className={`nav-item ${location === '/audit' ? 'active' : ''}`}
