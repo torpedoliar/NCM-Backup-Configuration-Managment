@@ -27,8 +27,4 @@ describe('FleetGrid', () => {
     expect(cells[0]).toHaveAttribute('data-state', 'ok');
     expect(cells[1]).toHaveAttribute('data-state', 'fail');
   });
-
-  it('shows empty state when no switches', () => {
-    vi.resetModules();
-  });
 });
