@@ -5,12 +5,16 @@ import type {
   CredentialCreateInput,
   CredentialRecord,
   CredentialUpdateInput,
+  JobCreateInput,
   JobRecord,
+  JobUpdateInput,
   SwitchCreateInput,
   SwitchRecord,
   SwitchUpdateInput,
   SystemMetrics,
+  UserCreateInput,
   UserRecord,
+  UserUpdateInput,
 } from './types';
 
 const SECOND = 1000;
@@ -153,5 +157,79 @@ export function useDeleteCredential() {
   return useMutation({
     mutationFn: async (id: number) => (await api.delete(`/credentials/${id}`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['credentials'] }),
+  });
+}
+
+export function useCreateJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: JobCreateInput) => (await api.post<JobRecord>('/jobs', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+    },
+  });
+}
+
+export function useUpdateJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { id: number; input: JobUpdateInput }) =>
+      (await api.patch<JobRecord>(`/jobs/${vars.id}`, vars.input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  });
+}
+
+export function useDeleteJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/jobs/${id}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+    },
+  });
+}
+
+export function useRunJobNow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => (await api.post(`/jobs/${id}/run`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['backups'] });
+      qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+    },
+  });
+}
+
+export function useCreateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UserCreateInput) => (await api.post<UserRecord>('/users', input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+export function useUpdateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { id: number; input: UserUpdateInput }) =>
+      (await api.patch<UserRecord>(`/users/${vars.id}`, vars.input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+export function useDeleteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/users/${id}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+export function useResetUserPassword() {
+  return useMutation({
+    mutationFn: async (vars: { id: number; password: string }) =>
+      (await api.post(`/users/${vars.id}/password`, { password: vars.password })).data,
   });
 }

@@ -29,7 +29,7 @@ export interface LiveEvent {
 export interface SwitchRecord { id: number; name: string; ip: string; host: string; protocol: string; port: number; credential_id: number; credential?: { id: number; name: string }; notes?: string | null; is_active: boolean; }
 export interface CredentialRecord { id: number; name: string; username?: string; created_at?: string | null; updated_at?: string | null; }
 export interface BackupRecord { id: number; switch_id: number; backup_type: string; success: boolean; file_path?: string | null; created_at: string; message?: string | null; content_hash?: string; size_bytes?: number; }
-export interface JobRecord { id: number; switch_id: number; name: string; interval_minutes: number; schedule_hour: number; schedule_minute: number; enabled: boolean; last_run_at?: string | null; }
+export interface JobRecord { id: number; switch_id: number; name: string; interval_minutes: number; schedule_hour: number; schedule_minute: number; day_of_week?: string | null; day_of_month?: number | null; enabled: boolean; last_run_at?: string | null; }
 export interface UserRecord { id: number; username: string; role: Role; is_active: boolean; created_at: string; last_login_at?: string | null; }
 export interface ProblemDetails { type: string; title: string; status: number; detail: string; }
 
@@ -52,3 +52,25 @@ export interface CredentialCreateInput {
 }
 
 export type CredentialUpdateInput = Partial<CredentialCreateInput>;
+
+export interface JobCreateInput {
+  switch_id: number;
+  name: string;
+  interval_minutes: number;
+  schedule_hour: number;
+  schedule_minute: number;
+  day_of_week?: string | null;
+  day_of_month?: number | null;
+  enabled: boolean;
+}
+
+export type JobUpdateInput = Partial<JobCreateInput>;
+
+export interface UserCreateInput {
+  username: string;
+  password: string;
+  role: Role;
+  is_active?: boolean;
+}
+
+export type UserUpdateInput = Partial<Omit<UserCreateInput, 'password'>>;
