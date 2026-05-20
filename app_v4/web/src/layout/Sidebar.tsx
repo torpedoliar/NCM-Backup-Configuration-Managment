@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'wouter';
 import { useSystemMetrics } from '../api/hooks';
+import { useAuth } from '../auth/AuthProvider';
 
 type NavItem = { href: string; text: string; count?: string; icon: string };
 type NavGroup = { label: string; items: NavItem[] };
@@ -9,6 +10,8 @@ const count = (n?: number) => (n === undefined ? '—' : String(n));
 export function Sidebar() {
   const [location] = useLocation();
   const { data: metrics } = useSystemMetrics();
+  const auth = useAuth();
+  const role = auth.user?.role;
 
   const groups: NavGroup[] = [
     {
@@ -61,15 +64,27 @@ export function Sidebar() {
                 {item.count ? <span className="nav-count">{item.count}</span> : null}
               </Link>
             ))}
+            {group.label === 'Administration' && role === 'admin' ? (
+              <Link
+                href="/audit"
+                className={`nav-item ${location === '/audit' ? 'active' : ''}`}
+              >
+                <span className="nav-icon">⏱</span>
+                <span>Activity</span>
+              </Link>
+            ) : null}
           </nav>
         ))}
       </div>
 
-      <div className="operator-card">
-        <span className="operator-avatar">A</span>
-        <span>admin</span>
-        <span className="operator-online" />
-      </div>
+      <footer className="sidebar-footer">
+        <span className="user-chip">
+          <span className="dot ok" /> {auth.user?.username ?? 'admin'}
+        </span>
+        <button type="button" className="sign-out" onClick={() => { void auth.logout(); }}>
+          Sign out ↗
+        </button>
+      </footer>
     </aside>
   );
 }
