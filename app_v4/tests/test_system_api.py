@@ -135,3 +135,16 @@ async def test_patch_retention_persists_and_reschedules(test_settings, session_f
     fields = {f.name: str(f) for f in trigger.fields}
     assert fields["hour"] == "5"
     assert fields["minute"] == "30"
+
+
+@pytest.mark.asyncio
+async def test_status_returns_paths(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"j" * 32)
+    client = TestClient(create_app(runtime))
+    response = client.get(
+        "/api/v1/system/status",
+        headers={"Authorization": f"Bearer {_viewer_token(runtime)}"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert "data_dir" in payload and "backups_dir" in payload and "logs_dir" in payload

@@ -28,6 +28,9 @@ class StatusResponse(BaseModel):
     uptime_seconds: int
     scheduler_running: bool
     db_size_bytes: int
+    data_dir: str
+    backups_dir: str
+    logs_dir: str
 
 
 class MetricsResponse(BaseModel):
@@ -68,6 +71,9 @@ async def status(
         uptime_seconds=int((datetime.utcnow() - runtime.started_at).total_seconds()),
         scheduler_running=runtime.scheduler_service.scheduler.running if runtime.scheduler_service else False,
         db_size_bytes=paths.database_file.stat().st_size if paths.database_file.exists() else 0,
+        data_dir=str(paths.data_dir),
+        backups_dir=str(paths.backups_dir),
+        logs_dir=str(paths.logs_dir),
     )
 
 
