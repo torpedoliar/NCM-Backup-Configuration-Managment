@@ -14,6 +14,10 @@ def _viewer_token(runtime: ServiceRuntime) -> str:
     return runtime.auth_service.issue_access_token(2, "viewer", "viewer")
 
 
+def _operator_token(runtime: ServiceRuntime) -> str:
+    return runtime.auth_service.issue_access_token(3, "ops", "operator")
+
+
 @pytest.mark.asyncio
 async def test_list_users_requires_admin(test_settings, session_factory):
     runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"u" * 32)
@@ -111,3 +115,75 @@ async def test_delete_user_returns_204(test_settings, session_factory):
     async with session_factory() as session:
         repo = Repository(session)
         assert await repo.get_user_by_id(target_id) is None
+
+
+@pytest.mark.asyncio
+async def test_admin_reset_password_changes_login(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"u" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("admin", "h1", "admin")
+        operator_hash = runtime.auth_service.hash_password("OldPass123!")
+        target = await repo.create_user("operator", operator_hash, "operator")
+        await session.commit()
+        target_id = target.id
+
+    client = TestClient(create_app(runtime))
+    response = client.post(
+        f"/api/v1/users/{target_id}/password",
+        headers={"Authorization": f"Bearer {_admin_token(runtime)}"},
+        json={"password": "NewPassw0rd!"},
+    )
+    assert response.status_code == 204
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "operator", "password": "NewPassw0rd!"},
+    )
+    assert login_response.status_code == 200
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        audits = await repo.list_audit(limit=10)
+    assert any(
+        a.action == "user.password_reset_by_admin" and a.target_id == str(target_id)
+        for a in audits
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_password_admin_only(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"u" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "h1", "operator")
+        target = await repo.create_user("operator2", "h2", "operator")
+        await session.commit()
+        target_id = target.id
+
+    client = TestClient(create_app(runtime))
+    response = client.post(
+        f"/api/v1/users/{target_id}/password",
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+        json={"password": "NewPassw0rd!"},
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_reset_password_too_short_returns_422(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"u" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("admin", "h1", "admin")
+        target = await repo.create_user("op", "h2", "operator")
+        await session.commit()
+        target_id = target.id
+
+    client = TestClient(create_app(runtime))
+    response = client.post(
+        f"/api/v1/users/{target_id}/password",
+        headers={"Authorization": f"Bearer {_admin_token(runtime)}"},
+        json={"password": "short"},
+    )
+    assert response.status_code == 422

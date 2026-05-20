@@ -36,6 +36,10 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=128)
 
 
+class PasswordResetRequest(BaseModel):
+    password: str
+
+
 def _to_out(user) -> UserOut:
     return UserOut(
         id=user.id,
@@ -138,6 +142,33 @@ async def delete_user(
     await runtime.audit_writer.record(
         user_id=actor.user_id,
         action="user.delete",
+        target_type="user",
+        target_id=str(user_id),
+        ip=request.client.host if request.client else None,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_password(
+    user_id: int,
+    payload: PasswordResetRequest,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    session: AsyncSession = Depends(get_db),
+    actor: AccessClaims = Depends(require_role("admin")),
+) -> Response:
+    if not payload.password or len(payload.password) < 8:
+        raise problem(422, "Unprocessable Entity", "Password must be at least 8 characters")
+    repo = Repository(session)
+    user = await repo.get_user_by_id(user_id)
+    if user is None:
+        raise problem(404, "Not Found", "User not found")
+    user.password_hash = runtime.auth_service.hash_password(payload.password)
+    await session.commit()
+    await runtime.audit_writer.record(
+        action="user.password_reset_by_admin",
+        user_id=actor.user_id,
         target_type="user",
         target_id=str(user_id),
         ip=request.client.host if request.client else None,
