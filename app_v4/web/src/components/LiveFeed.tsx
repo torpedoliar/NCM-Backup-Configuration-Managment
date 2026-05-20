@@ -1,46 +1,47 @@
-const fallbackEvents = [
-  ['22:00:22', 'ok', 'SW-EDGE-07 backup completed', '4.1s'],
-  ['22:00:18', 'fail', 'SW-EDGE-07 timeout retry 1/3', ''],
-  ['22:00:14', 'ok', 'SW-EDGE-03 backup completed', '1.8s'],
-  ['22:00:12', 'ok', 'SW-CORE-01 backup completed', '2.3s'],
-  ['21:55:08', 'info', 'Scheduled job triggered', 'daily-22h'],
-  ['21:42:31', 'auth', 'admin session opened', 'from 10.0.5.42'],
-  ['21:38:09', 'warn', 'SW-CORE-02 config diff detected', '+12 -3'],
-  ['21:30:00', 'info', 'Retention sweep', 'purged 4 files'],
-] as const;
+import { useLiveEvents } from '../store/live-events';
 
-function toneClass(tone: string): string {
-  if (tone === 'fail') return 'status-red';
-  if (tone === 'auth') return 'status-violet';
-  if (tone === 'warn') return 'status-amber';
-  return 'status-green';
+function describe(event: { type: string; payload: Record<string, unknown> }): string {
+  const name = (event.payload.switch_name as string | undefined) ?? '';
+  switch (event.type) {
+    case 'backup_completed':
+      return `${name} backup completed`.trim();
+    case 'backup_failed':
+      return `${name} backup failed${event.payload.message ? `: ${event.payload.message}` : ''}`.trim();
+    case 'backup_started':
+      return `${name} backup started`.trim();
+    case 'job_triggered':
+      return `Scheduled job triggered (switch ${event.payload.switch_id ?? '?'})`;
+    default:
+      return event.type;
+  }
 }
 
-function toneSymbol(tone: string): string {
-  if (tone === 'fail') return '×';
-  if (tone === 'warn') return '!';
-  if (tone === 'auth') return '◆';
-  return '✓';
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString();
 }
 
 export function LiveFeed() {
+  const events = useLiveEvents((s) => s.events);
+  const count = useLiveEvents((s) => s.countLast24h());
+
+  if (events.length === 0) {
+    return <p className="muted">No recent activity yet.</p>;
+  }
+
   return (
     <div className="live-feed">
-      <div className="live-header">
-        <span className="live-dot" /> LIVE
-      </div>
-      {fallbackEvents.map(([time, tone, message, meta]) => (
-        <div className="live-row" key={`${time}-${message}`}>
-          <span className="live-time number">{time}</span>
-          <span className={`live-icon ${toneClass(tone)}`}>{toneSymbol(tone)}</span>
-          <strong>{message}</strong>
-          <span>{meta}</span>
-        </div>
-      ))}
-      <div className="live-footer">
-        <span><b>108</b> EVENTS / 24H</span>
-        <span>VIEW ALL ↗</span>
-      </div>
+      <ul role="list">
+        {events.map((event, idx) => (
+          <li key={`${event.ts}-${idx}`}>
+            <span className="ts">{fmtTime(event.ts)}</span>
+            <span className={`evt evt-${event.type}`}>{describe(event)}</span>
+          </li>
+        ))}
+      </ul>
+      <footer className="live-feed-footer">
+        <span><b>{count}</b> EVENTS / 24H</span>
+      </footer>
     </div>
   );
 }
