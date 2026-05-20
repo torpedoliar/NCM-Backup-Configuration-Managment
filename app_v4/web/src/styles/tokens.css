@@ -3,19 +3,35 @@
   --ink-2: #111111;
   --surface: #141414;
   --surface-2: #1a1a1a;
+  --panel: rgba(10, 10, 10, 0.82);
   --line: #262626;
   --line-2: #333333;
+  --panel-border: #262626;
+
   --bone: #fafaf7;
   --bone-2: #e5e5e2;
   --muted: #737373;
   --muted-2: #525252;
+
   --amber: #ffb800;
   --amber-2: #ffd166;
+  --amber-dim: rgba(255, 184, 0, 0.16);
   --red: #ff3838;
+  --red-dim: rgba(255, 56, 56, 0.14);
   --green: #4ade80;
+  --green-dim: rgba(74, 222, 128, 0.14);
   --cyan: #22d3ee;
   --violet: #a78bfa;
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-body: 'Geist', system-ui, sans-serif;
-  --font-display: 'Instrument Serif', serif;
+
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', monospace;
+  --font-body: 'Geist', 'Inter', system-ui, sans-serif;
+  --font-display: 'Instrument Serif', 'Georgia', serif;
+
+  --grid-size: 64px;
+  --sidebar-width: 300px;
+  --topbar-height: 68px;
+  --panel-pad: 28px;
+  --sharp-radius: 2px;
+  --dash: 3px;
+  --shadow-glow: 0 0 0 1px rgba(255, 184, 0, 0.08), 0 0 36px rgba(255, 184, 0, 0.04);
 }

@@ -1,5 +1,9 @@
-QWidget { background: #0a0a0a; color: #fafaf7; font-family: "Geist"; }
-QFrame#Sidebar { background: #111111; border-right: 1px solid #262626; }
-QLabel#Brand { color: #ffb800; font-family: "JetBrains Mono"; letter-spacing: 2px; }
-QPushButton { border: 1px solid #333333; border-radius: 0; padding: 8px; background: #141414; color: #fafaf7; }
+QWidget { background: #0a0a0a; color: #fafaf7; font-family: Geist; }
+QFrame#Sidebar { background: #0a0a0a; border-right: 1px solid #262626; }
+QFrame#Topbar { background: #0a0a0a; border-bottom: 1px dashed #ffb800; }
+QLabel#Brand { color: #fafaf7; font-family: JetBrains Mono; font-size: 28px; font-weight: 800; }
+QLabel#Marker { color: #737373; font-family: JetBrains Mono; letter-spacing: 2px; }
+QLabel#ServicePulse { color: #4ade80; border: 1px solid #4ade80; padding: 6px 10px; }
+QPushButton { background: #141414; color: #fafaf7; border: 1px solid #262626; border-radius: 0; padding: 9px; text-align: left; }
 QPushButton:hover { border-color: #ffb800; color: #ffb800; }
+QPushButton[active="true"] { border-left: 3px solid #ffb800; color: #fafaf7; }

@@ -1,6 +1,6 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { loginRequest, setAccessToken } from '../api/client';
+import { attachAuthInterceptor, loginRequest, setAccessToken } from '../api/client';
 import type { CurrentUser } from '../api/types';
 
 type AuthValue = {
@@ -16,7 +16,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [, navigate] = useLocation();
   const [accessToken, setToken] = useState<string | null>(() => localStorage.getItem('access_token'));
   const [user, setUser] = useState<CurrentUser | null>(null);
-  setAccessToken(accessToken);
+
+  useEffect(() => {
+    setAccessToken(accessToken);
+  }, [accessToken]);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    setAccessToken(null);
+    setToken(null);
+    setUser(null);
+    navigate('/login');
+  }, [navigate]);
+
+  useEffect(() => {
+    return attachAuthInterceptor(() => {
+      if (localStorage.getItem('access_token')) {
+        logout();
+      }
+    });
+  }, [logout]);
 
   const value = useMemo<AuthValue>(() => ({
     accessToken,
@@ -25,19 +45,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const tokenPair = await loginRequest(username, password);
       localStorage.setItem('access_token', tokenPair.access_token);
       localStorage.setItem('refresh_token', tokenPair.refresh_token);
-      setToken(tokenPair.access_token);
       setAccessToken(tokenPair.access_token);
+      setToken(tokenPair.access_token);
       navigate('/');
     },
-    logout() {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      setToken(null);
-      setUser(null);
-      setAccessToken(null);
-      navigate('/login');
-    },
-  }), [accessToken, user, navigate]);
+    logout,
+  }), [accessToken, user, navigate, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
