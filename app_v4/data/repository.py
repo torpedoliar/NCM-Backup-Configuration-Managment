@@ -178,10 +178,12 @@ class Repository:
         result = await self.session.execute(select(Switch).where(Switch.name == name))
         return result.scalar_one_or_none()
 
-    async def list_switches(self) -> list[Switch]:
-        result = await self.session.execute(
-            select(Switch).options(selectinload(Switch.credential)).order_by(Switch.name)
-        )
+    async def list_switches(self, include_inactive: bool = False) -> list[Switch]:
+        stmt = select(Switch).options(selectinload(Switch.credential))
+        if not include_inactive:
+            stmt = stmt.where(Switch.is_active.is_(True))
+        stmt = stmt.order_by(Switch.name)
+        result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
     async def update_switch(self, switch_id: int, **kwargs) -> Switch | None:
@@ -191,6 +193,24 @@ class Repository:
         for key, value in kwargs.items():
             if value is not None and hasattr(switch, key):
                 setattr(switch, key, value)
+        switch.updated_at = datetime.utcnow()
+        return switch
+
+    async def deactivate_switch(self, switch_id: int) -> Switch | None:
+        switch = await self.get_switch(switch_id)
+        if switch is None:
+            return None
+        switch.is_active = False
+        switch.deactivated_at = datetime.utcnow()
+        switch.updated_at = datetime.utcnow()
+        return switch
+
+    async def activate_switch(self, switch_id: int) -> Switch | None:
+        switch = await self.get_switch(switch_id)
+        if switch is None:
+            return None
+        switch.is_active = True
+        switch.deactivated_at = None
         switch.updated_at = datetime.utcnow()
         return switch
 

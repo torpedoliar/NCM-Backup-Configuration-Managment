@@ -102,12 +102,94 @@ async def test_delete_switch(test_settings, session_factory):
         sw_id = sw.id
 
     client = TestClient(create_app(runtime))
-    response = client.delete(
-        f"/api/v1/switches/{sw_id}",
-        headers={"Authorization": f"Bearer {_admin_token(runtime)}"},
-    )
+    headers = {"Authorization": f"Bearer {_admin_token(runtime)}"}
+    deactivate = client.post(f"/api/v1/switches/{sw_id}/deactivate", headers=headers)
+    assert deactivate.status_code == 204
+
+    response = client.delete(f"/api/v1/switches/{sw_id}", headers=headers)
 
     assert response.status_code == 204
     async with session_factory() as session:
         repo = Repository(session)
         assert await repo.get_switch(sw_id) is None
+
+
+async def _seed_switch(session_factory) -> int:
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("admin", "h", "admin")
+        cred = await repo.create_credential(name="lab", enc_blob=b"x")
+        sw = await repo.create_switch(
+            name="sw01", ip="10.0.0.1", protocol="ssh", port=22, credential_id=cred.id
+        )
+        await session.commit()
+        return sw.id
+
+
+@pytest.mark.asyncio
+async def test_deactivate_then_delete_switch(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    sw_id = await _seed_switch(session_factory)
+
+    client = TestClient(create_app(runtime))
+    headers = {"Authorization": f"Bearer {_admin_token(runtime)}"}
+
+    r = client.post(f"/api/v1/switches/{sw_id}/deactivate", headers=headers)
+    assert r.status_code == 204
+
+    r = client.delete(f"/api/v1/switches/{sw_id}", headers=headers)
+    assert r.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_delete_active_switch_returns_409(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    sw_id = await _seed_switch(session_factory)
+
+    client = TestClient(create_app(runtime))
+    headers = {"Authorization": f"Bearer {_admin_token(runtime)}"}
+
+    r = client.delete(f"/api/v1/switches/{sw_id}", headers=headers)
+    assert r.status_code == 409
+    assert "deactivate" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_list_switches_excludes_inactive_by_default(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    sw_id = await _seed_switch(session_factory)
+
+    client = TestClient(create_app(runtime))
+    headers = {"Authorization": f"Bearer {_admin_token(runtime)}"}
+
+    r = client.post(f"/api/v1/switches/{sw_id}/deactivate", headers=headers)
+    assert r.status_code == 204
+
+    r = client.get("/api/v1/switches", headers=headers)
+    assert r.status_code == 200
+    assert all(sw["id"] != sw_id for sw in r.json())
+
+    r = client.get("/api/v1/switches?include_inactive=true", headers=headers)
+    assert r.status_code == 200
+    assert any(sw["id"] == sw_id for sw in r.json())
+
+
+@pytest.mark.asyncio
+async def test_activate_switch(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    sw_id = await _seed_switch(session_factory)
+
+    client = TestClient(create_app(runtime))
+    headers = {"Authorization": f"Bearer {_admin_token(runtime)}"}
+
+    client.post(f"/api/v1/switches/{sw_id}/deactivate", headers=headers)
+    r = client.post(f"/api/v1/switches/{sw_id}/activate", headers=headers)
+    assert r.status_code == 204
+
+    r = client.get("/api/v1/switches", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert any(sw["id"] == sw_id for sw in body)
+    me = next(sw for sw in body if sw["id"] == sw_id)
+    assert me["is_active"] is True
+    assert me["deactivated_at"] is None

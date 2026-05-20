@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +33,7 @@ class SwitchOut(BaseModel):
     credential: CredentialRef
     credential_id: int
     is_active: bool
+    deactivated_at: datetime | None = None
 
 
 class SwitchCreate(BaseModel):
@@ -62,7 +65,8 @@ def _to_out(switch) -> SwitchOut:
         notes=switch.notes,
         credential=CredentialRef(id=switch.credential.id, name=switch.credential.name),
         credential_id=switch.credential_id,
-        is_active=True,
+        is_active=switch.is_active,
+        deactivated_at=switch.deactivated_at,
     )
 
 
@@ -77,11 +81,12 @@ def _validate_protocol(protocol: str) -> None:
 
 @router.get("", response_model=list[SwitchOut])
 async def list_switches(
+    include_inactive: bool = False,
     session: AsyncSession = Depends(get_db),
     _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
 ) -> list[SwitchOut]:
     repo = Repository(session)
-    return [_to_out(s) for s in await repo.list_switches()]
+    return [_to_out(s) for s in await repo.list_switches(include_inactive=include_inactive)]
 
 
 @router.post("", response_model=SwitchOut, status_code=status.HTTP_201_CREATED)
@@ -113,7 +118,7 @@ async def create_switch(
 
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="switch.create",
+        action="switch.created",
         target_type="switch",
         target_id=str(switch.id),
         ip=request.client.host if request.client else None,
@@ -166,13 +171,61 @@ async def update_switch(
 
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="switch.update",
+        action="switch.updated",
         target_type="switch",
         target_id=str(switch_id),
         ip=request.client.host if request.client else None,
         detail=payload.model_dump(exclude_none=True),
     )
     return _to_out(fresh)
+
+
+@router.post("/{switch_id}/deactivate", status_code=status.HTTP_204_NO_CONTENT)
+async def deactivate_switch(
+    switch_id: int,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    session: AsyncSession = Depends(get_db),
+    actor: AccessClaims = Depends(require_role("admin", "operator")),
+) -> Response:
+    repo = Repository(session)
+    switch = await repo.deactivate_switch(switch_id)
+    if switch is None:
+        raise problem(404, "Not Found", "Switch not found")
+    await session.commit()
+
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="switch.deactivated",
+        target_type="switch",
+        target_id=str(switch_id),
+        ip=request.client.host if request.client else None,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{switch_id}/activate", status_code=status.HTTP_204_NO_CONTENT)
+async def activate_switch(
+    switch_id: int,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    session: AsyncSession = Depends(get_db),
+    actor: AccessClaims = Depends(require_role("admin", "operator")),
+) -> Response:
+    repo = Repository(session)
+    switch = await repo.activate_switch(switch_id)
+    if switch is None:
+        raise problem(404, "Not Found", "Switch not found")
+    await session.commit()
+
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="switch.activated",
+        target_type="switch",
+        target_id=str(switch_id),
+        ip=request.client.host if request.client else None,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/{switch_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -184,14 +237,17 @@ async def delete_switch(
     actor: AccessClaims = Depends(require_role("admin")),
 ) -> Response:
     repo = Repository(session)
-    deleted = await repo.delete_switch(switch_id)
-    if not deleted:
+    switch = await repo.get_switch(switch_id)
+    if switch is None:
         raise problem(404, "Not Found", "Switch not found")
+    if switch.is_active:
+        raise problem(409, "Conflict", "Switch must be deactivated before delete")
+    await repo.delete_switch(switch_id)
     await session.commit()
 
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="switch.delete",
+        action="switch.deleted",
         target_type="switch",
         target_id=str(switch_id),
         ip=request.client.host if request.client else None,
