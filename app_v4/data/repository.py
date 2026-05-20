@@ -249,18 +249,43 @@ class Repository:
 
     async def list_audit(
         self,
-        user_id: int | None = None,
-        action: str | None = None,
         limit: int = 100,
+        offset: int = 0,
+        action_prefix: str | None = None,
+        user_id: int | None = None,
+        from_ts: datetime | None = None,
+        to_ts: datetime | None = None,
     ) -> list[AuditLog]:
-        stmt = select(AuditLog)
+        stmt = select(AuditLog).order_by(AuditLog.ts.desc()).limit(limit).offset(offset)
+        if action_prefix is not None:
+            stmt = stmt.where(AuditLog.action.like(f"{action_prefix}%"))
         if user_id is not None:
             stmt = stmt.where(AuditLog.user_id == user_id)
-        if action is not None:
-            stmt = stmt.where(AuditLog.action == action)
-        stmt = stmt.order_by(AuditLog.ts.desc()).limit(limit)
+        if from_ts is not None:
+            stmt = stmt.where(AuditLog.ts >= from_ts)
+        if to_ts is not None:
+            stmt = stmt.where(AuditLog.ts <= to_ts)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_audit(
+        self,
+        action_prefix: str | None = None,
+        user_id: int | None = None,
+        from_ts: datetime | None = None,
+        to_ts: datetime | None = None,
+    ) -> int:
+        stmt = select(func.count(AuditLog.id))
+        if action_prefix is not None:
+            stmt = stmt.where(AuditLog.action.like(f"{action_prefix}%"))
+        if user_id is not None:
+            stmt = stmt.where(AuditLog.user_id == user_id)
+        if from_ts is not None:
+            stmt = stmt.where(AuditLog.ts >= from_ts)
+        if to_ts is not None:
+            stmt = stmt.where(AuditLog.ts <= to_ts)
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one())
 
     async def delete_audit_older_than(self, cutoff: datetime) -> int:
         result = await self.session.execute(delete(AuditLog).where(AuditLog.ts < cutoff))

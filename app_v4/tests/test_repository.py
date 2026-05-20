@@ -1,5 +1,6 @@
 import pytest
 
+from app_v4.data.models import AuditLog
 from app_v4.data.repository import Repository, hash_refresh_token  # noqa: F401
 
 
@@ -285,3 +286,30 @@ async def test_job_repository_methods(session_factory):
         assert updated.enabled is False
         assert await repo.delete_job(job_id) is True
         await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_list_audit_filters_and_counts(session_factory):
+    async with session_factory() as session:
+        repo = Repository(session)
+        user = await repo.create_user("auditor", "h", "admin")
+        await session.commit()
+        user_id = user.id
+
+    async with session_factory() as session:
+        session.add(AuditLog(action="auth.login_success", user_id=user_id))
+        session.add(AuditLog(action="switch.created", user_id=user_id))
+        session.add(AuditLog(action="auth.login_failed", user_id=None))
+        await session.commit()
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        all_rows = await repo.list_audit(limit=10)
+        only_auth = await repo.list_audit(limit=10, action_prefix="auth.")
+        only_user1 = await repo.list_audit(limit=10, user_id=user_id)
+        total = await repo.count_audit(action_prefix="auth.")
+
+    assert len(all_rows) == 3
+    assert all(r.action.startswith("auth.") for r in only_auth)
+    assert all(r.user_id == user_id for r in only_user1)
+    assert total == 2
