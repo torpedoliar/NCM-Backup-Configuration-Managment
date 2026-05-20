@@ -108,6 +108,36 @@ async def create_job(
     return _to_out(job)
 
 
+@router.post("/{job_id}/run", status_code=status.HTTP_202_ACCEPTED)
+async def run_job_now(
+    job_id: int,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    session: AsyncSession = Depends(get_db),
+    user: AccessClaims = Depends(require_role("admin", "operator")),
+) -> dict:
+    repo = Repository(session)
+    job = await repo.get_job(job_id)
+    if job is None:
+        raise problem(404, "Not Found", "Job not found")
+    if runtime.backup_service is None:
+        raise problem(503, "Service Unavailable", "Backup service is not initialized")
+    await runtime.audit_writer.record(
+        action="schedule.run_now",
+        user_id=user.user_id,
+        target_type="job",
+        target_id=str(job_id),
+        ip=request.client.host if request.client else None,
+    )
+    result = await runtime.backup_service.execute_backup(
+        switch_id=job.switch_id,
+        backup_type="manual_schedule",
+        job_id=job_id,
+        triggered_by_user_id=user.user_id,
+    )
+    return {"backup_id": result.get("backup_id"), "success": result.get("success")}
+
+
 @router.patch("/{job_id}", response_model=JobOut)
 async def update_job(
     job_id: int,

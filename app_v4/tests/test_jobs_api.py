@@ -50,3 +50,70 @@ async def test_jobs_crud(test_settings, session_factory):
 
     delete = client.delete(f"/api/v1/jobs/{job_id}", headers={"Authorization": f"Bearer {_operator_token(runtime)}"})
     assert delete.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_run_job_now_triggers_backup(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"j" * 32)
+
+    called: dict = {}
+
+    class FakeBackupService:
+        async def execute_backup(self, switch_id, backup_type, job_id, triggered_by_user_id):
+            called.update(
+                {
+                    "switch_id": switch_id,
+                    "backup_type": backup_type,
+                    "job_id": job_id,
+                    "triggered_by_user_id": triggered_by_user_id,
+                }
+            )
+            return {"success": True, "backup_id": 99, "message": "", "file_path": "", "size_kb": 0}
+
+    runtime.backup_service = FakeBackupService()
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "hash", "operator")
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(switch.id, 60, True, 8, 30)
+        await session.commit()
+        job_id = job.id
+        switch_id = switch.id
+
+    client = TestClient(create_app(runtime))
+    response = client.post(
+        f"/api/v1/jobs/{job_id}/run",
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+    )
+    assert response.status_code == 202
+    assert called["job_id"] == job_id
+    assert called["switch_id"] == switch_id
+    assert called["backup_type"] == "manual_schedule"
+    body = response.json()
+    assert body["backup_id"] == 99
+    assert body["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_job_now_404_when_missing(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"j" * 32)
+
+    class FakeBackupService:
+        async def execute_backup(self, *args, **kwargs):
+            raise AssertionError("should not be called")
+
+    runtime.backup_service = FakeBackupService()
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "hash", "operator")
+        await session.commit()
+
+    client = TestClient(create_app(runtime))
+    response = client.post(
+        "/api/v1/jobs/9999/run",
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+    )
+    assert response.status_code == 404
