@@ -4,7 +4,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
-    QVBoxLayout,
     QWizard,
     QWizardPage,
 )
