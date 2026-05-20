@@ -15,6 +15,7 @@ from app_v4.data.db import create_session_factory, init_db
 from app_v4.service.audit import AuditWriter
 from app_v4.service.backup_service import BackupService
 from app_v4.service.events import EventHub
+from app_v4.service.retention_service import RetentionService
 from app_v4.service.scheduler import SchedulerService
 
 
@@ -28,6 +29,7 @@ class ServiceRuntime:
     crypto_service: CryptoService | None = None
     backup_service: BackupService | None = None
     scheduler_service: SchedulerService | None = None
+    retention_service: RetentionService | None = None
     started_at: datetime = field(default_factory=datetime.utcnow)
 
     @classmethod
@@ -39,6 +41,7 @@ class ServiceRuntime:
         crypto_service: CryptoService | None = None,
         backup_service: BackupService | None = None,
         scheduler_service: SchedulerService | None = None,
+        retention_service: RetentionService | None = None,
     ) -> "ServiceRuntime":
         return cls(
             settings=settings,
@@ -49,6 +52,7 @@ class ServiceRuntime:
             crypto_service=crypto_service,
             backup_service=backup_service,
             scheduler_service=scheduler_service,
+            retention_service=retention_service,
         )
 
 
@@ -59,8 +63,15 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     engine, session_factory = create_session_factory(settings)
     await init_db(engine)
     event_hub = EventHub()
+    retention_service = RetentionService(settings, session_factory)
     backup_service = BackupService(settings, session_factory, crypto, event_hub=event_hub)
-    scheduler_service = SchedulerService(settings, session_factory, backup_service, event_hub=event_hub)
+    scheduler_service = SchedulerService(
+        settings,
+        session_factory,
+        backup_service,
+        event_hub=event_hub,
+        retention_service=retention_service,
+    )
     await scheduler_service.start()
     runtime = ServiceRuntime(
         settings=settings,
@@ -71,5 +82,6 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
         crypto_service=crypto,
         backup_service=backup_service,
         scheduler_service=scheduler_service,
+        retention_service=retention_service,
     )
     return runtime, engine

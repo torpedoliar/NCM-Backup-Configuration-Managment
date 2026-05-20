@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     jwt_access_minutes: int = 15
     jwt_refresh_days: int = 7
     scheduler_lock_seconds: int = 180
+    audit_retention_days: int = 90
+    retention_hour: int = 3
+    retention_minute: int = 0
 
     backup_min_keep: int = 1
     backup_retention_days: int = 365
