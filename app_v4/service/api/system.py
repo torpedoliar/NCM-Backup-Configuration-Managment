@@ -32,7 +32,7 @@ class MetricsResponse(BaseModel):
     switches: int
     backups: int
     jobs: int
-    failed_backups: int
+    failures_24h: int
 
 
 @router.get("/status", response_model=StatusResponse)
@@ -60,4 +60,9 @@ async def metrics(
 ) -> MetricsResponse:
     repo = Repository(session)
     values = await repo.system_metrics()
-    return MetricsResponse(**values)
+    return MetricsResponse(
+        switches=values["switches"],
+        backups=values["backups"],
+        jobs=values["jobs"],
+        failures_24h=values["failed_backups"],
+    )

@@ -54,3 +54,19 @@ app_v4/**/*.db
 app_v4/**/*.db-shm
 app_v4/**/*.db-wal
 app_v4/**/*.log
+
+# v4 web (Node)
+app_v4/web/node_modules/
+app_v4/web/dist/
+app_v4/web/.vite/
+app_v4/web/coverage/
+app_v4/web/*.tsbuildinfo
+app_v4/web/vite.config.js
+app_v4/web/vite.config.d.ts
+
+# v4 desktop pyc
+app_v4/desktop/**/__pycache__/
+app_v4/tools/**/__pycache__/
+
+# Production / generated artifacts
+production/

@@ -4,15 +4,18 @@ import argparse
 import asyncio
 import getpass
 import sys
+from pathlib import Path
+from secrets import token_bytes
 
 from app_v4.core.auth_service import AuthService
 from app_v4.core.config import Settings
 from app_v4.core.crypto_service import CryptoService
 from app_v4.core.dpapi import ProtectionProvider, WindowsDpapiProvider
-from app_v4.core.key_envelope import KeyEnvelopeStore
+from app_v4.core.key_envelope import KeyEnvelope, KeyEnvelopeStore
 from app_v4.core.paths import resolve_paths
 from app_v4.data.db import create_session_factory, init_db
 from app_v4.data.repository import Repository
+from app_v4.tools.migrate_v3 import migrate_v3_install
 
 
 async def init_command(
@@ -78,6 +81,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Admin password (prompted if omitted)",
     )
 
+    migrate_parser = sub.add_parser("migrate-v3", help="Migrate a v3.5.x install into v4")
+    migrate_parser.add_argument("source_dir")
+    migrate_parser.add_argument("target_dir")
+
     return parser.parse_args(argv)
 
 
@@ -88,31 +95,49 @@ def _prompt_secret(prompt: str) -> str:
     return secret
 
 
+class _MigrationEnvelopeAdapter:
+    """Bridges migrate_v3_install's save(passphrase, secret) call to KeyEnvelopeStore."""
+
+    def __init__(self, store: KeyEnvelopeStore):
+        self._store = store
+
+    def save(self, master_passphrase: str, jwt_secret: bytes) -> None:
+        self._store.save(KeyEnvelope(master_passphrase=master_passphrase, jwt_secret=jwt_secret))
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    if args.command != "init":
-        raise SystemExit(f"unknown command: {args.command}")
-
-    passphrase = args.passphrase or _prompt_secret("Master passphrase: ")
-    admin_password = args.admin_password or _prompt_secret(
-        f"Password for admin user '{args.admin_username}': "
-    )
-
-    settings = Settings()
-    result = asyncio.run(
-        init_command(
-            settings=settings,
-            master_passphrase=passphrase,
-            admin_username=args.admin_username,
-            admin_password=admin_password,
+    if args.command == "init":
+        passphrase = args.passphrase or _prompt_secret("Master passphrase: ")
+        admin_password = args.admin_password or _prompt_secret(
+            f"Password for admin user '{args.admin_username}': "
         )
-    )
 
-    print(f"base_dir: {result['base_dir']}")
-    print(f"envelope: {result['envelope_file']}")
-    print(f"envelope created: {result['created_envelope']}")
-    print(f"admin created: {result['created_admin']}")
-    return 0
+        settings = Settings()
+        result = asyncio.run(
+            init_command(
+                settings=settings,
+                master_passphrase=passphrase,
+                admin_username=args.admin_username,
+                admin_password=admin_password,
+            )
+        )
+
+        print(f"base_dir: {result['base_dir']}")
+        print(f"envelope: {result['envelope_file']}")
+        print(f"envelope created: {result['created_envelope']}")
+        print(f"admin created: {result['created_admin']}")
+        return 0
+
+    if args.command == "migrate-v3":
+        settings = Settings()
+        store = KeyEnvelopeStore(resolve_paths(settings).master_envelope_file, WindowsDpapiProvider())
+        adapter = _MigrationEnvelopeAdapter(store)
+        result = migrate_v3_install(Path(args.source_dir), Path(args.target_dir), adapter, token_bytes(32))
+        print(result)
+        return 0
+
+    raise SystemExit(f"unknown command: {args.command}")
 
 
 if __name__ == "__main__":

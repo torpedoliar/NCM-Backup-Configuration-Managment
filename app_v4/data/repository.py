@@ -358,17 +358,24 @@ class Repository:
     # ----- system -----
 
     async def system_metrics(self) -> dict[str, int]:
-        switches = await self.session.execute(select(func.count(Switch.id)))
-        backups = await self.session.execute(select(func.count(Backup.id)))
-        jobs = await self.session.execute(select(func.count(Job.id)))
-        failed = await self.session.execute(
-            select(func.count(Backup.id)).where(Backup.success.is_(False))
-        )
+        row = (
+            await self.session.execute(
+                select(
+                    select(func.count(Switch.id)).scalar_subquery().label("switches"),
+                    select(func.count(Backup.id)).scalar_subquery().label("backups"),
+                    select(func.count(Job.id)).scalar_subquery().label("jobs"),
+                    select(func.count(Backup.id))
+                    .where(Backup.success.is_(False))
+                    .scalar_subquery()
+                    .label("failed_backups"),
+                )
+            )
+        ).one()
         return {
-            "switches": int(switches.scalar_one()),
-            "backups": int(backups.scalar_one()),
-            "jobs": int(jobs.scalar_one()),
-            "failed_backups": int(failed.scalar_one()),
+            "switches": int(row.switches),
+            "backups": int(row.backups),
+            "jobs": int(row.jobs),
+            "failed_backups": int(row.failed_backups),
         }
 
 

@@ -24,10 +24,13 @@ class SwitchOut(BaseModel):
     id: int
     name: str
     ip: str
+    host: str
     protocol: str
     port: int
     notes: str | None
     credential: CredentialRef
+    credential_id: int
+    is_active: bool
 
 
 class SwitchCreate(BaseModel):
@@ -53,10 +56,13 @@ def _to_out(switch) -> SwitchOut:
         id=switch.id,
         name=switch.name,
         ip=switch.ip,
+        host=switch.ip,
         protocol=switch.protocol,
         port=switch.port,
         notes=switch.notes,
         credential=CredentialRef(id=switch.credential.id, name=switch.credential.name),
+        credential_id=switch.credential_id,
+        is_active=True,
     )
 
 

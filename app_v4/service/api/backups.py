@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request, Response, status
@@ -25,6 +26,7 @@ class BackupOut(BaseModel):
     success: bool
     message: str | None
     backup_type: str
+    created_at: datetime
 
 
 class BackupRunResponse(BaseModel):
@@ -45,6 +47,7 @@ def _to_out(backup) -> BackupOut:
         success=backup.success,
         message=backup.message,
         backup_type=backup.backup_type,
+        created_at=backup.taken_at,
     )
 
 
