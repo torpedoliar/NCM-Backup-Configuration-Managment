@@ -1,15 +1,47 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { it, expect, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { SchedulesPage } from './SchedulesPage';
 
+const createMutate = vi.fn();
+const updateMutate = vi.fn();
+const runNowMutate = vi.fn();
+
 vi.mock('../api/hooks', () => ({
-  useJobs: () => ({ data: [{ id: 1, switch_id: 1, name: 'nightly', interval_minutes: 60, schedule_hour: 2, schedule_minute: 0, enabled: true }], isLoading: false }),
+  useSwitches: () => ({ data: [
+    { id: 1, name: 'SW-A', ip: '10.0.0.1', host: '10.0.0.1', protocol: 'ssh', port: 22, credential_id: 1, is_active: true },
+    { id: 2, name: 'SW-INACTIVE', ip: '10.0.0.2', host: '10.0.0.2', protocol: 'ssh', port: 22, credential_id: 1, is_active: false },
+  ], isLoading: false }),
+  useJobs: () => ({ data: [
+    { id: 10, switch_id: 1, name: 'Backup SW-A', interval_minutes: 1440, schedule_hour: 8, schedule_minute: 30, day_of_week: null, day_of_month: null, enabled: true },
+  ], isLoading: false }),
+  useCreateJob: () => ({ mutate: createMutate, isPending: false }),
+  useUpdateJob: () => ({ mutate: updateMutate, isPending: false }),
+  useDeleteJob: () => ({ mutate: vi.fn(), isPending: false }),
+  useRunJobNow: () => ({ mutate: runNowMutate, isPending: false }),
 }));
 
-it('renders schedules with interval and state', () => {
-  render(<QueryClientProvider client={new QueryClient()}><SchedulesPage /></QueryClientProvider>);
-  expect(screen.getByText('nightly')).toBeInTheDocument();
-  expect(screen.getByText('60m')).toBeInTheDocument();
-  expect(screen.getByText('enabled')).toBeInTheDocument();
+describe('SchedulesPage', () => {
+  it('opens a draft row on + Add schedule and lists only active switches', async () => {
+    const user = userEvent.setup();
+    render(<SchedulesPage />);
+    await user.click(screen.getByRole('button', { name: /add schedule/i }));
+    const switchSelect = screen.getByLabelText(/switch/i);
+    expect(switchSelect.textContent).toContain('SW-A');
+    expect(switchSelect.textContent).not.toContain('SW-INACTIVE');
+  });
+
+  it('Run now triggers useRunJobNow.mutate', async () => {
+    const user = userEvent.setup();
+    render(<SchedulesPage />);
+    await user.click(screen.getByRole('button', { name: /run now/i }));
+    expect(runNowMutate).toHaveBeenCalledWith(10);
+  });
+
+  it('toggling enabled checkbox calls useUpdateJob with {enabled}', async () => {
+    const user = userEvent.setup();
+    render(<SchedulesPage />);
+    await user.click(screen.getByRole('checkbox', { name: /enabled/i }));
+    expect(updateMutate).toHaveBeenCalledWith({ id: 10, input: { enabled: false } });
+  });
 });
