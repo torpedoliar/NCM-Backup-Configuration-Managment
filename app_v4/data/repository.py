@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -238,6 +238,10 @@ class Repository:
         stmt = stmt.order_by(AuditLog.ts.desc()).limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def delete_audit_older_than(self, cutoff: datetime) -> int:
+        result = await self.session.execute(delete(AuditLog).where(AuditLog.ts < cutoff))
+        return int(result.rowcount or 0)
 
     # ----- backups -----
 
