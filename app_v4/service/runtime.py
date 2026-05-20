@@ -67,7 +67,11 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     engine, session_factory = create_session_factory(settings)
     await init_db(engine)
     event_hub = EventHub()
-    retention_service = RetentionService(settings, session_factory)
+    retention_service = RetentionService(
+        settings,
+        session_factory,
+        runtime_settings_path=paths.data_dir / "runtime_settings.json",
+    )
     backup_service = BackupService(settings, session_factory, crypto, event_hub=event_hub)
     scheduler_service = SchedulerService(
         settings,
