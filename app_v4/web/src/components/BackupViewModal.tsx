@@ -6,8 +6,18 @@ export function BackupViewModal({ backupId, onClose }: { backupId: number; onClo
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchBackupContent(backupId).then(setText).catch((err) => setError(err.message ?? 'Failed to load'));
+    let cancelled = false;
+    fetchBackupContent(backupId)
+      .then((t) => { if (!cancelled) setText(t); })
+      .catch((err) => { if (!cancelled) setError(err.message ?? 'Failed to load'); });
+    return () => { cancelled = true; };
   }, [backupId]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>

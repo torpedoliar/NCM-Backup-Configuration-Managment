@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  downloadBackupUrl,
+  downloadBackup,
   useDeleteBackup,
   useFilteredBackups,
   useSwitches,
@@ -88,7 +88,7 @@ export function HistoryPage() {
                 <td title={b.message ?? ''}>{(b.message ?? '').slice(0, 60)}</td>
                 <td className="row-actions">
                   <button onClick={() => setViewing(b.id)}>View</button>
-                  <a href={downloadBackupUrl(b.id)} className="button">Download</a>
+                  <button onClick={() => downloadBackup(b.id)}>Download</button>
                   {isAdmin && (
                     <button onClick={() => {
                       if (window.confirm(`Delete backup #${b.id}? Backup file will be removed.`)) {

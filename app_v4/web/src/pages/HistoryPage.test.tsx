@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HistoryPage } from './HistoryPage';
+import { downloadBackup } from '../api/hooks';
 
 const filteredFactory = vi.fn((_filters: unknown) => ({
   data: [
@@ -11,13 +12,14 @@ const filteredFactory = vi.fn((_filters: unknown) => ({
   isLoading: false,
 }));
 const deleteMutate = vi.fn();
+const downloadBackupMock = vi.fn();
 
 vi.mock('../api/hooks', () => ({
   useSwitches: () => ({ data: [{ id: 1, name: 'SW-A', ip: '10.0.0.1', host: '10.0.0.1', protocol: 'ssh', port: 22, credential_id: 1, is_active: true }] }),
   useFilteredBackups: (filters: unknown) => filteredFactory(filters as never),
   useDeleteBackup: () => ({ mutate: deleteMutate, isPending: false }),
   fetchBackupContent: vi.fn(async () => 'config text'),
-  downloadBackupUrl: (id: number) => `/api/v1/backups/${id}/content?download=true`,
+  downloadBackup: (id: number) => downloadBackupMock(id),
 }));
 
 vi.mock('../auth/AuthProvider', () => ({
@@ -49,5 +51,15 @@ describe('HistoryPage', () => {
     await user.click(screen.getByRole('button', { name: /delete/i }));
     expect(deleteMutate).toHaveBeenCalledWith(100);
     confirm.mockRestore();
+  });
+
+  it('Download calls downloadBackup with the row id', async () => {
+    const user = userEvent.setup();
+    downloadBackupMock.mockClear();
+    render(<HistoryPage />);
+    await user.click(screen.getByRole('button', { name: /download/i }));
+    expect(downloadBackupMock).toHaveBeenCalledWith(100);
+    // referenced to keep the import as a type-check sanity
+    expect(typeof downloadBackup).toBe('function');
   });
 });

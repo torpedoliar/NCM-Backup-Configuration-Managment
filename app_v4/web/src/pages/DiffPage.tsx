@@ -16,14 +16,17 @@ export function DiffPage() {
   }, [switches, switchId]);
 
   useEffect(() => {
-    if (backups.length >= 2) {
-      setAId(backups[1].id);
-      setBId(backups[0].id);
-    } else {
+    if (backups.length < 2) {
       setAId(null);
       setBId(null);
+      return;
     }
-  }, [backups]);
+    const ids = new Set(backups.map((b) => b.id));
+    if (aId === null || bId === null || !ids.has(aId) || !ids.has(bId)) {
+      setAId(backups[1].id);
+      setBId(backups[0].id);
+    }
+  }, [backups, aId, bId]);
 
   async function compare() {
     if (aId === null || bId === null) return;

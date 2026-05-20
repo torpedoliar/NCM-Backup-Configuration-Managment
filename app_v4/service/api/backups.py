@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from app_v4.service.diff_service import DiffService
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
 from app_v4.service.backup_service import SwitchInactiveError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["backups"])
 
@@ -205,17 +208,20 @@ async def delete_backup(
     file_path = backup.file_path
     await repo.delete_backup(backup_id)
     await session.commit()
+    file_unlinked = False
     if file_path:
         try:
             Path(file_path).unlink(missing_ok=True)
-        except OSError:
-            pass
+            file_unlinked = True
+        except OSError as exc:
+            logger.warning("backup file unlink failed: %s (path=%s)", exc, file_path)
     await runtime.audit_writer.record(
         user_id=actor.user_id,
         action="backup.deleted",
         target_type="backup",
         target_id=str(backup_id),
         ip=request.client.host if request.client else None,
+        detail={"file_unlinked": file_unlinked, "file_path": file_path or None},
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

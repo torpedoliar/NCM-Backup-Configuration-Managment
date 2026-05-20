@@ -255,6 +255,18 @@ export function useDeleteBackup() {
   });
 }
 
-export function downloadBackupUrl(id: number): string {
-  return `/api/v1/backups/${id}/content?download=true`;
+export async function downloadBackup(id: number): Promise<void> {
+  const response = await api.get(`/backups/${id}/content`, {
+    params: { download: true },
+    responseType: 'blob',
+  });
+  const blob = response.data as Blob;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const cd = response.headers['content-disposition'] as string | undefined;
+  const match = cd?.match(/filename="?([^"]+)"?/);
+  a.download = match?.[1] ?? `backup-${id}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
