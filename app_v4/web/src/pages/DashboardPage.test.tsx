@@ -1,27 +1,56 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
-import { it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Router } from 'wouter';
+import { memoryLocation } from 'wouter/memory-location';
 import { DashboardPage } from './DashboardPage';
 
 vi.mock('../api/hooks', () => ({
-  useSystemMetrics: () => ({ data: { switches: 12, backups: 348, jobs: 5, failures_24h: 1 }, isLoading: false }),
+  useSystemMetrics: () => ({ data: { switches: 7, backups: 42, jobs: 3, failures_24h: 0 }, isLoading: false }),
+  useSwitches: () => ({ data: [], isLoading: false }),
+  useBackups: () => ({ data: [], isLoading: false }),
+  useLatestBackupPerSwitch: () => ({ data: [], isLoading: false }),
 }));
 
-it('renders mockup dashboard hero and KPI markers', () => {
-  render(<QueryClientProvider client={new QueryClient()}><DashboardPage /></QueryClientProvider>);
+vi.mock('../auth/AuthProvider', () => ({
+  useOptionalAuth: () => null,
+}));
 
-  expect(screen.getByText('OPERATIONS OVERVIEW')).toBeInTheDocument();
-  expect(screen.getByText('three-forty-eight')).toBeInTheDocument();
-  expect(screen.getByText('/01 · INV')).toBeInTheDocument();
-  expect(screen.getByText('/02 · EXEC')).toBeInTheDocument();
-  expect(screen.getByText('/03 · QOS')).toBeInTheDocument();
-  expect(screen.getByText('/04 · ALERT')).toBeInTheDocument();
-});
+vi.mock('../lib/ws', () => ({ useLiveSocket: () => undefined }));
 
-it('renders chart, stream, and fleet sections', () => {
-  render(<QueryClientProvider client={new QueryClient()}><DashboardPage /></QueryClientProvider>);
+function renderPage() {
+  const { hook } = memoryLocation({ path: '/' });
+  return render(
+    <Router hook={hook}>
+      <DashboardPage />
+    </Router>,
+  );
+}
 
-  expect(screen.getAllByText('TODAY').length).toBeGreaterThan(0);
-  expect(screen.getAllByText('SW-EDGE-07 backup completed').length).toBeGreaterThan(0);
-  expect(screen.getAllByText('SW-CORE-01').length).toBeGreaterThan(0);
+describe('DashboardPage', () => {
+  it('renders the hero headline using metrics from the API', () => {
+    renderPage();
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('7');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('42');
+  });
+
+  it('time-range tabs change the active range', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: '7D' }));
+    expect(screen.getByRole('button', { name: '7D' })).toHaveAttribute('data-active', 'true');
+  });
+
+  it('EXPORT triggers a CSV download', () => {
+    const click = vi.fn();
+    const original = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = click;
+    try {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: /export/i }));
+      expect(click).toHaveBeenCalled();
+    } finally {
+      HTMLAnchorElement.prototype.click = original;
+    }
+  });
 });

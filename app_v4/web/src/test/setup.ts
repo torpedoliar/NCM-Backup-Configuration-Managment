@@ -49,3 +49,11 @@ Object.defineProperty(globalThis, 'sessionStorage', {
   configurable: true,
   value: memorySessionStorage,
 });
+
+// jsdom does not implement URL.createObjectURL / revokeObjectURL; provide no-op shims
+if (typeof URL.createObjectURL !== 'function') {
+  URL.createObjectURL = () => 'blob:mock';
+}
+if (typeof URL.revokeObjectURL !== 'function') {
+  URL.revokeObjectURL = () => {};
+}

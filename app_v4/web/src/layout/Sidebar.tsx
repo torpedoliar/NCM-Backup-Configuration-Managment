@@ -1,36 +1,41 @@
 import { Link, useLocation } from 'wouter';
+import { useSystemMetrics } from '../api/hooks';
 
 type NavItem = { href: string; text: string; count?: string; icon: string };
 type NavGroup = { label: string; items: NavItem[] };
 
-const groups: NavGroup[] = [
-  {
-    label: 'Monitoring',
-    items: [
-      { href: '/', text: 'Dashboard', icon: '▣' },
-      { href: '/history', text: 'Backup History', count: '348', icon: '◉' },
-      { href: '/diff', text: 'Diff Viewer', icon: '⇆' },
-    ],
-  },
-  {
-    label: 'Management',
-    items: [
-      { href: '/switches', text: 'Switches', count: '12', icon: '▤' },
-      { href: '/credentials', text: 'Credentials', count: '8', icon: '⌁' },
-      { href: '/schedules', text: 'Schedules', count: '5', icon: '◷' },
-    ],
-  },
-  {
-    label: 'Administration',
-    items: [
-      { href: '/users', text: 'Users', count: '4', icon: '◎' },
-      { href: '/settings', text: 'Settings', icon: '⚙' },
-    ],
-  },
-];
+const count = (n?: number) => (n === undefined ? '—' : String(n));
 
 export function Sidebar() {
   const [location] = useLocation();
+  const { data: metrics } = useSystemMetrics();
+
+  const groups: NavGroup[] = [
+    {
+      label: 'Monitoring',
+      items: [
+        { href: '/', text: 'Dashboard', icon: '▣' },
+        { href: '/history', text: 'Backup History', count: count(metrics?.backups), icon: '◉' },
+        { href: '/diff', text: 'Diff Viewer', icon: '⇆' },
+      ],
+    },
+    {
+      label: 'Management',
+      items: [
+        { href: '/switches', text: 'Switches', count: count(metrics?.switches), icon: '▤' },
+        { href: '/credentials', text: 'Credentials', icon: '⌁' },
+        { href: '/schedules', text: 'Schedules', count: count(metrics?.jobs), icon: '◷' },
+      ],
+    },
+    {
+      label: 'Administration',
+      items: [
+        { href: '/users', text: 'Users', count: count(undefined), icon: '◎' },
+        { href: '/settings', text: 'Settings', icon: '⚙' },
+      ],
+    },
+  ];
+
   return (
     <aside className="ops-sidebar">
       <div className="brand-block">

@@ -1,22 +1,52 @@
-import { BackupChart } from '../components/BackupChart';
+import { useState } from 'react';
+import { BackupChart, type DashboardRange } from '../components/BackupChart';
 import { FleetGrid } from '../components/FleetGrid';
 import { KpiCell } from '../components/KpiCell';
 import { LiveFeed } from '../components/LiveFeed';
 import { OpsPanel } from '../components/OpsPanel';
-import { useSystemMetrics } from '../api/hooks';
+import { useBackups, useSystemMetrics } from '../api/hooks';
 import { useOptionalAuth } from '../auth/AuthProvider';
 import { useLiveSocket } from '../lib/ws';
 import { number } from '../lib/fmt';
+import { toCsv } from '../lib/csv';
 import '../styles/dashboard.css';
 
+const RANGES: DashboardRange[] = ['24h', '7d', '30d', '90d'];
+
+function dash(value: number | undefined): string {
+  return value === undefined ? '—' : number(value);
+}
+
 export function DashboardPage() {
-  const { data } = useSystemMetrics();
+  const { data: metrics } = useSystemMetrics();
+  const { data: backups = [] } = useBackups();
   const auth = useOptionalAuth();
   useLiveSocket(auth?.accessToken ?? null);
+  const [range, setRange] = useState<DashboardRange>('24h');
 
-  const switches = data?.switches ?? 12;
-  const backups = data?.backups ?? 348;
-  const failures = data?.failures_24h ?? 1;
+  const switches = metrics?.switches;
+  const backupsCount = metrics?.backups;
+  const failures = metrics?.failures_24h ?? 0;
+
+  function exportCsv() {
+    const rows = backups.map((b) => ({
+      id: b.id,
+      switch_id: b.switch_id,
+      taken_at: b.created_at,
+      success: b.success ? 'true' : 'false',
+      backup_type: b.backup_type,
+      size_bytes: b.size_bytes ?? 0,
+      message: b.message ?? '',
+    }));
+    const csv = toCsv(['id', 'switch_id', 'taken_at', 'success', 'backup_type', 'size_bytes', 'message'], rows);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backups-${range}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <main className="dashboard-page">
@@ -24,11 +54,8 @@ export function DashboardPage() {
         <div>
           <div className="marker marker-amber">OPERATIONS OVERVIEW</div>
           <h1 className="headline hero-headline">
-            Twelve switches, <em>three-forty-eight</em>
-            <br />
-            backups, one anomaly.
+            {dash(switches)} switches, <em>{dash(backupsCount)}</em> backups, {failures} anomal{failures === 1 ? 'y' : 'ies'}.
           </h1>
-          <p className="hero-subline marker">// LAST 30 DAYS · AUTO-REFRESH 30s · DATA-AS-OF 22:00:22</p>
           <div className="hero-underline" />
         </div>
         <div className="hero-meta">
@@ -38,49 +65,43 @@ export function DashboardPage() {
       </section>
 
       <section className="range-tabs" aria-label="time range">
-        <button className="active">24H</button>
-        <button>7D</button>
-        <button>30D</button>
-        <button>90D</button>
-        <button>EXPORT ↗</button>
+        {RANGES.map((r) => (
+          <button
+            key={r}
+            data-active={r === range}
+            className={r === range ? 'active' : ''}
+            onClick={() => setRange(r)}
+          >
+            {r.toUpperCase()}
+          </button>
+        ))}
+        <button onClick={exportCsv}>EXPORT ↗</button>
       </section>
 
       <section className="kpi-grid">
-        <KpiCell
-          marker="/01 · INV"
-          label="SWITCHES UNDER MGMT"
-          value={number(switches)}
-          delta="+2 NEW"
-          tone="green"
-        />
-        <KpiCell
-          marker="/02 · EXEC"
-          label="BACKUPS · 30D"
-          value={number(backups)}
-          delta="↑ 12.4%"
-          tone="green"
-        />
+        <KpiCell marker="/01 · INV" label="SWITCHES UNDER MGMT" value={dash(switches)} />
+        <KpiCell marker="/02 · EXEC" label="BACKUPS" value={dash(backupsCount)} />
         <KpiCell
           marker="/03 · QOS"
           label="SUCCESS RATE"
-          value="96.3"
+          value={
+            backupsCount && backupsCount > 0
+              ? (((backupsCount - failures) / backupsCount) * 100).toFixed(1)
+              : '—'
+          }
           suffix="%"
-          footer="TARGET 99.0% · DELTA -2.7"
-          progress={96}
         />
         <KpiCell
           marker="/04 · ALERT"
           label="FAILED · 24H"
           value={String(failures).padStart(2, '0')}
-          delta="△ TIMEOUT"
-          tone="red"
-          footer="SW-EDGE-07 · 10.0.1.7"
+          tone={failures > 0 ? 'red' : undefined}
         />
       </section>
 
       <section className="dashboard-grid">
-        <OpsPanel marker="/05 · TIMESERIES" title="Backup activity, last fourteen days" className="chart-panel">
-          <BackupChart />
+        <OpsPanel marker="/05 · TIMESERIES" title={`Backup activity, last ${range}`} className="chart-panel">
+          <BackupChart range={range} />
         </OpsPanel>
         <OpsPanel marker="/06 · STREAM" title="Live activity" className="live-panel">
           <LiveFeed />

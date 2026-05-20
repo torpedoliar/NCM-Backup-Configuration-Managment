@@ -1,9 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import { it, expect } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Shell } from './Shell';
 
 it('renders mockup shell chrome', () => {
-  render(<Shell><main>Dashboard body</main></Shell>);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <Shell><main>Dashboard body</main></Shell>
+    </QueryClientProvider>,
+  );
 
   expect(screen.getByText('NCM')).toBeInTheDocument();
   expect(screen.getByText('NETWORK CONFIG MGR')).toBeInTheDocument();
