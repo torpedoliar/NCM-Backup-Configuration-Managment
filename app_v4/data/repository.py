@@ -247,6 +247,25 @@ class Repository:
         await self.session.flush()
         return row
 
+    def _apply_audit_filters(
+        self,
+        stmt,
+        *,
+        action_prefix: str | None,
+        user_id: int | None,
+        from_ts: datetime | None,
+        to_ts: datetime | None,
+    ):
+        if action_prefix is not None:
+            stmt = stmt.where(AuditLog.action.like(f"{action_prefix}%"))
+        if user_id is not None:
+            stmt = stmt.where(AuditLog.user_id == user_id)
+        if from_ts is not None:
+            stmt = stmt.where(AuditLog.ts >= from_ts)
+        if to_ts is not None:
+            stmt = stmt.where(AuditLog.ts <= to_ts)
+        return stmt
+
     async def list_audit(
         self,
         limit: int = 100,
@@ -257,14 +276,13 @@ class Repository:
         to_ts: datetime | None = None,
     ) -> list[AuditLog]:
         stmt = select(AuditLog).order_by(AuditLog.ts.desc()).limit(limit).offset(offset)
-        if action_prefix is not None:
-            stmt = stmt.where(AuditLog.action.like(f"{action_prefix}%"))
-        if user_id is not None:
-            stmt = stmt.where(AuditLog.user_id == user_id)
-        if from_ts is not None:
-            stmt = stmt.where(AuditLog.ts >= from_ts)
-        if to_ts is not None:
-            stmt = stmt.where(AuditLog.ts <= to_ts)
+        stmt = self._apply_audit_filters(
+            stmt,
+            action_prefix=action_prefix,
+            user_id=user_id,
+            from_ts=from_ts,
+            to_ts=to_ts,
+        )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -276,14 +294,13 @@ class Repository:
         to_ts: datetime | None = None,
     ) -> int:
         stmt = select(func.count(AuditLog.id))
-        if action_prefix is not None:
-            stmt = stmt.where(AuditLog.action.like(f"{action_prefix}%"))
-        if user_id is not None:
-            stmt = stmt.where(AuditLog.user_id == user_id)
-        if from_ts is not None:
-            stmt = stmt.where(AuditLog.ts >= from_ts)
-        if to_ts is not None:
-            stmt = stmt.where(AuditLog.ts <= to_ts)
+        stmt = self._apply_audit_filters(
+            stmt,
+            action_prefix=action_prefix,
+            user_id=user_id,
+            from_ts=from_ts,
+            to_ts=to_ts,
+        )
         result = await self.session.execute(stmt)
         return int(result.scalar_one())
 

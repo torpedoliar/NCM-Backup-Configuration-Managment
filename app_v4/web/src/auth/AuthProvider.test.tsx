@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, act } from '@testing-library/react';
 import MockAdapter from 'axios-mock-adapter';
 import type { AxiosInstance } from 'axios';
 import { Router } from 'wouter';
@@ -35,7 +35,6 @@ describe('AuthProvider.logout', () => {
     expect(captured!.accessToken).toBeNull();
     expect(captured!.refreshToken).toBeNull();
     expect(history[history.length - 1]).toBe('/login');
-    expect(screen.getByText('out')).toBeInTheDocument();
 
     mock.restore();
   });

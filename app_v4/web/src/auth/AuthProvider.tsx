@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import { api, attachAuthInterceptor, loginRequest, setAccessToken } from '../api/client';
 import type { CurrentUser } from '../api/types';
@@ -28,18 +28,25 @@ export function AuthProvider({ children, initialAccessToken, initialRefreshToken
     () => initialRefreshToken ?? localStorage.getItem('refresh_token'),
   );
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const loggingOutRef = useRef(false);
 
   useEffect(() => {
     setAccessToken(accessToken);
   }, [accessToken]);
 
   const logout = useCallback(async () => {
+    if (loggingOutRef.current) return;
+    loggingOutRef.current = true;
     const rt = refreshToken;
     if (rt) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
       try {
-        await api.post('/auth/logout', { refresh_token: rt });
+        await api.post('/auth/logout', { refresh_token: rt }, { signal: controller.signal });
       } catch {
-        /* ignore — best-effort */
+        // Ignore failures (network, 4xx, abort) — logout proceeds locally regardless.
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
     localStorage.removeItem('access_token');
@@ -49,6 +56,7 @@ export function AuthProvider({ children, initialAccessToken, initialRefreshToken
     setRefreshTokenState(null);
     setUser(null);
     navigate('/login');
+    loggingOutRef.current = false;
   }, [navigate, refreshToken]);
 
   useEffect(() => {
