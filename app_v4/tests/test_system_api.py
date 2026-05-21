@@ -148,3 +148,52 @@ async def test_status_returns_paths(test_settings, session_factory):
     assert response.status_code == 200
     payload = response.json()
     assert "data_dir" in payload and "backups_dir" in payload and "logs_dir" in payload
+
+
+@pytest.mark.asyncio
+async def test_get_auth_settings_admin_only(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"k" * 32)
+    client = TestClient(create_app(runtime))
+    r = client.get(
+        "/api/v1/system/auth-settings",
+        headers={"Authorization": f"Bearer {_viewer_token(runtime)}"},
+    )
+    assert r.status_code == 403
+    r = client.get(
+        "/api/v1/system/auth-settings",
+        headers={"Authorization": f"Bearer {_admin_token(runtime)}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["access_token_minutes"] == 15
+    assert body["lockout_threshold"] == 5
+    assert body["password_min_length"] == 8
+
+
+@pytest.mark.asyncio
+async def test_patch_auth_settings_persists_and_validates(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"l" * 32)
+    from app_v4.data.repository import Repository
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h", "admin")
+        await session.commit()
+        admin_id = admin.id
+    admin_token = runtime.auth_service.issue_access_token(admin_id, "admin", "admin")
+    client = TestClient(create_app(runtime))
+    r = client.patch(
+        "/api/v1/system/auth-settings",
+        json={"access_token_minutes": 4},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 422
+
+    r = client.patch(
+        "/api/v1/system/auth-settings",
+        json={"access_token_minutes": 30, "lockout_threshold": 0},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["access_token_minutes"] == 30
+    assert body["lockout_threshold"] == 0

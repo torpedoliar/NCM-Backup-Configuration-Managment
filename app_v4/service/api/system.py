@@ -56,6 +56,32 @@ class RetentionPatch(BaseModel):
     retention_minute: int | None = Field(default=None, ge=0, le=59)
 
 
+class AuthSettingsResponse(BaseModel):
+    access_token_minutes: int
+    refresh_token_days: int
+    lockout_threshold: int
+    lockout_window_minutes: int
+    lockout_duration_minutes: int
+    password_min_length: int
+    password_require_upper: bool
+    password_require_lower: bool
+    password_require_digit: bool
+    password_require_symbol: bool
+
+
+class AuthSettingsPatch(BaseModel):
+    access_token_minutes: int | None = Field(default=None, ge=5, le=1440)
+    refresh_token_days: int | None = Field(default=None, ge=1, le=30)
+    lockout_threshold: int | None = Field(default=None, ge=0, le=20)
+    lockout_window_minutes: int | None = Field(default=None, ge=1, le=60)
+    lockout_duration_minutes: int | None = Field(default=None, ge=1, le=1440)
+    password_min_length: int | None = Field(default=None, ge=6, le=128)
+    password_require_upper: bool | None = None
+    password_require_lower: bool | None = None
+    password_require_digit: bool | None = None
+    password_require_symbol: bool | None = None
+
+
 @router.get("/status", response_model=StatusResponse)
 async def status(
     runtime: ServiceRuntime = Depends(get_runtime),
@@ -131,3 +157,35 @@ async def patch_retention(
         detail={"changes": updates},
     )
     return RetentionResponse(**asdict(new_retention))
+
+
+@router.get("/auth-settings", response_model=AuthSettingsResponse)
+async def get_auth_settings(
+    runtime: ServiceRuntime = Depends(get_runtime),
+    _user: AccessClaims = Depends(require_role("admin")),
+) -> AuthSettingsResponse:
+    paths = resolve_paths(runtime.settings)
+    rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
+    return AuthSettingsResponse(**asdict(rs.auth))
+
+
+@router.patch("/auth-settings", response_model=AuthSettingsResponse)
+async def patch_auth_settings(
+    payload: AuthSettingsPatch,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    user: AccessClaims = Depends(require_role("admin")),
+) -> AuthSettingsResponse:
+    paths = resolve_paths(runtime.settings)
+    target = paths.data_dir / "runtime_settings.json"
+    current = load_runtime_settings(target)
+    updates = payload.model_dump(exclude_none=True)
+    new_auth = replace(current.auth, **updates)
+    save_runtime_settings(target, replace(current, auth=new_auth))
+    await runtime.audit_writer.record(
+        action="system.auth_settings_updated",
+        user_id=user.user_id,
+        ip=request.client.host if request.client else None,
+        detail={"changes": updates},
+    )
+    return AuthSettingsResponse(**asdict(new_auth))
