@@ -3,12 +3,16 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, VerificationError
 
-from app_v4.core.config import Settings
+from app_v4.core.runtime_settings import AuthSettings
+
+
+AuthSettingsProvider = Callable[[], AuthSettings]
 
 
 class TokenError(ValueError):
@@ -31,9 +35,13 @@ class TokenPair:
 
 
 class AuthService:
-    def __init__(self, settings: Settings, jwt_secret: bytes):
-        self.settings = settings
+    def __init__(
+        self,
+        jwt_secret: bytes,
+        settings_provider: AuthSettingsProvider,
+    ) -> None:
         self.jwt_secret = jwt_secret
+        self.settings_provider = settings_provider
         self.password_hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 
     def hash_password(self, password: str) -> str:
@@ -46,8 +54,9 @@ class AuthService:
             return False
 
     def issue_access_token(self, user_id: int, username: str, role: str) -> str:
+        auth = self.settings_provider()
         now = datetime.now(timezone.utc)
-        exp = now + timedelta(minutes=self.settings.jwt_access_minutes)
+        exp = now + timedelta(minutes=auth.access_token_minutes)
         payload = {
             "sub": str(user_id),
             "username": username,

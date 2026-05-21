@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -11,12 +12,16 @@ from app_v4.core.crypto_service import CryptoService
 from app_v4.core.dpapi import WindowsDpapiProvider
 from app_v4.core.key_envelope import KeyEnvelopeStore
 from app_v4.core.paths import resolve_paths
+from app_v4.core.runtime_settings import AuthSettings, load_runtime_settings
 from app_v4.data.db import create_session_factory, init_db
 from app_v4.service.audit import AuditWriter
 from app_v4.service.backup_service import BackupService
 from app_v4.service.events import EventHub
 from app_v4.service.retention_service import RetentionService
 from app_v4.service.scheduler import SchedulerService
+
+
+AuthSettingsProvider = Callable[[], AuthSettings]
 
 
 @dataclass
@@ -26,6 +31,9 @@ class ServiceRuntime:
     auth_service: AuthService
     event_hub: EventHub
     audit_writer: AuditWriter
+    auth_settings_provider: AuthSettingsProvider = field(
+        default_factory=lambda: lambda: AuthSettings()
+    )
     crypto_service: CryptoService | None = None
     backup_service: BackupService | None = None
     scheduler_service: SchedulerService | None = None
@@ -46,13 +54,16 @@ class ServiceRuntime:
         backup_service: BackupService | None = None,
         scheduler_service: SchedulerService | None = None,
         retention_service: RetentionService | None = None,
+        auth_settings: AuthSettings | None = None,
     ) -> "ServiceRuntime":
+        provider: AuthSettingsProvider = lambda: auth_settings or AuthSettings()
         return cls(
             settings=settings,
             session_factory=session_factory,
-            auth_service=AuthService(settings=settings, jwt_secret=jwt_secret),
+            auth_service=AuthService(jwt_secret=jwt_secret, settings_provider=provider),
             event_hub=EventHub(),
             audit_writer=AuditWriter(session_factory),
+            auth_settings_provider=provider,
             crypto_service=crypto_service,
             backup_service=backup_service,
             scheduler_service=scheduler_service,
@@ -67,10 +78,15 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     engine, session_factory = create_session_factory(settings)
     await init_db(engine)
     event_hub = EventHub()
+    runtime_settings_path = paths.data_dir / "runtime_settings.json"
+
+    def auth_settings_provider() -> AuthSettings:
+        return load_runtime_settings(runtime_settings_path).auth
+
     retention_service = RetentionService(
         settings,
         session_factory,
-        runtime_settings_path=paths.data_dir / "runtime_settings.json",
+        runtime_settings_path=runtime_settings_path,
     )
     backup_service = BackupService(settings, session_factory, crypto, event_hub=event_hub)
     scheduler_service = SchedulerService(
@@ -84,9 +100,13 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     runtime = ServiceRuntime(
         settings=settings,
         session_factory=session_factory,
-        auth_service=AuthService(settings=settings, jwt_secret=envelope.jwt_secret),
+        auth_service=AuthService(
+            jwt_secret=envelope.jwt_secret,
+            settings_provider=auth_settings_provider,
+        ),
         event_hub=event_hub,
         audit_writer=AuditWriter(session_factory),
+        auth_settings_provider=auth_settings_provider,
         crypto_service=crypto,
         backup_service=backup_service,
         scheduler_service=scheduler_service,

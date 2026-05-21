@@ -13,6 +13,7 @@ from app_v4.core.crypto_service import CryptoService
 from app_v4.core.dpapi import ProtectionProvider, WindowsDpapiProvider
 from app_v4.core.key_envelope import KeyEnvelope, KeyEnvelopeStore
 from app_v4.core.paths import resolve_paths
+from app_v4.core.runtime_settings import AuthSettings
 from app_v4.data.db import create_session_factory, init_db
 from app_v4.data.repository import Repository
 from app_v4.tools.migrate_v3 import migrate_v3_install
@@ -46,7 +47,7 @@ async def init_command(
 
     engine, session_factory = create_session_factory(settings)
     await init_db(engine)
-    auth = AuthService(settings=settings, jwt_secret=envelope.jwt_secret)
+    auth = AuthService(jwt_secret=envelope.jwt_secret, settings_provider=lambda: AuthSettings())
 
     created_admin = False
     try:

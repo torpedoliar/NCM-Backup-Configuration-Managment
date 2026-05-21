@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app_v4.core.auth_service import AuthService
+from app_v4.core.runtime_settings import AuthSettings
 from app_v4.data.repository import Repository
 from app_v4.service.app import create_app
 from app_v4.service.runtime import ServiceRuntime
@@ -9,7 +10,7 @@ JWT_SECRET = b"test-secret-for-audit-api-tests-32"
 
 
 def _token(settings, user_id: int, role: str) -> str:
-    return AuthService(settings, JWT_SECRET).issue_access_token(user_id=user_id, username=f"u{user_id}", role=role)
+    return AuthService(jwt_secret=JWT_SECRET, settings_provider=lambda: AuthSettings()).issue_access_token(user_id=user_id, username=f"u{user_id}", role=role)
 
 
 def test_audit_endpoint_is_admin_only(test_settings, session_factory):
