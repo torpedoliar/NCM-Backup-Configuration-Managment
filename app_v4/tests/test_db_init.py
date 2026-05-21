@@ -103,3 +103,18 @@ async def test_jobs_table_has_day_of_week_and_day_of_month(tmp_path):
     await engine.dispose()
     assert 'day_of_week' in cols
     assert 'day_of_month' in cols
+
+
+@pytest.mark.asyncio
+async def test_users_table_has_lockout_columns(tmp_path):
+    db_url = f"sqlite+aiosqlite:///{(tmp_path / 'app.db').as_posix()}"
+    engine = create_async_engine(db_url)
+    await init_db(engine)
+    async with engine.begin() as conn:
+        cols = await conn.run_sync(
+            lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("users")}
+        )
+    await engine.dispose()
+    assert "failed_login_count" in cols
+    assert "last_failed_login_at" in cols
+    assert "locked_until" in cols
