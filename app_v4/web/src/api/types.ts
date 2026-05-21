@@ -108,3 +108,25 @@ export interface AuditPageData {
   rows: AuditEntry[];
   total: number;
 }
+
+export interface SystemStatus {
+  service: string;
+  version: string;
+  started_at: string;
+  host: string;
+  port: number;
+  uptime_seconds: number;
+  scheduler_running: boolean;
+  db_size_bytes: number;
+  data_dir: string;
+  backups_dir: string;
+  logs_dir: string;
+}
+
+export interface RetentionSettings {
+  backup_min_keep: number;
+  backup_retention_days: number;
+  audit_retention_days: number;
+  retention_hour: number;
+  retention_minute: number;
+}

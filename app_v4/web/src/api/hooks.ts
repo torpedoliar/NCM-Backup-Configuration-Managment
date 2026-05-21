@@ -12,10 +12,12 @@ import type {
   JobCreateInput,
   JobRecord,
   JobUpdateInput,
+  RetentionSettings,
   SwitchCreateInput,
   SwitchRecord,
   SwitchUpdateInput,
   SystemMetrics,
+  SystemStatus,
   UserCreateInput,
   UserRecord,
   UserUpdateInput,
@@ -284,5 +286,30 @@ export function useAudit(filters: AuditFilters) {
       return { rows: response.data, total: Number.isFinite(total) ? total : response.data.length };
     },
     staleTime: 30 * SECOND,
+  });
+}
+
+export function useSystemStatus() {
+  return useQuery({
+    queryKey: ['system', 'status'],
+    queryFn: async () => (await api.get<SystemStatus>('/system/status')).data,
+    staleTime: 30 * SECOND,
+  });
+}
+
+export function useRetention() {
+  return useQuery({
+    queryKey: ['system', 'retention'],
+    queryFn: async () => (await api.get<RetentionSettings>('/system/retention')).data,
+    staleTime: 60 * SECOND,
+  });
+}
+
+export function usePatchRetention() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Partial<RetentionSettings>) =>
+      (await api.patch<RetentionSettings>('/system/retention', input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['system', 'retention'] }),
   });
 }

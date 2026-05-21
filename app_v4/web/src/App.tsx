@@ -35,6 +35,7 @@ export function App() {
               <Route path="/schedules" component={SchedulesPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/settings" component={SettingsPage} />
+              <Route path="/settings/:tab" component={SettingsPage} />
               <Route path="/audit" component={AuditPage} />
             </Suspense>
           </Shell>

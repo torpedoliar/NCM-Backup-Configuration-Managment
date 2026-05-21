@@ -1,3 +1,32 @@
+import { useLocation, useRoute } from 'wouter';
+import { SettingsServiceSection } from './settings/SettingsServiceSection';
+import { SettingsRetentionSection } from './settings/SettingsRetentionSection';
+import { SettingsAboutSection } from './settings/SettingsAboutSection';
+
+const TABS = [
+  { id: 'service', label: 'Service', section: <SettingsServiceSection /> },
+  { id: 'retention', label: 'Retention', section: <SettingsRetentionSection /> },
+  { id: 'about', label: 'About', section: <SettingsAboutSection /> },
+];
+
 export function SettingsPage() {
-  return <main><p className="marker">/08 · SETTINGS</p><h1 className="headline">Service, branding, retention, logs, about.</h1><section><h2>Service</h2><p>Bind address and service state.</p></section><section><h2>Retention</h2><p>Backup and audit retention windows.</p></section></main>;
+  const [, setLocation] = useLocation();
+  const [, params] = useRoute('/settings/:tab');
+  const active = params?.tab ?? 'service';
+  const tab = TABS.find((t) => t.id === active) ?? TABS[0];
+  return (
+    <main className="settings-page">
+      <p className="marker">/08 · SETTINGS</p>
+      <div className="settings-layout">
+        <nav className="settings-tabs">
+          {TABS.map((t) => (
+            <button key={t.id} data-active={t.id === active} onClick={() => setLocation(`/settings/${t.id}`)}>
+              {t.label}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-content">{tab.section}</div>
+      </div>
+    </main>
+  );
 }
