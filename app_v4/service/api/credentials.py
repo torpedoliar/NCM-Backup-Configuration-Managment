@@ -66,7 +66,7 @@ async def create_credential(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    actor: AccessClaims = Depends(require_role("admin")),
 ) -> CredentialOut:
     crypto = _require_crypto(runtime)
     repo = Repository(session)
@@ -94,7 +94,7 @@ async def update_credential(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    actor: AccessClaims = Depends(require_role("admin")),
 ) -> CredentialOut:
     crypto = _require_crypto(runtime)
     repo = Repository(session)
@@ -143,7 +143,7 @@ async def delete_credential(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    actor: AccessClaims = Depends(require_role("admin")),
 ) -> Response:
     repo = Repository(session)
     try:

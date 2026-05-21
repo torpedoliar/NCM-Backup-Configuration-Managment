@@ -14,6 +14,10 @@ def _viewer_token(runtime: ServiceRuntime) -> str:
     return runtime.auth_service.issue_access_token(2, "viewer", "viewer")
 
 
+def _operator_token(runtime: ServiceRuntime) -> str:
+    return runtime.auth_service.issue_access_token(3, "ops", "operator")
+
+
 @pytest.mark.asyncio
 async def test_create_credential_encrypts_payload(
     test_settings, session_factory, crypto_service
@@ -139,3 +143,69 @@ async def test_delete_credential_in_use_returns_409(
     )
 
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_operator_cannot_create_credential(
+    test_settings, session_factory, crypto_service
+):
+    runtime = ServiceRuntime.for_tests(
+        test_settings, session_factory, jwt_secret=b"c" * 32, crypto_service=crypto_service
+    )
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "h", "operator")
+        await session.commit()
+
+    client = TestClient(create_app(runtime))
+    r = client.post(
+        "/api/v1/credentials",
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+        json={"name": "lab", "username": "u", "password": "p"},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_operator_cannot_update_credential(
+    test_settings, session_factory, crypto_service
+):
+    runtime = ServiceRuntime.for_tests(
+        test_settings, session_factory, jwt_secret=b"c" * 32, crypto_service=crypto_service
+    )
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "h", "operator")
+        cred = await repo.create_credential(name="lab", enc_blob=b"x")
+        await session.commit()
+        cred_id = cred.id
+
+    client = TestClient(create_app(runtime))
+    r = client.patch(
+        f"/api/v1/credentials/{cred_id}",
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+        json={"name": "renamed"},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_operator_cannot_delete_credential(
+    test_settings, session_factory, crypto_service
+):
+    runtime = ServiceRuntime.for_tests(
+        test_settings, session_factory, jwt_secret=b"c" * 32, crypto_service=crypto_service
+    )
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "h", "operator")
+        cred = await repo.create_credential(name="lab", enc_blob=b"x")
+        await session.commit()
+        cred_id = cred.id
+
+    client = TestClient(create_app(runtime))
+    r = client.delete(
+        f"/api/v1/credentials/{cred_id}",
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+    )
+    assert r.status_code == 403
