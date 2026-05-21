@@ -69,7 +69,7 @@ async def test_create_user_hashes_password_and_audits(test_settings, session_fac
         audits = await repo.list_audit(limit=10)
     assert created is not None
     assert created.password_hash != "OpsPass1!"
-    assert any(a.action == "user.create" and a.target_id == str(created.id) for a in audits)
+    assert any(a.action == "user.created" and a.target_id == str(created.id) for a in audits)
 
 
 @pytest.mark.asyncio

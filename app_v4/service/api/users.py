@@ -97,7 +97,7 @@ async def create_user(
 
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="user.create",
+        action="user.created",
         target_type="user",
         target_id=str(user.id),
         ip=request.client.host if request.client else None,
@@ -131,7 +131,7 @@ async def update_user(
 
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="user.update",
+        action="user.updated",
         target_type="user",
         target_id=str(user.id),
         ip=request.client.host if request.client else None,
@@ -162,7 +162,7 @@ async def delete_user(
 
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="user.delete",
+        action="user.deleted",
         target_type="user",
         target_id=str(user_id),
         ip=request.client.host if request.client else None,
