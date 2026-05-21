@@ -60,7 +60,10 @@ def create_runtime_app() -> FastAPI:
 
 
 def main() -> None:
+    from app_v4.core.logging import configure_file_logger
+    from app_v4.core.paths import resolve_paths
     settings = Settings()
+    configure_file_logger(resolve_paths(settings).logs_dir)
     uvicorn.run(**uvicorn_kwargs(settings))
 
 
