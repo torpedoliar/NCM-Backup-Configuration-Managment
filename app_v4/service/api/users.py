@@ -7,12 +7,30 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims
+from app_v4.core.password_policy import PasswordPolicy, validate_password
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _policy_from_runtime(runtime: ServiceRuntime) -> PasswordPolicy:
+    cfg = runtime.auth_settings_provider()
+    return PasswordPolicy(
+        min_length=cfg.password_min_length,
+        require_upper=cfg.password_require_upper,
+        require_lower=cfg.password_require_lower,
+        require_digit=cfg.password_require_digit,
+        require_symbol=cfg.password_require_symbol,
+    )
+
+
+def _validate_or_raise(password: str, runtime: ServiceRuntime) -> None:
+    error = validate_password(password, _policy_from_runtime(runtime))
+    if error:
+        raise problem(422, "Unprocessable Entity", error)
 
 
 class UserOut(BaseModel):
@@ -72,6 +90,7 @@ async def create_user(
     repo = Repository(session)
     if await repo.get_user_by_username(payload.username) is not None:
         raise problem(409, "Conflict", "Username already exists")
+    _validate_or_raise(payload.password, runtime)
     password_hash = runtime.auth_service.hash_password(payload.password)
     user = await repo.create_user(payload.username, password_hash, payload.role)
     await session.commit()
@@ -158,8 +177,7 @@ async def reset_password(
     session: AsyncSession = Depends(get_db),
     actor: AccessClaims = Depends(require_role("admin")),
 ) -> Response:
-    if not payload.password or len(payload.password) < 8:
-        raise problem(422, "Unprocessable Entity", "Password must be at least 8 characters")
+    _validate_or_raise(payload.password, runtime)
     repo = Repository(session)
     user = await repo.get_user_by_id(user_id)
     if user is None:

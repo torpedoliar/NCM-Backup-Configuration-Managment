@@ -187,3 +187,42 @@ async def test_reset_password_too_short_returns_422(test_settings, session_facto
         json={"password": "short"},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_user_rejects_weak_password(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"u" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("admin", "h1", "admin")
+        await session.commit()
+
+    client = TestClient(create_app(runtime))
+    response = client.post(
+        "/api/v1/users",
+        headers={"Authorization": f"Bearer {_admin_token(runtime)}"},
+        json={"username": "newop", "password": "weak", "role": "operator"},
+    )
+    assert response.status_code == 422
+    assert "8" in response.text
+
+
+@pytest.mark.asyncio
+async def test_create_user_rejects_password_missing_required_classes(test_settings, session_factory):
+    from app_v4.core.runtime_settings import AuthSettings
+
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"u" * 32)
+    runtime.auth_settings_provider = lambda: AuthSettings(password_min_length=8)
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("admin", "h1", "admin")
+        await session.commit()
+
+    client = TestClient(create_app(runtime))
+    response = client.post(
+        "/api/v1/users",
+        headers={"Authorization": f"Bearer {_admin_token(runtime)}"},
+        json={"username": "newop", "password": "alllower1", "role": "operator"},
+    )
+    assert response.status_code == 422
+    assert "upper" in response.text.lower()

@@ -12,6 +12,7 @@ from app_v4.core.config import Settings
 from app_v4.core.crypto_service import CryptoService
 from app_v4.core.dpapi import ProtectionProvider, WindowsDpapiProvider
 from app_v4.core.key_envelope import KeyEnvelope, KeyEnvelopeStore
+from app_v4.core.password_policy import PasswordPolicy, validate_password
 from app_v4.core.paths import resolve_paths
 from app_v4.core.runtime_settings import AuthSettings
 from app_v4.data.db import create_session_factory, init_db
@@ -29,6 +30,10 @@ async def init_command(
     provider = protection_provider or WindowsDpapiProvider()
     paths = resolve_paths(settings)
     paths.data_dir.mkdir(parents=True, exist_ok=True)
+
+    policy_error = validate_password(admin_password, PasswordPolicy())
+    if policy_error:
+        raise ValueError(policy_error)
 
     store = KeyEnvelopeStore(paths.master_envelope_file, provider)
     if paths.master_envelope_file.exists():
