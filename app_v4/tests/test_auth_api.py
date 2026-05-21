@@ -32,13 +32,23 @@ async def test_login_returns_token_pair(test_settings, session_factory):
 @pytest.mark.asyncio
 async def test_me_requires_bearer_token(test_settings, session_factory):
     runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"c" * 32)
-    token = runtime.auth_service.issue_access_token(user_id=1, username="viewer", role="viewer")
+    async with session_factory() as session:
+        repo = Repository(session)
+        user = await repo.create_user("viewer", "h", "viewer")
+        await session.commit()
+        user_id = user.id
+    token = runtime.auth_service.issue_access_token(user_id=user_id, username="viewer", role="viewer")
     client = TestClient(create_app(runtime))
 
     response = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == 200
-    assert response.json() == {"user_id": 1, "username": "viewer", "role": "viewer"}
+    assert response.json() == {
+        "id": user_id,
+        "username": "viewer",
+        "role": "viewer",
+        "is_active": True,
+    }
 
 
 @pytest.mark.asyncio

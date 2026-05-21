@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { api, attachAuthInterceptor, loginRequest, setAccessToken } from '../api/client';
+import { api, attachAuthInterceptor, loginRequest, meRequest, setAccessToken } from '../api/client';
 import type { CurrentUser } from '../api/types';
 
 type AuthValue = {
@@ -32,6 +32,18 @@ export function AuthProvider({ children, initialAccessToken, initialRefreshToken
 
   useEffect(() => {
     setAccessToken(accessToken);
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      setUser(null);
+      return;
+    }
+    let cancelled = false;
+    meRequest()
+      .then((u) => { if (!cancelled) setUser(u); })
+      .catch(() => { /* 401 handled by attachAuthInterceptor; other errors leave user null */ });
+    return () => { cancelled = true; };
   }, [accessToken]);
 
   const logout = useCallback(async () => {

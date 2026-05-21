@@ -35,9 +35,10 @@ class LogoutRequest(BaseModel):
 
 
 class MeResponse(BaseModel):
-    user_id: int
+    id: int
     username: str
     role: str
+    is_active: bool
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -193,5 +194,17 @@ async def logout(
 
 
 @router.get("/me", response_model=MeResponse)
-async def me(user: AccessClaims = Depends(require_user)) -> MeResponse:
-    return MeResponse(user_id=user.user_id, username=user.username, role=user.role)
+async def me(
+    user: AccessClaims = Depends(require_user),
+    session: AsyncSession = Depends(get_db),
+) -> MeResponse:
+    repo = Repository(session)
+    db_user = await repo.get_user_by_id(user.user_id)
+    if db_user is None:
+        raise problem(401, "Unauthorized", "User not found")
+    return MeResponse(
+        id=db_user.id,
+        username=db_user.username,
+        role=db_user.role,
+        is_active=db_user.is_active,
+    )
