@@ -4,6 +4,7 @@ import type {
   AuditEntry,
   AuditFilters,
   AuditPageData,
+  AuthSettings,
   BackupFilters,
   BackupRecord,
   CredentialCreateInput,
@@ -311,5 +312,21 @@ export function usePatchRetention() {
     mutationFn: async (input: Partial<RetentionSettings>) =>
       (await api.patch<RetentionSettings>('/system/retention', input)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['system', 'retention'] }),
+  });
+}
+
+export function useAuthSettings() {
+  return useQuery({
+    queryKey: ['system', 'auth-settings'],
+    queryFn: async () => (await api.get<AuthSettings>('/system/auth-settings')).data,
+  });
+}
+
+export function usePatchAuthSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Partial<AuthSettings>) =>
+      (await api.patch<AuthSettings>('/system/auth-settings', input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['system', 'auth-settings'] }),
   });
 }

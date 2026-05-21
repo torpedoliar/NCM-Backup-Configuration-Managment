@@ -130,3 +130,16 @@ export interface RetentionSettings {
   retention_hour: number;
   retention_minute: number;
 }
+
+export interface AuthSettings {
+  access_token_minutes: number;
+  refresh_token_days: number;
+  lockout_threshold: number;
+  lockout_window_minutes: number;
+  lockout_duration_minutes: number;
+  password_min_length: number;
+  password_require_upper: boolean;
+  password_require_lower: boolean;
+  password_require_digit: boolean;
+  password_require_symbol: boolean;
+}
