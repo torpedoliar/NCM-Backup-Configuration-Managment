@@ -140,18 +140,19 @@ async def patch_retention(
 ) -> RetentionResponse:
     paths = resolve_paths(runtime.settings)
     target = paths.data_dir / "runtime_settings.json"
-    current = load_runtime_settings(target)
-    updates = payload.model_dump(exclude_none=True)
-    new_retention = replace(current.retention, **updates)
-    new_settings = replace(current, retention=new_retention)
-    save_runtime_settings(target, new_settings)
+    async with runtime.runtime_settings_lock:
+        current = load_runtime_settings(target)
+        updates = payload.model_dump(exclude_none=True)
+        new_retention = replace(current.retention, **updates)
+        new_settings = replace(current, retention=new_retention)
+        save_runtime_settings(target, new_settings)
 
-    if runtime.scheduler_service is not None and (
-        "retention_hour" in updates or "retention_minute" in updates
-    ):
-        runtime.scheduler_service.reschedule_retention(
-            new_retention.retention_hour, new_retention.retention_minute
-        )
+        if runtime.scheduler_service is not None and (
+            "retention_hour" in updates or "retention_minute" in updates
+        ):
+            runtime.scheduler_service.reschedule_retention(
+                new_retention.retention_hour, new_retention.retention_minute
+            )
 
     await runtime.audit_writer.record(
         action="system.retention_updated",
@@ -181,10 +182,11 @@ async def patch_auth_settings(
 ) -> AuthSettingsResponse:
     paths = resolve_paths(runtime.settings)
     target = paths.data_dir / "runtime_settings.json"
-    current = load_runtime_settings(target)
-    updates = payload.model_dump(exclude_none=True)
-    new_auth = replace(current.auth, **updates)
-    save_runtime_settings(target, replace(current, auth=new_auth))
+    async with runtime.runtime_settings_lock:
+        current = load_runtime_settings(target)
+        updates = payload.model_dump(exclude_none=True)
+        new_auth = replace(current.auth, **updates)
+        save_runtime_settings(target, replace(current, auth=new_auth))
     await runtime.audit_writer.record(
         action="system.auth_settings_updated",
         user_id=user.user_id,

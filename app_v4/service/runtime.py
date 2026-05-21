@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable
@@ -34,6 +35,7 @@ class ServiceRuntime:
     auth_settings_provider: AuthSettingsProvider = field(
         default_factory=lambda: lambda: AuthSettings()
     )
+    runtime_settings_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     crypto_service: CryptoService | None = None
     backup_service: BackupService | None = None
     scheduler_service: SchedulerService | None = None
