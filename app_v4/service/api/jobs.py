@@ -99,7 +99,7 @@ async def create_job(
     await session.commit()
     job = await repo.get_job(job.id)
     await runtime.audit_writer.record(
-        action="job.created",
+        action="schedule.created",
         user_id=actor.user_id,
         target_type="job",
         target_id=str(job.id),
@@ -165,7 +165,7 @@ async def update_job(
         raise problem(404, "Not Found", "Job not found")
     await session.commit()
     await runtime.audit_writer.record(
-        action="job.updated",
+        action="schedule.updated",
         user_id=actor.user_id,
         target_type="job",
         target_id=str(job_id),
@@ -189,7 +189,7 @@ async def delete_job(
         raise problem(404, "Not Found", "Job not found")
     await session.commit()
     await runtime.audit_writer.record(
-        action="job.deleted",
+        action="schedule.deleted",
         user_id=actor.user_id,
         target_type="job",
         target_id=str(job_id),
