@@ -281,3 +281,21 @@ async def test_admin_unlock_requires_admin(test_settings, session_factory):
         headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
     )
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_delete_self(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        # admin id=1 sesuai pattern _admin_token
+        await repo.create_user("admin", "h", "admin")
+        await session.commit()
+
+    client = TestClient(create_app(runtime))
+    r = client.delete(
+        "/api/v1/users/1",
+        headers={"Authorization": f"Bearer {_admin_token(runtime)}"},
+    )
+    assert r.status_code == 409
+    assert "self" in r.json()["detail"].lower() or "yourself" in r.json()["detail"].lower()

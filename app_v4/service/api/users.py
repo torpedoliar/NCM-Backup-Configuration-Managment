@@ -152,6 +152,8 @@ async def delete_user(
     session: AsyncSession = Depends(get_db),
     actor: AccessClaims = Depends(require_role("admin")),
 ) -> Response:
+    if actor.user_id == user_id:
+        raise problem(409, "Conflict", "Cannot delete yourself")
     repo = Repository(session)
     deleted = await repo.delete_user(user_id)
     if not deleted:
