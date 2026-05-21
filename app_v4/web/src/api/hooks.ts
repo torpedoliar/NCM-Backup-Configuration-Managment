@@ -13,6 +13,8 @@ import type {
   JobCreateInput,
   JobRecord,
   JobUpdateInput,
+  LogsFilters,
+  LogsResponse,
   RetentionSettings,
   SwitchCreateInput,
   SwitchRecord,
@@ -328,5 +330,13 @@ export function usePatchAuthSettings() {
     mutationFn: async (input: Partial<AuthSettings>) =>
       (await api.patch<AuthSettings>('/system/auth-settings', input)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['system', 'auth-settings'] }),
+  });
+}
+
+export function useLogs(filters: LogsFilters, autoRefresh: boolean) {
+  return useQuery({
+    queryKey: ['system', 'logs', filters],
+    queryFn: async () => (await api.get<LogsResponse>('/system/logs', { params: filters })).data,
+    refetchInterval: autoRefresh ? 5 * SECOND : false,
   });
 }

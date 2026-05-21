@@ -2,12 +2,14 @@ import { useLocation, useRoute } from 'wouter';
 import { SettingsServiceSection } from './settings/SettingsServiceSection';
 import { SettingsRetentionSection } from './settings/SettingsRetentionSection';
 import { SettingsAuthSection } from './settings/SettingsAuthSection';
+import { SettingsLogsSection } from './settings/SettingsLogsSection';
 import { SettingsAboutSection } from './settings/SettingsAboutSection';
 
 const TABS = [
   { id: 'service', label: 'Service', section: <SettingsServiceSection /> },
   { id: 'retention', label: 'Retention', section: <SettingsRetentionSection /> },
   { id: 'auth', label: 'Authentication', section: <SettingsAuthSection /> },
+  { id: 'logs', label: 'Logs', section: <SettingsLogsSection /> },
   { id: 'about', label: 'About', section: <SettingsAboutSection /> },
 ];
 

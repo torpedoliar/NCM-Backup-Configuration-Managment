@@ -143,3 +143,23 @@ export interface AuthSettings {
   password_require_digit: boolean;
   password_require_symbol: boolean;
 }
+
+export interface LogLine {
+  ts: string;
+  level: string;
+  logger: string;
+  message: string;
+}
+
+export interface LogsResponse {
+  lines: LogLine[];
+  total_returned: number;
+  log_file: string;
+  log_file_size_bytes: number;
+}
+
+export interface LogsFilters {
+  lines?: number;
+  level?: string;
+  q?: string;
+}
