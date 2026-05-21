@@ -2,6 +2,7 @@ import pytest
 from pathlib import Path
 
 from app_v4.core.runtime_settings import (
+    AuthSettings,
     RetentionSettings,
     RuntimeSettings,
     load_runtime_settings,
@@ -42,3 +43,29 @@ def test_save_creates_parent_directories(tmp_path: Path):
     target = tmp_path / "deep" / "data" / "runtime_settings.json"
     save_runtime_settings(target, RuntimeSettings())
     assert target.exists()
+
+
+def test_auth_defaults():
+    rs = RuntimeSettings()
+    assert rs.auth.access_token_minutes == 15
+    assert rs.auth.refresh_token_days == 7
+    assert rs.auth.lockout_threshold == 5
+    assert rs.auth.lockout_window_minutes == 10
+    assert rs.auth.lockout_duration_minutes == 30
+    assert rs.auth.password_min_length == 8
+    assert rs.auth.password_require_upper is True
+    assert rs.auth.password_require_lower is True
+    assert rs.auth.password_require_digit is True
+    assert rs.auth.password_require_symbol is False
+
+
+def test_save_load_round_trip_includes_auth(tmp_path: Path):
+    target = tmp_path / "rs.json"
+    rs = RuntimeSettings(
+        retention=RetentionSettings(),
+        auth=AuthSettings(access_token_minutes=30, lockout_threshold=0),
+    )
+    save_runtime_settings(target, rs)
+    loaded = load_runtime_settings(target)
+    assert loaded.auth.access_token_minutes == 30
+    assert loaded.auth.lockout_threshold == 0
