@@ -226,3 +226,58 @@ async def test_create_user_rejects_password_missing_required_classes(test_settin
     )
     assert response.status_code == 422
     assert "upper" in response.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_admin_unlock_clears_lock(test_settings, session_factory):
+    from datetime import datetime, timedelta
+
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"u" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h1", "admin")
+        target = await repo.create_user("op", "h2", "operator")
+        target.failed_login_count = 5
+        target.last_failed_login_at = datetime.utcnow()
+        target.locked_until = datetime.utcnow() + timedelta(minutes=30)
+        await session.commit()
+        target_id = target.id
+        admin_id = admin.id
+    admin_token = runtime.auth_service.issue_access_token(admin_id, "admin", "admin")
+
+    client = TestClient(create_app(runtime))
+    response = client.post(
+        f"/api/v1/users/{target_id}/unlock",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert response.status_code == 204
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        user = await repo.get_user_by_id(target_id)
+        audits = await repo.list_audit(limit=10)
+    assert user is not None
+    assert user.failed_login_count == 0
+    assert user.last_failed_login_at is None
+    assert user.locked_until is None
+    assert any(
+        a.action == "user.unlock_by_admin" and a.target_id == str(target_id) for a in audits
+    )
+
+
+@pytest.mark.asyncio
+async def test_admin_unlock_requires_admin(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"u" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "h1", "operator")
+        target = await repo.create_user("op2", "h2", "operator")
+        await session.commit()
+        target_id = target.id
+
+    client = TestClient(create_app(runtime))
+    response = client.post(
+        f"/api/v1/users/{target_id}/unlock",
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+    )
+    assert response.status_code == 403

@@ -192,3 +192,29 @@ async def reset_password(
         ip=request.client.host if request.client else None,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{user_id}/unlock", status_code=status.HTTP_204_NO_CONTENT)
+async def unlock_user(
+    user_id: int,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    session: AsyncSession = Depends(get_db),
+    actor: AccessClaims = Depends(require_role("admin")),
+) -> Response:
+    repo = Repository(session)
+    user = await repo.get_user_by_id(user_id)
+    if user is None:
+        raise problem(404, "Not Found", "User not found")
+    user.failed_login_count = 0
+    user.last_failed_login_at = None
+    user.locked_until = None
+    await session.commit()
+    await runtime.audit_writer.record(
+        action="user.unlock_by_admin",
+        user_id=actor.user_id,
+        target_type="user",
+        target_id=str(user_id),
+        ip=request.client.host if request.client else None,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
