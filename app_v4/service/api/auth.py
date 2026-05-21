@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Request, Response, status
@@ -49,27 +49,65 @@ async def login(
 ) -> LoginResponse:
     repo = Repository(session)
     user = await repo.get_user_by_username(payload.username)
+    ip = request.client.host if request.client else None
     if user is None or not user.is_active:
         await runtime.audit_writer.record(
             action="auth.login_failed",
-            ip=request.client.host if request.client else None,
+            ip=ip,
             detail={"username": payload.username},
         )
         raise problem(401, "Unauthorized", "Invalid username or password")
+
+    auth_cfg = runtime.auth_settings_provider()
+    now = datetime.utcnow()
+
+    if user.locked_until is not None and user.locked_until > now:
+        await runtime.audit_writer.record(
+            action="auth.login_blocked_locked",
+            user_id=user.id,
+            ip=ip,
+            detail={"username": payload.username},
+        )
+        raise problem(423, "Locked", "Account temporarily locked")
+
     if not runtime.auth_service.verify_password(payload.password, user.password_hash):
+        if (
+            user.last_failed_login_at is None
+            or (now - user.last_failed_login_at) > timedelta(minutes=auth_cfg.lockout_window_minutes)
+        ):
+            user.failed_login_count = 1
+        else:
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+        user.last_failed_login_at = now
+        if (
+            auth_cfg.lockout_threshold > 0
+            and user.failed_login_count >= auth_cfg.lockout_threshold
+        ):
+            user.locked_until = now + timedelta(minutes=auth_cfg.lockout_duration_minutes)
+            await runtime.audit_writer.record(
+                action="auth.locked",
+                user_id=user.id,
+                ip=ip,
+                detail={"username": user.username},
+            )
+        await session.commit()
         await runtime.audit_writer.record(
             action="auth.login_failed",
             user_id=user.id,
-            ip=request.client.host if request.client else None,
+            ip=ip,
             detail={"username": payload.username},
         )
         raise problem(401, "Unauthorized", "Invalid username or password")
+
+    user.failed_login_count = 0
+    user.last_failed_login_at = None
+    user.locked_until = None
 
     tokens: TokenPair = runtime.auth_service.issue_token_pair(user.id, user.username, user.role)
     await repo.create_session(
         user_id=user.id,
         refresh_token_hash=hash_refresh_token(tokens.refresh_token),
-        ip=request.client.host if request.client else None,
+        ip=ip,
         user_agent=request.headers.get("user-agent"),
         days_valid=runtime.settings.jwt_refresh_days,
     )
@@ -78,7 +116,7 @@ async def login(
     await runtime.audit_writer.record(
         action="auth.login_success",
         user_id=user.id,
-        ip=request.client.host if request.client else None,
+        ip=ip,
         detail={"username": user.username},
     )
     return LoginResponse(
