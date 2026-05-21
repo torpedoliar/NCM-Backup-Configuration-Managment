@@ -88,16 +88,18 @@ async def _run_first_run_init(config: ServiceSetupConfig, settings: Settings) ->
     )
 
 
-async def _login_and_close(base_url: str, username: str, password: str) -> str | None:
+async def _login_and_close(base_url: str, username: str, password: str) -> tuple[str, str] | None:
     client = DesktopApiClient(base_url)
     try:
         await client.login(username, password)
-        return client.access_token
+        if client.access_token is None:
+            return None
+        return client.access_token, client.refresh_token or ""
     finally:
         await client.close()
 
 
-def _run_login(base_url: str) -> str | None:
+def _run_login(base_url: str) -> tuple[str, str] | None:
     dialog = LoginDialog()
     while True:
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -107,11 +109,11 @@ def _run_login(base_url: str) -> str | None:
             QMessageBox.warning(dialog, "Sign in", "Username and password are required.")
             continue
         try:
-            token = asyncio.run(_login_and_close(base_url, username, password))
+            tokens = asyncio.run(_login_and_close(base_url, username, password))
         except httpx.HTTPError as exc:
             QMessageBox.critical(dialog, "Sign in failed", f"Could not authenticate: {exc}")
             continue
-        return token
+        return tokens
 
 
 def _ensure_initialized(base_dir: Path, settings: Settings) -> ServiceSetupConfig | None:
@@ -206,11 +208,16 @@ def main() -> int:
 
     base_url = f"http://{probe_host(bind.bind_host)}:{bind.bind_port}"
     try:
-        token = _run_login(base_url)
-        if token is None:
+        tokens = _run_login(base_url)
+        if tokens is None:
             return 0
+        access_token, refresh_token = tokens
 
-        window = MainWindow(service_url=base_url, access_token=token)
+        window = MainWindow(
+            service_url=base_url,
+            access_token=access_token,
+            refresh_token=refresh_token,
+        )
         window.show()
         return app.exec()
     finally:
