@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { Redirect } from 'wouter';
 import { useAudit } from '../api/hooks';
+import { useOptionalAuth } from '../auth/AuthProvider';
 import type { AuditFilters } from '../api/types';
 
 const ACTION_GROUPS: Record<string, string> = {
@@ -16,11 +18,16 @@ const ACTION_GROUPS: Record<string, string> = {
 const PAGE_STEP = 50;
 
 export function AuditPage() {
+  const auth = useOptionalAuth();
   const [filters, setFilters] = useState<AuditFilters>({ limit: PAGE_STEP, offset: 0 });
   const [expanded, setExpanded] = useState<number | null>(null);
   const { data } = useAudit(filters);
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
+
+  if (auth && auth.user && auth.user.role !== 'admin') {
+    return <Redirect to="/" />;
+  }
 
   return (
     <main>
@@ -41,6 +48,50 @@ export function AuditPage() {
               </option>
             ))}
           </select>
+        </label>
+        <label>
+          User ID
+          <input
+            type="number"
+            min={1}
+            placeholder="any"
+            value={filters.user_id ?? ''}
+            onChange={(event) =>
+              setFilters({
+                ...filters,
+                user_id: event.target.value ? Number(event.target.value) : undefined,
+                offset: 0,
+              })
+            }
+          />
+        </label>
+        <label>
+          From
+          <input
+            type="date"
+            value={filters.from_ts ? filters.from_ts.slice(0, 10) : ''}
+            onChange={(event) =>
+              setFilters({
+                ...filters,
+                from_ts: event.target.value ? `${event.target.value}T00:00:00Z` : undefined,
+                offset: 0,
+              })
+            }
+          />
+        </label>
+        <label>
+          To
+          <input
+            type="date"
+            value={filters.to_ts ? filters.to_ts.slice(0, 10) : ''}
+            onChange={(event) =>
+              setFilters({
+                ...filters,
+                to_ts: event.target.value ? `${event.target.value}T23:59:59Z` : undefined,
+                offset: 0,
+              })
+            }
+          />
         </label>
       </section>
 

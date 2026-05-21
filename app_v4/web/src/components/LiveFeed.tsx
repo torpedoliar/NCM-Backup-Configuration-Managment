@@ -1,4 +1,6 @@
+import { Link } from 'wouter';
 import { useLiveEvents } from '../store/live-events';
+import { useOptionalAuth } from '../auth/AuthProvider';
 
 function describe(event: { type: string; payload: Record<string, unknown> }): string {
   const name = (event.payload.switch_name as string | undefined) ?? '';
@@ -24,6 +26,8 @@ function fmtTime(iso: string): string {
 export function LiveFeed() {
   const events = useLiveEvents((s) => s.events);
   const count = useLiveEvents((s) => s.countLast24h());
+  const auth = useOptionalAuth();
+  const isAdmin = auth?.user?.role === 'admin';
 
   if (events.length === 0) {
     return <p className="muted">No recent activity yet.</p>;
@@ -41,6 +45,7 @@ export function LiveFeed() {
       </ul>
       <footer className="live-feed-footer">
         <span><b>{count}</b> EVENTS / 24H</span>
+        {isAdmin ? <Link href="/audit" className="view-all">VIEW ALL ↗</Link> : null}
       </footer>
     </div>
   );

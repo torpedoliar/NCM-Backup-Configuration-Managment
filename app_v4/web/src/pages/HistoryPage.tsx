@@ -9,14 +9,32 @@ import { useAuth } from '../auth/AuthProvider';
 import { BackupViewModal } from '../components/BackupViewModal';
 import type { BackupFilters } from '../api/types';
 
+function defaultFromIso(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d.toISOString().slice(0, 10);
+}
+
 export function HistoryPage() {
   const auth = useAuth();
   const isAdmin = auth.user?.role === 'admin';
-  const [filters, setFilters] = useState<BackupFilters>({});
+  const [filters, setFilters] = useState<BackupFilters>(() => ({
+    from_ts: `${defaultFromIso()}T00:00:00Z`,
+  }));
   const [viewing, setViewing] = useState<number | null>(null);
   const { data: switches = [] } = useSwitches();
   const { data: rows = [] } = useFilteredBackups(filters);
   const remove = useDeleteBackup();
+
+  function isoToDateInput(iso?: string): string {
+    return iso ? iso.slice(0, 10) : '';
+  }
+  function dateInputToIsoStart(value: string): string | undefined {
+    return value ? `${value}T00:00:00Z` : undefined;
+  }
+  function dateInputToIsoEnd(value: string): string | undefined {
+    return value ? `${value}T23:59:59Z` : undefined;
+  }
 
   return (
     <main>
@@ -67,6 +85,22 @@ export function HistoryPage() {
           <input
             value={filters.q ?? ''}
             onChange={(event) => setFilters({ ...filters, q: event.target.value || undefined })}
+          />
+        </label>
+        <label>
+          From
+          <input
+            type="date"
+            value={isoToDateInput(filters.from_ts)}
+            onChange={(event) => setFilters({ ...filters, from_ts: dateInputToIsoStart(event.target.value) })}
+          />
+        </label>
+        <label>
+          To
+          <input
+            type="date"
+            value={isoToDateInput(filters.to_ts)}
+            onChange={(event) => setFilters({ ...filters, to_ts: dateInputToIsoEnd(event.target.value) })}
           />
         </label>
       </section>
