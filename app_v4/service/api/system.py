@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
+from app_v4.core.logging import LOG_FILE_NAME
 from app_v4.core.paths import resolve_paths
 from app_v4.core.runtime_settings import load_runtime_settings, save_runtime_settings
 from pydantic import BaseModel, Field
@@ -14,6 +16,7 @@ from app_v4 import __version__
 from app_v4.core.auth_service import AccessClaims
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
+from app_v4.service.log_tail import LogLine, tail_log
 from app_v4.service.runtime import ServiceRuntime
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -189,3 +192,40 @@ async def patch_auth_settings(
         detail={"changes": updates},
     )
     return AuthSettingsResponse(**asdict(new_auth))
+
+
+def _resolve_log_file(runtime: ServiceRuntime) -> Path:
+    return resolve_paths(runtime.settings).logs_dir / LOG_FILE_NAME
+
+
+class LogsResponse(BaseModel):
+    lines: list[dict[str, str]]
+    total_returned: int
+    log_file: str
+    log_file_size_bytes: int
+
+
+@router.get("/logs", response_model=LogsResponse)
+async def get_logs(
+    request: Request,
+    lines: int = Query(default=200, ge=1, le=5000),
+    level: str | None = None,
+    q: str | None = None,
+    since: datetime | None = None,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    user: AccessClaims = Depends(require_role("admin")),
+) -> LogsResponse:
+    log_path = _resolve_log_file(runtime)
+    parsed = tail_log(log_path, lines=lines, level=level, q=q, since=since)
+    await runtime.audit_writer.record(
+        action="system.logs_viewed",
+        user_id=user.user_id,
+        ip=request.client.host if request.client else None,
+        detail={"lines": lines, "level": level, "q": q},
+    )
+    return LogsResponse(
+        lines=[{"ts": l.ts, "level": l.level, "logger": l.logger, "message": l.message} for l in parsed],
+        total_returned=len(parsed),
+        log_file=str(log_path),
+        log_file_size_bytes=log_path.stat().st_size if log_path.exists() else 0,
+    )

@@ -197,3 +197,46 @@ async def test_patch_auth_settings_persists_and_validates(test_settings, session
     body = r.json()
     assert body["access_token_minutes"] == 30
     assert body["lockout_threshold"] == 0
+
+
+@pytest.mark.asyncio
+async def test_logs_endpoint_admin_only(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"M" * 32)
+    client = TestClient(create_app(runtime))
+    r = client.get(
+        "/api/v1/system/logs",
+        headers={"Authorization": f"Bearer {_viewer_token(runtime)}"},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_logs_endpoint_returns_recent_lines(test_settings, session_factory, tmp_path, monkeypatch):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"L" * 32)
+    from app_v4.data.repository import Repository
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h", "admin")
+        await session.commit()
+        admin_id = admin.id
+    admin_token = runtime.auth_service.issue_access_token(admin_id, "admin", "admin")
+
+    log_file = tmp_path / "ncm-v4.log"
+    log_file.write_text(
+        "2026-05-20 10:00:00 INFO     uvicorn.error: started\n"
+        "2026-05-20 10:00:01 WARNING  uvicorn.error: slow disk\n"
+        "2026-05-20 10:00:02 ERROR    uvicorn.error: failed conn\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app_v4.service.api.system._resolve_log_file", lambda runtime: log_file)
+
+    client = TestClient(create_app(runtime))
+    r = client.get(
+        "/api/v1/system/logs?level=ERROR",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert all(line["level"] == "ERROR" for line in body["lines"])
+    assert body["log_file"].endswith("ncm-v4.log")
+    assert body["log_file_size_bytes"] > 0
