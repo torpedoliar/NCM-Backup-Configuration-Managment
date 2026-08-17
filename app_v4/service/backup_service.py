@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -35,6 +37,9 @@ class BackupService:
         self.runner = runner or BackupRunner(settings)
         self.diff_service = diff_service or DiffService(settings)
         self.event_hub = event_hub
+        # Manual, scheduled, and catch-up triggers can target the same switch.
+        # Serialize only that switch; different switches can still run in parallel.
+        self._switch_locks: dict[int, asyncio.Lock] = {}
 
     async def execute_backup(
         self,
@@ -42,6 +47,53 @@ class BackupService:
         backup_type: str = "manual",
         job_id: int | None = None,
         triggered_by_user_id: int | None = None,
+    ) -> dict:
+        lock = self._switch_locks.setdefault(switch_id, asyncio.Lock())
+        async with lock:
+            try:
+                return await self._execute_backup(
+                    switch_id=switch_id,
+                    backup_type=backup_type,
+                    job_id=job_id,
+                    triggered_by_user_id=triggered_by_user_id,
+                )
+            except Exception as exc:
+                # Missing/inactive switches are API validation errors and must
+                # retain their existing HTTP behavior. Other failures belong
+                # in the backup history so a failed device is observable.
+                async with self.session_factory() as session:
+                    repo = Repository(session)
+                    switch = await repo.get_switch(switch_id)
+                if switch is None or not switch.is_active:
+                    raise
+
+                message = f"Backup failed: {exc}" or "Backup failed"
+                result = await self._record_failed_backup(
+                    switch_id=switch_id,
+                    message=message,
+                    backup_type=backup_type,
+                    job_id=job_id,
+                    triggered_by_user_id=triggered_by_user_id,
+                    error_code=self._categorize_exception(exc),
+                )
+                await publish(
+                    self.event_hub,
+                    "backup_failed",
+                    {
+                        "switch_id": switch_id,
+                        "switch_name": switch.name,
+                        "backup_id": result["backup_id"],
+                        "message": message,
+                    },
+                )
+                return result
+
+    async def _execute_backup(
+        self,
+        switch_id: int,
+        backup_type: str,
+        job_id: int | None,
+        triggered_by_user_id: int | None,
     ) -> dict:
         async with self.session_factory() as session:
             repo = Repository(session)
@@ -162,13 +214,26 @@ class BackupService:
             backup_id = backup.id
         return {"success": False, "message": message, "file_path": "", "size_kb": 0, "backup_id": backup_id, "error_code": error_code}
 
+    def _categorize_exception(self, exc: Exception) -> str:
+        text = str(exc).lower()
+        if isinstance(exc, TimeoutError) or "timeout" in text or "timed out" in text:
+            return "CONNECTION_TIMEOUT"
+        if isinstance(exc, PermissionError) or "auth" in text or "password" in text:
+            return "AUTHENTICATION_ERROR"
+        if "prompt" in text or "incomplete" in text:
+            return "INCOMPLETE_OUTPUT"
+        return "UNKNOWN"
+
     def _save_config_file(self, switch_name: str, config_text: str, changed: bool) -> Path:
         paths = resolve_paths(self.settings)
         now = datetime.now()
         backup_dir = paths.backups_dir / switch_name / now.strftime("%Y-%m-%d")
         backup_dir.mkdir(parents=True, exist_ok=True)
         suffix = " - update config" if changed else ""
-        file_path = backup_dir / f"{now.strftime('%H%M%S')}_running-config{suffix}.txt"
+        stamp = now.strftime("%H%M%S_%f")
+        file_path = backup_dir / f"{stamp}_running-config{suffix}.txt"
+        if file_path.exists():
+            file_path = backup_dir / f"{stamp}_{uuid4().hex[:8]}_running-config{suffix}.txt"
         file_path.write_text(config_text, encoding="utf-8")
         return file_path
 

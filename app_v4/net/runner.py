@@ -60,7 +60,7 @@ class BackupRunner:
                 await client.disable_paging(self.config.paging_disable_commands)
                 config_text = await client.get_running_config(self.config.paging_indicators)
                 config_text = self._normalize_output(config_text)
-                if len(config_text) < 1:
+                if not config_text.strip():
                     raise ValueError("Retrieved configuration is empty")
                 return BackupRunResult(True, config_text, "Backup completed successfully")
             except Exception as exc:
@@ -74,7 +74,11 @@ class BackupRunner:
         return BackupRunResult(False, "", f"Backup failed after {self.config.max_retries} attempts: {last_error}", last_code)
 
     def _categorize_error(self, exc: Exception) -> str:
+        from app_v4.net.interactive_reader import IncompleteOutputError
+
         text = str(exc).lower()
+        if isinstance(exc, IncompleteOutputError):
+            return "INCOMPLETE_OUTPUT"
         if isinstance(exc, TimeoutError) or "timeout" in text:
             return "CONNECTION_TIMEOUT"
         if isinstance(exc, PermissionError) or "auth" in text or "password" in text:
@@ -84,6 +88,11 @@ class BackupRunner:
         return "UNKNOWN"
 
     def _make_client(self, protocol: str, host: str, port: int, username: str, password: str, enable_password: str) -> BackupClient:
+        common = {
+            "timeout": self.config.connect_timeout,
+            "command_timeout": self.config.command_timeout,
+            "read_timeout": self.config.read_timeout,
+        }
         if self.client_factory is not None:
             return self.client_factory(
                 protocol=protocol,
@@ -92,19 +101,26 @@ class BackupRunner:
                 username=username,
                 password=password,
                 enable_password=enable_password,
-                timeout=self.config.connect_timeout,
+                **common,
             )
         if protocol == "ssh":
-            return AsyncSshClient(host, port, username, password, enable_password, self.config.connect_timeout)
+            return AsyncSshClient(
+                host, port, username, password, enable_password, **common
+            )
         if protocol == "telnet":
-            return AsyncTelnetClient(host, port, username, password, enable_password, self.config.connect_timeout)
+            return AsyncTelnetClient(
+                host, port, username, password, enable_password, **common
+            )
         scheme = "https" if protocol == "https" else "http"
         return AsyncWebSmartClient(
             host=host,
             port=port,
             username=username,
             password=password,
-            timeout=self.config.connect_timeout,
+            timeout=self.config.command_timeout,
+            connect_timeout=self.config.connect_timeout,
+            read_timeout=self.config.read_timeout,
+            command_timeout=self.config.command_timeout,
             scheme=scheme,
             force_v2_only=protocol == "websmart-v2",
         )

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from app_v4.core.logging import LOG_FILE_NAME
 from app_v4.core.paths import resolve_paths
-from app_v4.core.runtime_settings import load_runtime_settings, save_runtime_settings
-from pydantic import BaseModel, Field
+from app_v4.core.runtime_settings import BackupLocationSettings, TimeSettings, load_runtime_settings, save_runtime_settings
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4 import __version__
@@ -17,7 +18,9 @@ from app_v4.core.auth_service import AccessClaims
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.log_tail import LogLine, tail_log
+from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
+from app_v4.service.timeutil import to_aware_utc
 
 router = APIRouter(prefix="/system", tags=["system"])
 
@@ -85,6 +88,23 @@ class AuthSettingsPatch(BaseModel):
     password_require_symbol: bool | None = None
 
 
+class BackupLocationResponse(BaseModel):
+    backup_root_folder: str
+    resolved_backups_dir: str
+
+
+class BackupLocationPatch(BaseModel):
+    backup_root_folder: str = Field(min_length=1)
+
+    @field_validator("backup_root_folder")
+    @classmethod
+    def validate_backup_root_folder(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned or "\x00" in cleaned:
+            raise ValueError("Backup location must be a non-empty path")
+        return cleaned
+
+
 @router.get("/status", response_model=StatusResponse)
 async def status(
     runtime: ServiceRuntime = Depends(get_runtime),
@@ -94,7 +114,7 @@ async def status(
     return StatusResponse(
         service="running",
         version=__version__,
-        started_at=runtime.started_at,
+        started_at=to_aware_utc(runtime.started_at),
         host=runtime.settings.service_host,
         port=runtime.settings.service_port,
         uptime_seconds=int((datetime.utcnow() - runtime.started_at).total_seconds()),
@@ -161,6 +181,69 @@ async def patch_retention(
         detail={"changes": updates},
     )
     return RetentionResponse(**asdict(new_retention))
+
+
+@router.get("/backup-location", response_model=BackupLocationResponse)
+async def get_backup_location(
+    runtime: ServiceRuntime = Depends(get_runtime),
+    _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
+) -> BackupLocationResponse:
+    paths = resolve_paths(runtime.settings)
+    return BackupLocationResponse(
+        backup_root_folder=runtime.settings.backup_root_folder,
+        resolved_backups_dir=str(paths.backups_dir),
+    )
+
+
+@router.patch("/backup-location", response_model=BackupLocationResponse)
+async def patch_backup_location(
+    payload: BackupLocationPatch,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    user: AccessClaims = Depends(require_role("admin")),
+) -> BackupLocationResponse:
+    paths = resolve_paths(runtime.settings)
+    target = paths.data_dir / "runtime_settings.json"
+    async with runtime.runtime_settings_lock:
+        current = load_runtime_settings(target)
+        new_location = BackupLocationSettings(backup_root_folder=payload.backup_root_folder)
+        candidate_settings = runtime.settings.model_copy(update={"backup_root_folder": payload.backup_root_folder})
+        candidate_paths = resolve_paths(candidate_settings)
+        probe_path: Path | None = None
+        try:
+            candidate_paths.backups_dir.mkdir(parents=True, exist_ok=True)
+            probe_path = candidate_paths.backups_dir / f".ncm-v4-write-test-{uuid4().hex}"
+            probe_path.write_text("ok", encoding="utf-8")
+        except OSError as exc:
+            raise problem(
+                422,
+                "Unprocessable Entity",
+                f"Backup location is not writable: {candidate_paths.backups_dir}",
+            ) from exc
+        finally:
+            if probe_path is not None:
+                probe_path.unlink(missing_ok=True)
+
+        save_runtime_settings(target, replace(current, backup_location=new_location))
+        runtime.settings = candidate_settings
+        if runtime.backup_service is not None:
+            # BackupService is constructed once at startup. Keep its path
+            # settings in sync with the live runtime so the next backup is
+            # written where the API reports it will be written.
+            runtime.backup_service.settings = runtime.settings
+            if hasattr(runtime.backup_service.diff_service, "settings"):
+                runtime.backup_service.diff_service.settings = runtime.settings
+        paths = candidate_paths
+    await runtime.audit_writer.record(
+        action="system.backup_location_updated",
+        user_id=user.user_id,
+        ip=request.client.host if request.client else None,
+        detail={"backup_root_folder": payload.backup_root_folder},
+    )
+    return BackupLocationResponse(
+        backup_root_folder=runtime.settings.backup_root_folder,
+        resolved_backups_dir=str(paths.backups_dir),
+    )
 
 
 @router.get("/auth-settings", response_model=AuthSettingsResponse)
@@ -230,4 +313,185 @@ async def get_logs(
         total_returned=len(parsed),
         log_file=str(log_path),
         log_file_size_bytes=log_path.stat().st_size if log_path.exists() else 0,
+    )
+
+
+class TimeSettingsResponse(BaseModel):
+    timezone: str
+    ntp_servers: list[str]
+    ntp_enabled: bool
+    available_timezones: list[str]
+    server_now_utc: datetime
+    server_now_local: datetime
+
+
+class TimeSettingsPatch(BaseModel):
+    timezone: str | None = Field(default=None, min_length=1)
+    ntp_servers: list[str] | None = None
+    ntp_enabled: bool | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("timezone must be non-empty")
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(cleaned)
+        except Exception as exc:  # ZoneInfoNotFoundError, others
+            raise ValueError(f"Unknown timezone: {cleaned}") from exc
+        return cleaned
+
+    @field_validator("ntp_servers")
+    @classmethod
+    def validate_ntp(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        cleaned = [s.strip() for s in value if s and s.strip()]
+        if not cleaned:
+            raise ValueError("ntp_servers must contain at least one non-empty entry")
+        return cleaned
+
+
+_COMMON_TIMEZONES = [
+    "UTC",
+    "Asia/Jakarta",
+    "Asia/Makassar",
+    "Asia/Jayapura",
+    "Asia/Singapore",
+    "Asia/Tokyo",
+    "Asia/Seoul",
+    "Asia/Shanghai",
+    "Asia/Kolkata",
+    "Asia/Dubai",
+    "Europe/London",
+    "Europe/Berlin",
+    "America/New_York",
+    "America/Los_Angeles",
+    "Australia/Sydney",
+]
+
+
+def _build_time_response(runtime: ServiceRuntime) -> TimeSettingsResponse:
+    paths = resolve_paths(runtime.settings)
+    rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo(rs.time.timezone)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    now_utc = datetime.now(timezone.utc)
+    now_local = datetime.now(tz)
+    return TimeSettingsResponse(
+        timezone=rs.time.timezone,
+        ntp_servers=list(rs.time.ntp_servers),
+        ntp_enabled=rs.time.ntp_enabled,
+        available_timezones=_COMMON_TIMEZONES,
+        server_now_utc=now_utc,
+        server_now_local=now_local,
+    )
+
+
+@router.get("/time-settings", response_model=TimeSettingsResponse)
+async def get_time_settings(
+    runtime: ServiceRuntime = Depends(get_runtime),
+    _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
+) -> TimeSettingsResponse:
+    return _build_time_response(runtime)
+
+
+@router.patch("/time-settings", response_model=TimeSettingsResponse)
+async def patch_time_settings(
+    payload: TimeSettingsPatch,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    user: AccessClaims = Depends(require_role("admin")),
+) -> TimeSettingsResponse:
+    paths = resolve_paths(runtime.settings)
+    target = paths.data_dir / "runtime_settings.json"
+    updates = payload.model_dump(exclude_none=True)
+    async with runtime.runtime_settings_lock:
+        current = load_runtime_settings(target)
+        new_time = TimeSettings(
+            timezone=updates.get("timezone", current.time.timezone),
+            ntp_servers=tuple(updates.get("ntp_servers", current.time.ntp_servers)),
+            ntp_enabled=updates.get("ntp_enabled", current.time.ntp_enabled),
+        )
+        save_runtime_settings(target, replace(current, time=new_time))
+        if runtime.scheduler_service is not None:
+            runtime.scheduler_service.reload_timezone()
+    await runtime.audit_writer.record(
+        action="system.time_settings_updated",
+        user_id=user.user_id,
+        ip=request.client.host if request.client else None,
+        detail={"changes": updates},
+    )
+    return _build_time_response(runtime)
+
+
+class RetentionRunResponse(BaseModel):
+    audit_deleted: int
+    backups_deleted: int
+    backup_files_deleted: int
+
+
+@router.post("/retention/run", response_model=RetentionRunResponse)
+async def run_retention_now(
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    user: AccessClaims = Depends(require_role("admin")),
+) -> RetentionRunResponse:
+    if runtime.retention_service is None:
+        raise problem(503, "Service Unavailable", "Retention service is not initialized")
+    result = await runtime.retention_service.run_once()
+    await runtime.audit_writer.record(
+        action="system.retention_run_now",
+        user_id=user.user_id,
+        ip=request.client.host if request.client else None,
+        detail=result,
+    )
+    return RetentionRunResponse(
+        audit_deleted=int(result.get("audit_deleted", 0)),
+        backups_deleted=int(result.get("backups_deleted", 0)),
+        backup_files_deleted=int(result.get("backup_files_deleted", 0)),
+    )
+
+
+class SchedulerJobInfo(BaseModel):
+    job_id: int
+    next_run_time: str | None
+    trigger: str | None
+
+
+class SchedulerStatusResponse(BaseModel):
+    running: bool
+    timezone: str
+    lock_acquired: bool
+    lock_file: str
+    jobs: list[SchedulerJobInfo]
+
+
+@router.get("/scheduler-status", response_model=SchedulerStatusResponse)
+async def scheduler_status(
+    runtime: ServiceRuntime = Depends(get_runtime),
+    _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
+) -> SchedulerStatusResponse:
+    if runtime.scheduler_service is None:
+        return SchedulerStatusResponse(
+            running=False,
+            timezone="UTC",
+            lock_acquired=False,
+            lock_file="",
+            jobs=[],
+        )
+    snap = runtime.scheduler_service.status_snapshot()
+    return SchedulerStatusResponse(
+        running=bool(snap.get("running")),
+        timezone=str(snap.get("timezone", "UTC")),
+        lock_acquired=bool(snap.get("lock_acquired")),
+        lock_file=str(snap.get("lock_file", "")),
+        jobs=[SchedulerJobInfo(**j) for j in snap.get("jobs", [])],
     )
