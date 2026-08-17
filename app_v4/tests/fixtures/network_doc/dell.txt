@@ -1,0 +1,206 @@
+interface ethernet g1
+description yolanda
+exit
+interface ethernet g2
+description operator2
+exit
+interface ethernet g3
+description operator1
+exit
+interface ethernet g4
+description yuliArmita
+exit
+interface ethernet g5
+description erma
+exit
+interface ethernet g6
+description salim
+exit
+interface ethernet g7
+description singgihPc
+exit
+interface ethernet g8
+exit
+interface ethernet g9
+description soedomo
+exit
+interface ethernet g10
+description paulus
+exit
+interface ethernet g11
+description singgihIph
+exit
+interface ethernet g12
+description liliani
+exit
+interface ethernet g13
+description kalosi
+exit
+interface ethernet g14
+description sblhcindy
+exit
+interface ethernet g15
+description meylani
+interface ethernet g16
+description lia
+exit
+interface ethernet g17
+description renawati
+exit
+interface ethernet g18
+description lisa
+exit
+interface ethernet g19
+description "admin TO"
+exit
+interface ethernet g20
+description marissa
+exit
+interface ethernet g21
+description nindita
+exit
+interface ethernet g22
+description KeAt8000s
+exit
+description KeAt8724
+exit
+interface ethernet g24
+description KeBlade
+exit
+interface range ethernet g(1-3,6,8-13,16,19-20,22-24)
+switchport mode trunk
+exit
+vlan database
+vlan 4-6,8-12,14-15,18,20,22-25,27,88
+exit
+interface ethernet g7
+switchport access vlan 4
+exit
+interface range ethernet g(1,6,8-12)
+switchport trunk native vlan 4
+exit
+interface range ethernet g(20,22-24)
+switchport trunk allowed vlan add 4
+exit
+interface range ethernet g(22-24)
+exit
+interface range ethernet g(22-24)
+switchport trunk allowed vlan add 6
+exit
+interface range ethernet g(4-5,14,17)
+switchport access vlan 8
+exit
+interface range ethernet g(23-24)
+switchport trunk allowed vlan add 8
+exit
+interface range ethernet g(23-24)
+switchport trunk allowed vlan add 9
+exit
+interface range ethernet g(2-3)
+switchport trunk native vlan 10
+exit
+interface range ethernet g(22-24)
+switchport trunk allowed vlan add 10
+exit
+interface range ethernet g(18,21)
+switchport access vlan 11
+interface range ethernet g(13,19)
+switchport trunk native vlan 11
+exit
+interface range ethernet g(22-24)
+switchport trunk allowed vlan add 11
+exit
+interface ethernet g16
+switchport trunk native vlan 12
+exit
+interface range ethernet g(22-24)
+switchport trunk allowed vlan add 12
+exit
+interface range ethernet g(20,22-24)
+switchport trunk allowed vlan add 14
+exit
+interface range ethernet g(20,22-24)
+switchport trunk allowed vlan add 15
+exit
+interface range ethernet g(20,22-24)
+switchport trunk allowed vlan add 18
+exit
+switchport trunk allowed vlan add 20
+exit
+interface range ethernet g(22-24)
+switchport trunk allowed vlan add 22
+exit
+interface ethernet g15
+switchport access vlan 23
+exit
+interface range ethernet g(22-24)
+switchport trunk allowed vlan add 23
+exit
+interface range ethernet g(20,22-24)
+switchport trunk allowed vlan add 24
+exit
+interface range ethernet g(22-24)
+switchport trunk allowed vlan add 25
+exit
+interface range ethernet g(22-24)
+switchport trunk allowed vlan add 27
+exit
+interface range ethernet g(1-3,6,8-13,16,19,22-24)
+exit
+interface vlan 4
+name BOD
+exit
+interface vlan 5
+name "barcode ap"
+exit
+interface vlan 9
+name Marketing
+exit
+interface vlan 10
+name HRGA
+exit
+interface vlan 11
+name DAFT
+exit
+interface vlan 12
+name factory
+exit
+interface vlan 14
+name "REG AP"
+interface vlan 15
+name HotSpot
+exit
+interface vlan 18
+name QC-AP
+exit
+interface vlan 20
+name ORACLE
+exit
+interface vlan 22
+name Mikrotik
+exit
+interface vlan 23
+name Vidcon
+exit
+interface vlan 24
+name "non ops ap"
+exit
+interface vlan 25
+name "ops ap"
+exit
+name "Panel Test"
+exit
+interface vlan 88
+name IPH-DEVICE
+exit
+interface vlan 1
+ip address 10.10.0.5 255.255.255.0
+exit
+ip default-gateway 10.10.0.1
+hostname Office-1
+logging 192.168.2.22 facility local0 description PRTG
+clock timezone 7
+clock source sntp
+sntp unicast client enable
+sntp unicast client poll
+sntp server 10.10.3.3 poll
