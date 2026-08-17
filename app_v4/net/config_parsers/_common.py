@@ -2,16 +2,27 @@ from __future__ import annotations
 
 
 def expand_id_list(spec: str) -> list[int]:
-    """Expand a VLAN/port id spec like '4-6,8-12,88' into a flat int list."""
+    """Expand a VLAN/port id spec like '4-6,8-12,88' into a flat int list.
+
+    Lenient by contract: never raises on malformed input. Each comma-separated
+    part is stripped individually (so tabs, CRs and newlines inside a wrapped
+    device listing are tolerated), and any part that does not parse as an int
+    -- or a range whose bounds do not parse, e.g. '4-' or 'x' -- is skipped.
+    A wholly malformed spec yields an empty list.
+    """
     out: list[int] = []
-    for part in spec.replace(" ", "").split(","):
+    for raw in spec.split(","):
+        part = raw.strip()
         if not part:
             continue
-        if "-" in part:
-            lo, hi = part.split("-", 1)
-            out.extend(range(int(lo), int(hi) + 1))
-        else:
-            out.append(int(part))
+        try:
+            if "-" in part:
+                lo, hi = part.split("-", 1)
+                out.extend(range(int(lo), int(hi) + 1))
+            else:
+                out.append(int(part))
+        except ValueError:
+            continue
     return out
 
 
