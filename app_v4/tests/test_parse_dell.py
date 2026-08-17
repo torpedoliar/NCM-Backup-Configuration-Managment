@@ -39,6 +39,52 @@ def test_dell_clean_fixture_produces_no_warnings():
     assert cfg.warnings == []
 
 
+def test_dell_exit_ends_block_so_orphaned_lines_are_dropped():
+    # dell.txt carries editing damage: 'switchport trunk allowed vlan add 20'
+    # (line 128) and 'description KeAt8724' (line 65) both sit after an 'exit'
+    # with no interface line of their own. Without the exit reset they would
+    # leak onto the preceding block's ports.
+    cfg = dell.parse(FIXTURE.read_text(encoding="utf-8"))
+    assert _port(cfg, "g20").trunk_allowed_vlans == [4, 14, 15, 18, 24]
+    assert _port(cfg, "g23").description is None
+
+
+def test_dell_unrecognised_interface_form_resets_block_context():
+    # LAGs and slot syntax are routine on Dell PowerConnect. An interface form
+    # we do not model must not inherit the previous block's ports.
+    cfg = dell.parse(
+        "interface range ethernet g(1-2)\n"
+        "switchport trunk allowed vlan add 7\n"
+        "interface port-channel 1\n"
+        "switchport trunk allowed vlan add 99\n"
+        "description lag-uplink\n"
+        "exit\n"
+        "interface ethernet 1/g5\n"
+        "switchport access vlan 42\n"
+        "exit\n"
+    )
+    for name in ("g1", "g2"):
+        p = _port(cfg, name)
+        assert p.trunk_allowed_vlans == [7]
+        assert p.description is None
+        assert p.access_vlan is None
+    # the unmodelled blocks create no ports of their own
+    assert {p.name for p in cfg.ports} == {"g1", "g2"}
+
+
+def test_dell_allowed_vlan_add_accepts_list_and_range_forms():
+    cfg = dell.parse(
+        "interface ethernet g1\n"
+        "switchport trunk allowed vlan add 4,6-8\n"
+        "switchport trunk allowed vlan add 8,20\n"
+        "exit\n"
+    )
+    p = _port(cfg, "g1")
+    assert p.trunk_allowed_vlans == [4, 6, 7, 8, 20]
+    assert p.mode == "trunk"
+    assert cfg.warnings == []
+
+
 def test_dell_malformed_vlan_id_warns_instead_of_raising():
     cfg = dell.parse(
         "hostname X\n"

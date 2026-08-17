@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from app_v4.net.config_parsers._common import expand_ports_gN
+from app_v4.net.config_parsers._common import expand_id_list, expand_ports_gN
 from app_v4.net.config_parsers.types import ParsedConfig, PortDoc, VlanDoc
 
 _HOSTNAME = re.compile(r"^hostname\s+(\S+)")
@@ -67,6 +67,12 @@ def parse(text: str) -> ParsedConfig:
             vid = _vlan_id(cfg, m.group(1), s)
             targets, ctx = [], None if vid is None else ("vlan", vid)
             continue
+        if s.startswith("interface "):
+            # An interface form we do not model (port-channel, slot syntax like
+            # 'ethernet 1/g5', ...) still opens a block. Reset context so its
+            # body is dropped rather than misattributed to the previous block.
+            targets, ctx = [], None
+            continue
         if s == "exit":
             targets, ctx = [], None
             continue
@@ -91,16 +97,21 @@ def parse(text: str) -> ParsedConfig:
                         if p.mode == "unknown":
                             p.mode = "trunk"
             elif s.startswith("switchport trunk allowed vlan add "):
-                v = _vlan_id(cfg, s.rsplit(" ", 1)[1], s)
-                if v is not None:
-                    for t in targets:
-                        p = get(t)
-                        # 'add' accumulates: a port may be named by several
-                        # add lines and each one extends the allowed set.
+                spec = s.split("add ", 1)[1]
+                vlans = expand_id_list(spec)
+                if not vlans:
+                    cfg.warnings.append(
+                        f"unparsable vlan id {spec!r} in line: {s}"
+                    )
+                for t in targets:
+                    p = get(t)
+                    # 'add' accumulates: a port may be named by several
+                    # add lines and each one extends the allowed set.
+                    for v in vlans:
                         if v not in p.trunk_allowed_vlans:
                             p.trunk_allowed_vlans.append(v)
-                        if p.mode == "unknown":
-                            p.mode = "trunk"
+                    if vlans and p.mode == "unknown":
+                        p.mode = "trunk"
             elif s.startswith("description "):
                 d = _unquote(s[len("description "):])
                 for t in targets:
