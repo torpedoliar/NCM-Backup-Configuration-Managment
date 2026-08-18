@@ -179,16 +179,23 @@ export interface SchedulerStatus {
   jobs: SchedulerJobInfo[];
 }
 
+export type AutostartMethod = 'task' | 'runkey';
+
 export interface AutostartStatus {
   installed: boolean;
   ready: boolean;
   raw_status: string | null;
   executable_path: string | null;
+  method: AutostartMethod | null;
 }
 
 export interface AutostartUpdate {
   enabled: boolean;
   trigger?: 'startup' | 'logon';
+  method?: AutostartMethod;
+  run_whether_logged_on?: boolean;
+  username?: string;
+  password?: string;
 }
 
 export interface LogLine {

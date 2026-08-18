@@ -58,6 +58,7 @@ async def test_get_autostart_returns_disabled_when_task_missing(test_settings, s
         monkeypatch,
         [
             _FakeProcess(returncode=1, stderr=b"ERROR: The system cannot find the file specified."),
+            _FakeProcess(returncode=1, stderr=b"ERROR: The system cannot find the file specified."),
         ],
     )
 
@@ -70,6 +71,7 @@ async def test_get_autostart_returns_disabled_when_task_missing(test_settings, s
     body = r.json()
     assert body["installed"] is False
     assert body["ready"] is False
+    assert body["method"] is None
 
 
 @pytest.mark.asyncio
@@ -114,12 +116,137 @@ async def test_put_autostart_admin_only_and_invokes_create(test_settings, sessio
     body = r.json()
     assert body["installed"] is True
     assert body["ready"] is True
+    assert body["method"] == "task"
 
     create_call = captured[0]
     assert "/Create" in create_call
     assert "/SC" in create_call
     sc_index = create_call.index("/SC")
     assert create_call[sc_index + 1].upper() == "ONSTART"
+
+
+@pytest.mark.asyncio
+async def test_put_autostart_runkey_registers_registry_value(test_settings, session_factory, monkeypatch, tmp_path):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"A" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h", "admin")
+        await session.commit()
+        admin_id = admin.id
+
+    fake_exe = tmp_path / "ncm-v4-desktop.exe"
+    fake_exe.write_bytes(b"MZ")
+
+    captured = _patch_subprocess(
+        monkeypatch,
+        [
+            _FakeProcess(returncode=0),  # reg add
+            _FakeProcess(returncode=0, stdout=b"    NCM v4 Backend    REG_SZ    ..."),  # reg query
+        ],
+    )
+    monkeypatch.setattr("app_v4.service.api.autostart.resolve_executable_path", lambda: fake_exe)
+
+    client = TestClient(create_app(runtime))
+    r = client.put(
+        "/api/v1/system/autostart",
+        json={"enabled": True, "method": "runkey"},
+        headers={"Authorization": f"Bearer {_admin_token(runtime, admin_id)}"},
+    )
+    assert r.status_code == 200
+    assert r.json()["method"] == "runkey"
+    create_call = captured[0]
+    assert create_call[0].lower() == "reg"
+    assert "add" in create_call
+    assert any("CurrentVersion\\Run" in part for part in create_call)
+
+
+@pytest.mark.asyncio
+async def test_put_autostart_run_whether_logged_on_adds_credentials(test_settings, session_factory, monkeypatch, tmp_path):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"A" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h", "admin")
+        await session.commit()
+        admin_id = admin.id
+
+    fake_exe = tmp_path / "ncm-v4-desktop.exe"
+    fake_exe.write_bytes(b"MZ")
+
+    captured = _patch_subprocess(
+        monkeypatch,
+        [
+            _FakeProcess(returncode=0),  # /Create
+            _FakeProcess(returncode=0, stdout=b"NCM v4 Backend  N/A   Ready"),  # /Query
+        ],
+    )
+    monkeypatch.setattr("app_v4.service.api.autostart.resolve_executable_path", lambda: fake_exe)
+
+    client = TestClient(create_app(runtime))
+    r = client.put(
+        "/api/v1/system/autostart",
+        json={
+            "enabled": True,
+            "trigger": "startup",
+            "run_whether_logged_on": True,
+            "username": r"TESTDOMAIN\svc-ncm",
+            "password": "test-password-not-real",
+        },
+        headers={"Authorization": f"Bearer {_admin_token(runtime, admin_id)}"},
+    )
+    assert r.status_code == 200
+    create_call = captured[0]
+    assert create_call[create_call.index("/RU") + 1] == r"TESTDOMAIN\svc-ncm"
+    assert create_call[create_call.index("/RP") + 1] == "secret"
+
+
+@pytest.mark.asyncio
+async def test_put_autostart_run_whether_logged_on_requires_credentials(test_settings, session_factory, monkeypatch, tmp_path):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"A" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h", "admin")
+        await session.commit()
+        admin_id = admin.id
+
+    fake_exe = tmp_path / "ncm-v4-desktop.exe"
+    fake_exe.write_bytes(b"MZ")
+    monkeypatch.setattr("app_v4.service.api.autostart.resolve_executable_path", lambda: fake_exe)
+
+    client = TestClient(create_app(runtime))
+    r = client.put(
+        "/api/v1/system/autostart",
+        json={"enabled": True, "run_whether_logged_on": True},
+        headers={"Authorization": f"Bearer {_admin_token(runtime, admin_id)}"},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_get_autostart_reports_runkey_when_task_missing(test_settings, session_factory, monkeypatch):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"A" * 32)
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h", "admin")
+        await session.commit()
+        admin_id = admin.id
+
+    _patch_subprocess(
+        monkeypatch,
+        [
+            _FakeProcess(returncode=1, stderr=b"ERROR: The system cannot find the file specified."),
+            _FakeProcess(returncode=0, stdout=b"    NCM v4 Backend    REG_SZ    ..."),
+        ],
+    )
+
+    client = TestClient(create_app(runtime))
+    r = client.get(
+        "/api/v1/system/autostart",
+        headers={"Authorization": f"Bearer {_admin_token(runtime, admin_id)}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["installed"] is True
+    assert body["method"] == "runkey"
 
 
 @pytest.mark.asyncio

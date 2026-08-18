@@ -1,11 +1,21 @@
 import { useState } from 'react';
 import { useAutostartStatus, useUpdateAutostart } from '../../api/hooks';
+import type { AutostartMethod } from '../../api/types';
 import { humanizeError } from '../../lib/errors';
+
+const METHOD_LABEL: Record<AutostartMethod, string> = {
+  task: 'Scheduled task',
+  runkey: 'Registry Run key (logon only)',
+};
 
 export function SettingsAutostartSection() {
   const { data, isLoading } = useAutostartStatus();
   const update = useUpdateAutostart();
+  const [method, setMethod] = useState<AutostartMethod>('runkey');
   const [trigger, setTrigger] = useState<'startup' | 'logon'>('startup');
+  const [runLoggedOn, setRunLoggedOn] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -15,7 +25,14 @@ export function SettingsAutostartSection() {
     setError(null);
     setMessage(null);
     update.mutate(
-      { enabled: next, trigger },
+      {
+        enabled: next,
+        trigger,
+        method,
+        run_whether_logged_on: runLoggedOn,
+        username: runLoggedOn ? username : undefined,
+        password: runLoggedOn ? password : undefined,
+      },
       {
         onSuccess: (status) =>
           setMessage(
@@ -27,6 +44,8 @@ export function SettingsAutostartSection() {
       },
     );
   }
+
+  const taskMethod = method === 'task';
 
   return (
     <section>
@@ -45,6 +64,10 @@ export function SettingsAutostartSection() {
             </dd>
           </div>
           <div>
+            <dt>Mechanism</dt>
+            <dd>{data.method ? METHOD_LABEL[data.method] : '—'}</dd>
+          </div>
+          <div>
             <dt>Executable</dt>
             <dd>
               <code>{data.executable_path ?? '— (running from source; auto-start not supported)'}</code>
@@ -56,14 +79,19 @@ export function SettingsAutostartSection() {
       <article className="settings-card">
         <h3>Configure</h3>
         <p className="settings-help">
-          Enable auto-start to register a Windows scheduled task that launches the backend
-          headless (<code>--serve</code>) at boot or logon. The backup scheduler then keeps running
-          across reboots without keeping the GUI open.
+          Auto-start registers the backend headless (<code>--serve</code>) so the backup scheduler keeps
+          running without keeping the GUI open. Two mechanisms:
         </p>
-        <p className="settings-help">
-          Requires admin privileges on the host. The task runs with <strong>HIGHEST</strong>{' '}
-          privileges so the backend can bind its port and access DPAPI-protected secrets.
-        </p>
+        <ul className="settings-help">
+          <li>
+            <strong>Registry Run key</strong> (default): starts at user logon. No admin rights and no Task
+            Scheduler access needed — works even where scheduled-task creation is blocked by policy.
+          </li>
+          <li>
+            <strong>Scheduled task</strong>: starts at boot or logon, optionally <em>whether or not a user is
+            logged on</em> (requires that user's username and password). Needs rights to create tasks.
+          </li>
+        </ul>
 
         <form
           className="settings-form"
@@ -73,16 +101,62 @@ export function SettingsAutostartSection() {
           }}
         >
           <label className="settings-field">
-            <span>Trigger</span>
+            <span>Mechanism</span>
             <select
-              value={trigger}
-              onChange={(e) => setTrigger(e.target.value as 'startup' | 'logon')}
+              value={method}
+              onChange={(e) => setMethod(e.target.value as AutostartMethod)}
               disabled={data.installed}
             >
-              <option value="startup">At system startup (recommended)</option>
-              <option value="logon">At user logon</option>
+              <option value="runkey">Registry Run key (logon, no admin)</option>
+              <option value="task">Scheduled task</option>
             </select>
           </label>
+          {taskMethod && (
+            <>
+              <label className="settings-field">
+                <span>Trigger</span>
+                <select
+                  value={trigger}
+                  onChange={(e) => setTrigger(e.target.value as 'startup' | 'logon')}
+                  disabled={data.installed}
+                >
+                  <option value="startup">At system startup (recommended)</option>
+                  <option value="logon">At user logon</option>
+                </select>
+              </label>
+              <label className="settings-field">
+                <span>Run whether user is logged on or not</span>
+                <input
+                  type="checkbox"
+                  checked={runLoggedOn}
+                  onChange={(e) => setRunLoggedOn(e.target.checked)}
+                  disabled={data.installed}
+                />
+              </label>
+              {runLoggedOn && (
+                <>
+                  <label className="settings-field">
+                    <span>Username</span>
+                    <input
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="DOMAIN\user"
+                      disabled={data.installed}
+                    />
+                  </label>
+                  <label className="settings-field">
+                    <span>Password</span>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={data.installed}
+                    />
+                  </label>
+                </>
+              )}
+            </>
+          )}
           {error && <div role="alert" className="settings-error">{error}</div>}
           {message && <div className="settings-success">{message}</div>}
           <div className="action-row">
@@ -104,8 +178,8 @@ export function SettingsAutostartSection() {
         </form>
 
         <p className="settings-help settings-note">
-          To verify, open Task Scheduler and look for "NCM v4 Backend". You can also run{' '}
-          <code>schtasks /Query /TN "NCM v4 Backend"</code> from an elevated prompt.
+          To verify: Run key — <code>reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "NCM v4 Backend"</code>.
+          Scheduled task — <code>schtasks /Query /TN "NCM v4 Backend"</code> from an elevated prompt.
         </p>
       </article>
     </section>

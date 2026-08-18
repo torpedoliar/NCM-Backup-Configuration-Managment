@@ -106,3 +106,56 @@ def test_parse_query_output_returns_installed_but_not_ready_when_disabled():
     assert status.installed is True
     assert status.ready is False
     assert status.raw_status == "Disabled"
+
+
+def test_create_command_runkey_uses_reg_add():
+    config = AutostartConfig(
+        executable=Path(r"D:\app\ncm-v4-desktop.exe"),
+        run_at_startup=True,
+        method="runkey",
+    )
+    cmd = build_create_command(config)
+    assert cmd[0].lower() == "reg"
+    assert "add" in cmd
+    assert "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" in cmd
+    assert "--serve" in cmd[cmd.index("/d") + 1]
+
+
+def test_query_and_delete_commands_runkey_use_reg():
+    assert "reg" in build_query_command(method="runkey")
+    assert "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" in build_query_command(method="runkey")
+    assert "delete" in build_delete_command(method="runkey")
+
+
+def test_parse_query_output_runkey_installed_when_value_present():
+    status = parse_query_output(returncode=0, stdout="value", stderr="", method="runkey")
+    assert status.installed is True
+    assert status.ready is True
+
+
+def test_parse_query_output_runkey_missing_when_reg_fails():
+    status = parse_query_output(returncode=1, stdout="", stderr="ERROR", method="runkey")
+    assert status.installed is False
+
+
+def test_create_command_run_whether_logged_on_adds_credentials():
+    config = AutostartConfig(
+        executable=Path(r"D:\app\ncm-v4-desktop.exe"),
+        run_at_startup=True,
+        run_whether_logged_on=True,
+        username=r"TESTDOMAIN\svc-ncm",
+        password="test-password-not-real",
+    )
+    cmd = build_create_command(config)
+    assert "/RU" in cmd
+    assert cmd[cmd.index("/RU") + 1] == r"TESTDOMAIN\svc-ncm"
+    assert cmd[cmd.index("/RP") + 1] == "secret"
+
+
+def test_create_config_requires_credentials_when_running_without_logon():
+    with pytest.raises(ValueError):
+        AutostartConfig(
+            executable=Path("ncm-v4-desktop.exe"),
+            run_at_startup=True,
+            run_whether_logged_on=True,
+        )

@@ -8,6 +8,7 @@ from typing import Awaitable, Callable
 
 from app_v4.desktop.autostart import (
     AutostartConfig,
+    AutostartMethod,
     AutostartStatus,
     build_create_command,
     build_delete_command,
@@ -52,10 +53,23 @@ async def _run_subprocess(cmd: list[str]) -> CommandResult:
     )
 
 
-async def query_status(*, run_command: RunCommand | None = None) -> AutostartStatus:
+async def query_status(*, method: AutostartMethod = "task", run_command: RunCommand | None = None) -> AutostartStatus:
     runner = run_command or _run_subprocess
-    rc, out, err = await runner(build_query_command())
-    return parse_query_output(returncode=rc, stdout=out, stderr=err)
+    rc, out, err = await runner(build_query_command(method))
+    return parse_query_output(returncode=rc, stdout=out, stderr=err, method=method)
+
+
+async def query_any_status(
+    *, run_command: RunCommand | None = None
+) -> tuple[AutostartStatus, AutostartMethod | None]:
+    """Report whichever mechanism is installed: scheduled task first, else Run key."""
+    task_status = await query_status(method="task", run_command=run_command)
+    if task_status.installed:
+        return task_status, "task"
+    runkey_status = await query_status(method="runkey", run_command=run_command)
+    if runkey_status.installed:
+        return runkey_status, "runkey"
+    return AutostartStatus(installed=False, ready=False, raw_status=None), None
 
 
 async def enable_autostart(
@@ -71,17 +85,17 @@ async def enable_autostart(
             status=AutostartStatus(installed=False, ready=False, raw_status=None),
             message=(err or out or "schtasks /Create failed").strip(),
         )
-    status = await query_status(run_command=runner)
+    status = await query_status(method=config.method, run_command=runner)
     return AutostartActionResult(
         ok=status.installed,
         status=status,
-        message="Auto-start enabled." if status.installed else "Task created but not visible to schtasks /Query.",
+        message="Auto-start enabled." if status.installed else "Registered but not visible to the OS.",
     )
 
 
-async def disable_autostart(*, run_command: RunCommand | None = None) -> AutostartActionResult:
+async def disable_autostart(*, method: AutostartMethod = "task", run_command: RunCommand | None = None) -> AutostartActionResult:
     runner = run_command or _run_subprocess
-    rc, out, err = await runner(build_delete_command())
+    rc, out, err = await runner(build_delete_command(method))
     if rc != 0 and "cannot find" not in (err or "").lower() and "tidak dapat menemukan" not in (err or "").lower():
         return AutostartActionResult(
             ok=False,
