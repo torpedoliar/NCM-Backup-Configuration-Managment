@@ -95,12 +95,18 @@ async def test_network_doc_malformed_config_does_not_break_bulk(test_settings, s
     runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
     await _seed(session_factory, tmp_path, content_hash="malformed-config")
     client = TestClient(create_app(runtime))
+    sentinel = "C:/backups/secret/API_KEY=top-secret"
 
-    monkeypatch.setattr("app_v4.service.api.network_doc.parse_config", lambda text: (_ for _ in ()).throw(ValueError("bad config")))
+    monkeypatch.setattr(
+        "app_v4.service.api.network_doc.parse_config",
+        lambda text: (_ for _ in ()).throw(ValueError(f"bad config: {sentinel}")),
+    )
     response = client.get("/api/v1/network-doc", headers=_key_headers())
 
     assert response.status_code == 200
-    assert response.json()[0]["parse_warnings"] == ["unable to parse backup: bad config"]
+    warnings = response.json()[0]["parse_warnings"]
+    assert warnings == ["unable to parse backup"]
+    assert sentinel not in warnings
 
 
 @pytest.mark.asyncio

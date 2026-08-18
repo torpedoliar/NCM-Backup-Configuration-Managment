@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from app_v4.service.deps import get_db, require_api_key
 from app_v4.service.problem import problem
 
 router = APIRouter(prefix="/network-doc", tags=["network-doc"])
+logger = logging.getLogger(__name__)
 
 # Cache only parsed configuration content. Database identity is overlaid for every
 # response so matching backup hashes can never cross-contaminate switch metadata.
@@ -71,11 +73,13 @@ async def _build_doc(repo: Repository, switch) -> SwitchDoc:
                 cfg = ParsedConfig(warnings=["backup file missing on disk"])
             else:
                 cfg = _parse_cached(backup.content_hash, path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, ValueError) as exc:
-            cfg = ParsedConfig(warnings=[f"unable to parse backup: {exc}"])
-        except Exception as exc:
+        except (OSError, UnicodeError, ValueError):
+            logger.exception("Unable to parse network documentation backup for switch %s", switch.id)
+            cfg = ParsedConfig(warnings=["unable to parse backup"])
+        except Exception:
             # Parser failures are isolated per switch so bulk documentation remains available.
-            cfg = ParsedConfig(warnings=[f"unable to parse backup: {exc}"])
+            logger.exception("Unable to parse network documentation backup for switch %s", switch.id)
+            cfg = ParsedConfig(warnings=["unable to parse backup"])
 
     return SwitchDoc(
         switch_id=switch.id,
