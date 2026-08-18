@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app_v4.data.models import AuditLog, Backup, Credential, Job, Session, Switch, User
+from app_v4.data.models import ApiKey, AuditLog, Backup, Credential, Job, Session, Switch, User
 
 
 NULLABLE_FIELDS = {"day_of_week", "day_of_month"}
@@ -147,6 +147,40 @@ class Repository:
             raise ValueError("Credential is in use by switches")
         await self.session.delete(cred)
         return True
+
+    # ----- api keys -----
+
+    async def create_api_key(self, name: str, key_hash: str, prefix: str) -> ApiKey:
+        key = ApiKey(name=name, key_hash=key_hash, prefix=prefix)
+        self.session.add(key)
+        await self.session.flush()
+        return key
+
+    async def list_api_keys(self) -> list[ApiKey]:
+        result = await self.session.execute(select(ApiKey).order_by(ApiKey.created_at))
+        return list(result.scalars().all())
+
+    async def get_api_key_by_name(self, name: str) -> ApiKey | None:
+        result = await self.session.execute(select(ApiKey).where(ApiKey.name == name))
+        return result.scalar_one_or_none()
+
+    async def get_api_key_by_hash(self, key_hash: str) -> ApiKey | None:
+        result = await self.session.execute(
+            select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.revoked.is_(False))
+        )
+        return result.scalar_one_or_none()
+
+    async def revoke_api_key(self, key_id: int) -> bool:
+        key = await self.session.get(ApiKey, key_id)
+        if key is None:
+            return False
+        key.revoked = True
+        return True
+
+    async def touch_api_key_last_used(self, key_id: int) -> None:
+        key = await self.session.get(ApiKey, key_id)
+        if key is not None:
+            key.last_used_at = datetime.utcnow()
 
     # ----- switches -----
 

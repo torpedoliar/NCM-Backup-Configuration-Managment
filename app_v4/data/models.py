@@ -124,3 +124,15 @@ class AuditLog(Base):
     ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False, index=True)
     detail_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
