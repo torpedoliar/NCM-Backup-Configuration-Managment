@@ -7,6 +7,20 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app_v4.core.paths import resolve_paths
+from app_v4.service.api import (
+    api_keys,
+    audit,
+    auth,
+    autostart,
+    backups,
+    credentials,
+    jobs,
+    network_doc,
+    switches,
+    system,
+    users,
+    ws,
+)
 from app_v4.service.problem_handlers import register_problem_handlers
 from app_v4.service.runtime import ServiceRuntime
 
@@ -21,21 +35,6 @@ def create_app(runtime: ServiceRuntime) -> FastAPI:
     app.state.runtime = runtime
     register_problem_handlers(app)
     paths = resolve_paths(runtime.settings)
-
-from app_v4.service.api import (
-        api_keys,
-        audit,
-        auth,
-        autostart,
-        backups,
-        credentials,
-        jobs,
-        network_doc,
-        switches,
-        system,
-        users,
-        ws,
-    )
 
     app.include_router(api_keys.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
