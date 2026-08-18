@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { StatusPill } from '../components/StatusPill';
+import { BackupProgress } from '../components/BackupProgress';
 import { useTimeSettings } from '../api/hooks';
 import { rememberTimezone } from '../lib/fmt';
 
@@ -55,6 +56,7 @@ export function Topbar() {
         <strong>/ Dashboard</strong>
       </div>
       <div className="topbar-right">
+        <BackupProgress />
         <StatusPill tone="green">SERVICE / RUNNING</StatusPill>
         <span className="marker" title={tz}>{offset}</span>
         <span className="topbar-time number">{localTime}</span>

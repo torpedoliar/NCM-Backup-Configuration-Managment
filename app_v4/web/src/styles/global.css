@@ -255,6 +255,30 @@ a { color: inherit; }
   font-family: var(--font-mono);
   font-size: 12px;
 }
+.backup-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--amber);
+  padding: 4px 10px;
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.backup-progress-bar {
+  width: 48px;
+  height: 4px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--amber) 0 8px,
+    rgba(255, 184, 0, 0.15) 8px 16px
+  );
+  animation: backup-progress-slide 1s linear infinite;
+}
+@keyframes backup-progress-slide {
+  to { background-position: 16px 0; }
+}
 .diff-output,
 .audit-detail {
   max-width: 100%;
