@@ -196,7 +196,7 @@ async def test_put_autostart_run_whether_logged_on_adds_credentials(test_setting
     assert r.status_code == 200
     create_call = captured[0]
     assert create_call[create_call.index("/RU") + 1] == r"TESTDOMAIN\svc-ncm"
-    assert create_call[create_call.index("/RP") + 1] == "secret"
+    assert create_call[create_call.index("/RP") + 1] == "test-password-not-real"
 
 
 @pytest.mark.asyncio

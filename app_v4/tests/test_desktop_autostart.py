@@ -149,7 +149,7 @@ def test_create_command_run_whether_logged_on_adds_credentials():
     cmd = build_create_command(config)
     assert "/RU" in cmd
     assert cmd[cmd.index("/RU") + 1] == r"TESTDOMAIN\svc-ncm"
-    assert cmd[cmd.index("/RP") + 1] == "secret"
+    assert cmd[cmd.index("/RP") + 1] == "test-password-not-real"
 
 
 def test_create_config_requires_credentials_when_running_without_logon():
