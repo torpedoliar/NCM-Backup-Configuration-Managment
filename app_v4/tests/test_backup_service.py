@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from app_v4.core.config import Settings
 from app_v4.data.repository import Repository
 from app_v4.net.runner import BackupRunResult
 from app_v4.service.backup_service import BackupService
@@ -40,6 +41,32 @@ async def test_backup_service_creates_success_record_and_file(test_settings, ses
     assert result["backup_id"]
     assert Path(result["file_path"]).exists()
     assert Path(result["file_path"]).read_text(encoding="utf-8") == "config text"
+
+
+@pytest.mark.asyncio
+async def test_backup_service_writes_to_custom_backup_root(test_settings, session_factory, crypto_service, tmp_path):
+    custom_root = tmp_path / "custom-output"
+    settings = Settings(base_dir=test_settings.base_dir, backup_root_folder=str(custom_root))
+    service = BackupService(
+        settings=settings,
+        session_factory=session_factory,
+        crypto_service=crypto_service,
+        runner=FakeRunner(BackupRunResult(True, "config text", "Backup completed successfully")),
+        diff_service=DiffService(settings),
+    )
+    async with session_factory() as session:
+        repo = Repository(session)
+        blob = crypto_service.encrypt_credential("admin", "secret", "enable")
+        cred = await repo.create_credential("cred", blob)
+        switch = await repo.create_switch("sw01", "10.0.0.1", "ssh", 22, cred.id)
+        await session.commit()
+        switch_id = switch.id
+
+    result = await service.execute_backup(switch_id=switch_id, backup_type="manual", triggered_by_user_id=None)
+
+    saved = Path(result["file_path"])
+    assert saved.exists()
+    assert saved.is_relative_to(custom_root)
 
 
 @pytest.mark.asyncio

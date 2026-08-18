@@ -200,6 +200,80 @@ async def test_patch_auth_settings_persists_and_validates(test_settings, session
 
 
 @pytest.mark.asyncio
+async def test_get_backup_location_returns_resolved_path(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"n" * 32)
+    client = TestClient(create_app(runtime))
+
+    response = client.get(
+        "/api/v1/system/backup-location",
+        headers={"Authorization": f"Bearer {_viewer_token(runtime)}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["backup_root_folder"] == "backups"
+    assert body["resolved_backups_dir"].endswith("backups")
+
+
+@pytest.mark.asyncio
+async def test_patch_backup_location_admin_only(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"o" * 32)
+    client = TestClient(create_app(runtime))
+
+    response = client.patch(
+        "/api/v1/system/backup-location",
+        json={"backup_root_folder": "custom-backups"},
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_patch_backup_location_persists_and_updates_runtime(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"p" * 32)
+    from app_v4.data.repository import Repository
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h", "admin")
+        await session.commit()
+        admin_id = admin.id
+    admin_token = runtime.auth_service.issue_access_token(admin_id, "admin", "admin")
+    client = TestClient(create_app(runtime))
+
+    response = client.patch(
+        "/api/v1/system/backup-location",
+        json={"backup_root_folder": "custom-backups"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["backup_root_folder"] == "custom-backups"
+    assert body["resolved_backups_dir"].endswith("custom-backups")
+    assert runtime.settings.backup_root_folder == "custom-backups"
+
+    from app_v4.core.paths import resolve_paths
+    from app_v4.core.runtime_settings import load_runtime_settings
+    persisted = load_runtime_settings(resolve_paths(runtime.settings).data_dir / "runtime_settings.json")
+    assert persisted.backup_location.backup_root_folder == "custom-backups"
+
+
+@pytest.mark.asyncio
+async def test_patch_backup_location_validates_value(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"q" * 32)
+    client = TestClient(create_app(runtime))
+
+    response = client.patch(
+        "/api/v1/system/backup-location",
+        json={"backup_root_folder": ""},
+        headers={"Authorization": f"Bearer {_admin_token(runtime)}"},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_logs_endpoint_admin_only(test_settings, session_factory):
     runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"M" * 32)
     client = TestClient(create_app(runtime))
@@ -240,3 +314,149 @@ async def test_logs_endpoint_returns_recent_lines(test_settings, session_factory
     assert all(line["level"] == "ERROR" for line in body["lines"])
     assert body["log_file"].endswith("ncm-v4.log")
     assert body["log_file_size_bytes"] > 0
+
+
+@pytest.mark.asyncio
+async def test_get_time_settings_default_jakarta(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"T" * 32)
+    client = TestClient(create_app(runtime))
+    r = client.get(
+        "/api/v1/system/time-settings",
+        headers={"Authorization": f"Bearer {_viewer_token(runtime)}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["timezone"] == "Asia/Jakarta"
+    assert "Asia/Jakarta" in body["available_timezones"]
+    assert body["ntp_servers"] == ["pool.ntp.org"]
+
+
+@pytest.mark.asyncio
+async def test_patch_time_settings_admin_only_and_persists(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"T" * 32)
+    from app_v4.data.repository import Repository
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h", "admin")
+        await session.commit()
+        admin_id = admin.id
+    admin_token = runtime.auth_service.issue_access_token(admin_id, "admin", "admin")
+
+    client = TestClient(create_app(runtime))
+
+    forbidden = client.patch(
+        "/api/v1/system/time-settings",
+        json={"timezone": "Asia/Tokyo"},
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+    )
+    assert forbidden.status_code == 403
+
+    r = client.patch(
+        "/api/v1/system/time-settings",
+        json={"timezone": "Asia/Tokyo", "ntp_servers": ["time.google.com"], "ntp_enabled": True},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["timezone"] == "Asia/Tokyo"
+    assert body["ntp_servers"] == ["time.google.com"]
+    assert body["ntp_enabled"] is True
+
+    bad = client.patch(
+        "/api/v1/system/time-settings",
+        json={"timezone": "Not/AZone"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert bad.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_run_retention_now_admin_only(test_settings, session_factory):
+    class FakeRetention:
+        async def run_once(self):
+            return {"audit_deleted": 1, "backups_deleted": 2, "backup_files_deleted": 2}
+
+    runtime = ServiceRuntime.for_tests(
+        test_settings,
+        session_factory,
+        jwt_secret=b"R" * 32,
+        retention_service=FakeRetention(),
+    )
+    from app_v4.data.repository import Repository
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin", "h", "admin")
+        await session.commit()
+        admin_id = admin.id
+    admin_token = runtime.auth_service.issue_access_token(admin_id, "admin", "admin")
+
+    client = TestClient(create_app(runtime))
+    forbidden = client.post(
+        "/api/v1/system/retention/run",
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+    )
+    assert forbidden.status_code == 403
+
+    r = client.post(
+        "/api/v1/system/retention/run",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {"audit_deleted": 1, "backups_deleted": 2, "backup_files_deleted": 2}
+
+
+@pytest.mark.asyncio
+async def test_scheduler_status_returns_jobs_and_timezone(test_settings, session_factory):
+    class FakeScheduler:
+        def status_snapshot(self):
+            return {
+                "running": True,
+                "timezone": "Asia/Jakarta",
+                "lock_acquired": True,
+                "lock_file": "/tmp/lock",
+                "jobs": [
+                    {
+                        "job_id": 7,
+                        "next_run_time": "2026-05-23T21:53:00+07:00",
+                        "trigger": "cron[hour='21', minute='53']",
+                    }
+                ],
+            }
+
+    runtime = ServiceRuntime.for_tests(
+        test_settings,
+        session_factory,
+        jwt_secret=b"S" * 32,
+        scheduler_service=FakeScheduler(),
+    )
+    client = TestClient(create_app(runtime))
+    r = client.get(
+        "/api/v1/system/scheduler-status",
+        headers={"Authorization": f"Bearer {_viewer_token(runtime)}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["running"] is True
+    assert body["timezone"] == "Asia/Jakarta"
+    assert body["jobs"][0]["job_id"] == 7
+    assert body["jobs"][0]["next_run_time"].startswith("2026-05-23T21:53")
+
+
+@pytest.mark.asyncio
+async def test_scheduler_status_when_unavailable(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(
+        test_settings,
+        session_factory,
+        jwt_secret=b"S" * 32,
+    )
+    client = TestClient(create_app(runtime))
+    r = client.get(
+        "/api/v1/system/scheduler-status",
+        headers={"Authorization": f"Bearer {_viewer_token(runtime)}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["running"] is False
+    assert body["jobs"] == []
+

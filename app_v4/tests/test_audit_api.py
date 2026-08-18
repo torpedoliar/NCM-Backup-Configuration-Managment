@@ -41,8 +41,46 @@ def test_audit_endpoint_is_admin_only(test_settings, session_factory):
 
     admin = client.get("/api/v1/audit", headers={"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"})
     assert admin.status_code == 200
-    assert admin.json()[0]["action"] == "switch.created"
-    assert admin.json()[0]["detail_json"] == {"name": "sw01"}
+    body = admin.json()
+    assert body[0]["action"] == "switch.created"
+    assert body[0]["detail_json"] == {"name": "sw01"}
+    assert body[0]["username"] == "admin"
+
+
+def test_audit_username_resolves_or_falls_back_to_system(test_settings, session_factory):
+    async def seed():
+        async with session_factory() as session:
+            repo = Repository(session)
+            admin = await repo.create_user("admin", "h", "admin")
+            from app_v4.data.models import AuditLog
+
+            session.add(AuditLog(action="user.action", user_id=admin.id))
+            session.add(AuditLog(action="system.tick", user_id=None))
+            await session.commit()
+            return admin.id
+
+    import anyio
+
+    admin_id = anyio.run(seed)
+    client = TestClient(
+        create_app(
+            ServiceRuntime.for_tests(
+                test_settings,
+                session_factory=session_factory,
+                jwt_secret=JWT_SECRET,
+            )
+        )
+    )
+
+    r = client.get(
+        "/api/v1/audit",
+        headers={"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"},
+    )
+    assert r.status_code == 200
+    rows = r.json()
+    by_action = {row["action"]: row for row in rows}
+    assert by_action["user.action"]["username"] == "admin"
+    assert by_action["system.tick"]["username"] is None
 
 
 def test_list_audit_action_prefix(test_settings, session_factory):

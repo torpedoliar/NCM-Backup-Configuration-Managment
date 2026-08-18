@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app_v4.core.runtime_settings import (
     AuthSettings,
+    BackupLocationSettings,
     RetentionSettings,
     RuntimeSettings,
     load_runtime_settings,
@@ -69,3 +70,16 @@ def test_save_load_round_trip_includes_auth(tmp_path: Path):
     loaded = load_runtime_settings(target)
     assert loaded.auth.access_token_minutes == 30
     assert loaded.auth.lockout_threshold == 0
+
+
+def test_backup_location_defaults_to_config_value():
+    rs = RuntimeSettings()
+    assert rs.backup_location.backup_root_folder is None
+
+
+def test_save_load_round_trip_includes_backup_location(tmp_path: Path):
+    target = tmp_path / "rs.json"
+    rs = RuntimeSettings(backup_location=BackupLocationSettings(backup_root_folder="D:/Backups/NCM"))
+    save_runtime_settings(target, rs)
+    loaded = load_runtime_settings(target)
+    assert loaded.backup_location.backup_root_folder == "D:/Backups/NCM"

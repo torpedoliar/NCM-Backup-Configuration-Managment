@@ -3,6 +3,7 @@ import { Redirect } from 'wouter';
 import { useAudit } from '../api/hooks';
 import { useOptionalAuth } from '../auth/AuthProvider';
 import type { AuditFilters } from '../api/types';
+import { formatTzDateTime } from '../lib/fmt';
 
 const ACTION_GROUPS: Record<string, string> = {
   All: '',
@@ -95,6 +96,7 @@ export function AuditPage() {
         </label>
       </section>
 
+      <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr>
@@ -109,8 +111,8 @@ export function AuditPage() {
         <tbody>
           {rows.map((row) => (
             <tr key={row.id}>
-              <td>{new Date(row.ts).toLocaleString()}</td>
-              <td>{row.user_id ?? 'system'}</td>
+              <td>{formatTzDateTime(row.ts)}</td>
+              <td>{row.username ?? (row.user_id === null ? 'system' : `#${row.user_id}`)}</td>
               <td>
                 <span className={`badge action-${row.action.split('.')[0]}`}>{row.action}</span>
               </td>
@@ -135,6 +137,7 @@ export function AuditPage() {
           ))}
         </tbody>
       </table>
+      </div>
 
       <footer className="audit-footer">
         <span>

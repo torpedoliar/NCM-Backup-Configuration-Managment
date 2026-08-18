@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuthSettings, usePatchAuthSettings } from '../../api/hooks';
 import type { AuthSettings } from '../../api/types';
+import { humanizeError } from '../../lib/errors';
 
 type CardKey = 'token' | 'lockout' | 'password';
 
@@ -37,7 +38,18 @@ export function SettingsAuthSection() {
 
   useEffect(() => {
     if (data) setDraft({ ...data });
-  }, [data]);
+  }, [
+    data?.access_token_minutes,
+    data?.refresh_token_days,
+    data?.lockout_threshold,
+    data?.lockout_window_minutes,
+    data?.lockout_duration_minutes,
+    data?.password_min_length,
+    data?.password_require_upper,
+    data?.password_require_lower,
+    data?.password_require_digit,
+    data?.password_require_symbol,
+  ]);
 
   if (!draft || !data) return <p>Loading…</p>;
 
@@ -53,7 +65,7 @@ export function SettingsAuthSection() {
       (updates as Record<string, AuthSettings[keyof AuthSettings]>)[key] = draft[key];
     }
     patch.mutate(updates, {
-      onError: (err: unknown) => setError(err instanceof Error ? err.message : 'Save failed'),
+      onError: (err: unknown) => setError(humanizeError(err)),
     });
   }
 

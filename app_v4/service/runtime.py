@@ -13,7 +13,7 @@ from app_v4.core.crypto_service import CryptoService
 from app_v4.core.dpapi import WindowsDpapiProvider
 from app_v4.core.key_envelope import KeyEnvelopeStore
 from app_v4.core.paths import resolve_paths
-from app_v4.core.runtime_settings import AuthSettings, load_runtime_settings
+from app_v4.core.runtime_settings import AuthSettings, RuntimeSettings, load_runtime_settings
 from app_v4.data.db import create_session_factory, init_db
 from app_v4.service.audit import AuditWriter
 from app_v4.service.backup_service import BackupService
@@ -23,6 +23,13 @@ from app_v4.service.scheduler import SchedulerService
 
 
 AuthSettingsProvider = Callable[[], AuthSettings]
+
+
+def apply_runtime_settings(settings: Settings, runtime_settings: RuntimeSettings) -> Settings:
+    backup_root = runtime_settings.backup_location.backup_root_folder
+    if backup_root:
+        return settings.model_copy(update={"backup_root_folder": backup_root})
+    return settings
 
 
 @dataclass
@@ -75,12 +82,14 @@ class ServiceRuntime:
 
 async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     paths = resolve_paths(settings)
+    runtime_settings_path = paths.data_dir / "runtime_settings.json"
+    settings = apply_runtime_settings(settings, load_runtime_settings(runtime_settings_path))
+    paths = resolve_paths(settings)
     envelope = KeyEnvelopeStore(paths.master_envelope_file, WindowsDpapiProvider()).load()
     crypto = CryptoService(settings=settings, passphrase=envelope.master_passphrase)
     engine, session_factory = create_session_factory(settings)
     await init_db(engine)
     event_hub = EventHub()
-    runtime_settings_path = paths.data_dir / "runtime_settings.json"
 
     def auth_settings_provider() -> AuthSettings:
         return load_runtime_settings(runtime_settings_path).auth

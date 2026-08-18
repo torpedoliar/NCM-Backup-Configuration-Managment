@@ -13,11 +13,28 @@ class NetworkConfig:
     connect_timeout: int
     command_timeout: int
     read_timeout: int
-    prompts: list[str] = field(default_factory=lambda: ["#", ">"])
-    paging_disable_commands: list[str] = field(
-        default_factory=lambda: ["terminal length 0", "terminal pager 0", "no page"]
+    prompts: list[str] = field(
+        default_factory=lambda: ["#", ">", "(config)#", "(config-if)#"]
     )
-    paging_indicators: list[str] = field(default_factory=lambda: ["--More--", "More:", "Press any key"])
+    paging_disable_commands: list[str] = field(
+        default_factory=lambda: [
+            "terminal length 0",
+            "set length 0",
+            "terminal pager 0",
+            "no page",
+        ]
+    )
+    paging_indicators: list[str] = field(
+        default_factory=lambda: [
+            "--More--",
+            "-- More --",
+            "<--- More --->",
+            "More: <space>",
+            "More:",
+            "Quit: q",
+            "Press any key",
+        ]
+    )
 
 
 def load_network_config(settings: Settings) -> NetworkConfig:

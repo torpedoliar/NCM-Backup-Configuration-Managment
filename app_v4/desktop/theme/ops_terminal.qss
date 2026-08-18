@@ -7,3 +7,15 @@ QLabel#ServicePulse { color: #4ade80; border: 1px solid #4ade80; padding: 6px 10
 QPushButton { background: #141414; color: #fafaf7; border: 1px solid #262626; border-radius: 0; padding: 9px; text-align: left; }
 QPushButton:hover { border-color: #ffb800; color: #ffb800; }
 QPushButton[active="true"] { border-left: 3px solid #ffb800; color: #fafaf7; }
+
+QDialog, QWizard, QWizardPage, QMainWindow { background: #0a0a0a; color: #fafaf7; }
+QWizard QLabel, QDialog QLabel, QLabel { color: #fafaf7; }
+QWizard QLabel[title="true"], QWizard #qt_wizard_titlelabel, QWizard #qt_wizard_subtitlelabel { color: #ffb800; }
+QLineEdit { background: #141414; color: #fafaf7; border: 1px solid #262626; border-radius: 0; padding: 6px 8px; selection-background-color: #ffb800; selection-color: #0a0a0a; }
+QLineEdit:focus { border-color: #ffb800; }
+QDialogButtonBox QPushButton, QWizard QPushButton { background: #141414; color: #fafaf7; border: 1px solid #262626; border-radius: 0; padding: 6px 14px; min-width: 70px; text-align: center; }
+QDialogButtonBox QPushButton:hover, QWizard QPushButton:hover { border-color: #ffb800; color: #ffb800; }
+QDialogButtonBox QPushButton:disabled, QWizard QPushButton:disabled { color: #525252; border-color: #1f1f1f; }
+QMessageBox { background: #0a0a0a; color: #fafaf7; }
+QMessageBox QLabel { color: #fafaf7; }
+QInputDialog { background: #0a0a0a; color: #fafaf7; }

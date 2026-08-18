@@ -4,6 +4,9 @@ from app_v4.core.config import Settings
 from app_v4.net.runner import BackupRunner, BackupRunResult
 
 
+VALID_CONFIG = "\n".join(["hostname sw01", *["interface ethernet 1"] * 6])
+
+
 class FakeClient:
     def __init__(self, output: str):
         self.output = output
@@ -29,7 +32,7 @@ class FakeClient:
 async def test_backup_runner_normalizes_success_output():
     runner = BackupRunner(
         settings=Settings(network_max_retries=1),
-        client_factory=lambda **kwargs: FakeClient("\r\nline1   \r\nline2\r\n"),
+        client_factory=lambda **kwargs: FakeClient("\r\n" + VALID_CONFIG.replace("\n", "   \r\n") + "\r\n"),
     )
 
     result = await runner.execute_backup(
@@ -41,7 +44,7 @@ async def test_backup_runner_normalizes_success_output():
         enable_password="enable",
     )
 
-    assert result == BackupRunResult(success=True, config_text="line1\nline2", message="Backup completed successfully")
+    assert result == BackupRunResult(success=True, config_text=VALID_CONFIG, message="Backup completed successfully")
 
 
 @pytest.mark.asyncio
@@ -95,7 +98,7 @@ async def test_backup_runner_accepts_websmart_protocol_from_client_factory():
 
     def factory(**kwargs):
         created.update(kwargs)
-        return FakeClient("websmart config")
+        return FakeClient(VALID_CONFIG)
 
     runner = BackupRunner(
         settings=Settings(network_max_retries=1),
@@ -105,7 +108,29 @@ async def test_backup_runner_accepts_websmart_protocol_from_client_factory():
     result = await runner.execute_backup("websmart", "10.0.0.10", 80, "admin", "secret")
 
     assert result.success is True
-    assert result.config_text == "websmart config"
+    assert result.config_text == VALID_CONFIG
     assert created["protocol"] == "websmart"
     assert created["host"] == "10.0.0.10"
     assert created["port"] == 80
+
+
+def test_backup_runner_maps_websmart_protocols_to_legacy_client_modes(monkeypatch):
+    created = []
+
+    class DummyWebSmart:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+    runner = BackupRunner(settings=Settings(network_connect_timeout=7))
+    monkeypatch.setattr("app_v4.net.runner.AsyncWebSmartClient", DummyWebSmart)
+
+    runner._make_client("websmart", "10.0.0.10", 80, "admin", "secret", "")
+    runner._make_client("websmart-v2", "10.0.0.11", 80, "manager", "friend", "")
+    runner._make_client("https", "10.0.0.12", 443, "admin", "secret", "")
+
+    assert created[0]["scheme"] == "http"
+    assert created[0]["force_v2_only"] is False
+    assert created[1]["scheme"] == "http"
+    assert created[1]["force_v2_only"] is True
+    assert created[2]["scheme"] == "https"
+    assert created[2]["force_v2_only"] is False

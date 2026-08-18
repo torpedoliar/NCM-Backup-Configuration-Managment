@@ -158,3 +158,82 @@ async def test_update_job_clears_day_of_week_to_null(test_settings, session_fact
     )
     assert r.status_code == 200
     assert r.json()["day_of_week"] is None
+
+
+class _RecordingScheduler:
+    def __init__(self) -> None:
+        self.sync_calls: int = 0
+
+    async def sync_once(self) -> None:
+        self.sync_calls += 1
+
+
+@pytest.mark.asyncio
+async def test_create_update_delete_each_resync_scheduler(test_settings, session_factory):
+    scheduler = _RecordingScheduler()
+    runtime = ServiceRuntime.for_tests(
+        test_settings,
+        session_factory,
+        jwt_secret=b"r" * 32,
+        scheduler_service=scheduler,
+    )
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "hash", "operator")
+        cred = await repo.create_credential("cred", b"x")
+        sw = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        await session.commit()
+        switch_id = sw.id
+
+    client = TestClient(create_app(runtime))
+    headers = {"Authorization": f"Bearer {_operator_token(runtime)}"}
+    create = client.post(
+        "/api/v1/jobs",
+        headers=headers,
+        json={"switch_id": switch_id, "interval_minutes": 60, "enabled": True, "schedule_hour": 11, "schedule_minute": 5},
+    )
+    assert create.status_code == 201
+    job_id = create.json()["id"]
+    assert scheduler.sync_calls >= 1
+    after_create = scheduler.sync_calls
+
+    patch = client.patch(
+        f"/api/v1/jobs/{job_id}",
+        headers=headers,
+        json={"schedule_hour": 11, "schedule_minute": 5, "interval_minutes": 1440},
+    )
+    assert patch.status_code == 200
+    assert scheduler.sync_calls == after_create + 1
+
+    delete = client.delete(f"/api/v1/jobs/{job_id}", headers=headers)
+    assert delete.status_code == 204
+    assert scheduler.sync_calls == after_create + 2
+
+
+@pytest.mark.asyncio
+async def test_job_last_run_at_is_returned_as_utc_aware_iso(test_settings, session_factory):
+    """Naive datetime.utcnow() must be tagged as UTC so JS clients convert
+    timestamps with the user's timezone setting instead of treating them as
+    local time (which produces a 7-hour shift in Asia/Jakarta)."""
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"t" * 32)
+    from datetime import datetime
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_user("ops", "h", "operator")
+        cred = await repo.create_credential("cred", b"x")
+        sw = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(switch_id=sw.id, interval_minutes=1440)
+        # Use a naive UTC datetime to mirror real production data
+        await repo.update_job(job.id, last_ran_at=datetime(2026, 5, 24, 1, 23, 45))
+        await session.commit()
+
+    client = TestClient(create_app(runtime))
+    r = client.get(
+        "/api/v1/jobs",
+        headers={"Authorization": f"Bearer {_operator_token(runtime)}"},
+    )
+    assert r.status_code == 200
+    last_run = r.json()[0]["last_run_at"]
+    assert last_run is not None
+    # ISO must include an explicit UTC offset.
+    assert last_run.endswith("+00:00") or last_run.endswith("Z")

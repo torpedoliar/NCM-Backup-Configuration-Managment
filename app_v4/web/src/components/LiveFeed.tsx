@@ -1,6 +1,7 @@
 import { Link } from 'wouter';
 import { useLiveEvents } from '../store/live-events';
 import { useOptionalAuth } from '../auth/AuthProvider';
+import { formatTzTime } from '../lib/fmt';
 
 function describe(event: { type: string; payload: Record<string, unknown> }): string {
   const name = (event.payload.switch_name as string | undefined) ?? '';
@@ -19,8 +20,7 @@ function describe(event: { type: string; payload: Record<string, unknown> }): st
 }
 
 function fmtTime(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString();
+  return formatTzTime(iso);
 }
 
 export function LiveFeed() {

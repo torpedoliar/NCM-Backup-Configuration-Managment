@@ -13,6 +13,23 @@ vi.mock('../auth/AuthProvider', () => ({
   }),
 }));
 
+vi.mock('../api/hooks', () => ({
+  useSystemMetrics: () => ({
+    data: { switches: 0, backups: 0, jobs: 0, failures_24h: 0 },
+    isLoading: false,
+  }),
+  useTimeSettings: () => ({
+    data: {
+      timezone: 'Asia/Jakarta',
+      ntp_servers: [],
+      ntp_enabled: false,
+      available_timezones: [],
+      server_now_utc: '2026-05-22T00:00:00Z',
+      server_now_local: '2026-05-22T07:00:00+07:00',
+    },
+  }),
+}));
+
 it('renders mockup shell chrome', () => {
   render(
     <QueryClientProvider client={new QueryClient()}>

@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsRetentionSection } from './SettingsRetentionSection';
 
 const mutate = vi.fn();
+const runRetentionMutate = vi.fn();
 
 vi.mock('../../api/hooks', () => ({
   useRetention: () => ({
@@ -17,6 +18,7 @@ vi.mock('../../api/hooks', () => ({
     isLoading: false,
   }),
   usePatchRetention: () => ({ mutate, isPending: false }),
+  useRunRetentionNow: () => ({ mutate: runRetentionMutate, isPending: false }),
 }));
 
 describe('SettingsRetentionSection', () => {
@@ -26,8 +28,7 @@ describe('SettingsRetentionSection', () => {
     expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
 
     const days = screen.getByLabelText(/Backup retention/i);
-    await user.clear(days);
-    await user.type(days, '180');
+    fireEvent.change(days, { target: { value: '180' } });
 
     const save = screen.getByRole('button', { name: /save/i });
     expect(save).not.toBeDisabled();

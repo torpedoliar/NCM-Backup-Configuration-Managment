@@ -19,6 +19,8 @@ vi.mock('../api/hooks', () => ({
   useUpdateJob: () => ({ mutate: updateMutate, isPending: false }),
   useDeleteJob: () => ({ mutate: vi.fn(), isPending: false }),
   useRunJobNow: () => ({ mutate: runNowMutate, isPending: false }),
+  useSchedulerStatus: () => ({ data: { running: true, timezone: 'Asia/Jakarta', lock_acquired: true, lock_file: '', jobs: [] } }),
+  useTimeSettings: () => ({ data: { timezone: 'Asia/Jakarta', ntp_servers: [], ntp_enabled: false, available_timezones: [], server_now_utc: '', server_now_local: '' } }),
 }));
 
 describe('SchedulesPage', () => {

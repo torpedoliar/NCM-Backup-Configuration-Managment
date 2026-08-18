@@ -5,13 +5,30 @@ import { LoginPage } from './LoginPage';
 import { AuthProvider } from './AuthProvider';
 
 const loginMock = vi.fn();
+let currentToken: string | null = null;
+
 vi.mock('./AuthProvider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./AuthProvider')>();
   return {
     ...actual,
-    useAuth: () => ({ login: loginMock, logout: vi.fn(), user: null, accessToken: null, refreshToken: null }),
+    useAuth: () => ({
+      login: loginMock,
+      logout: vi.fn(),
+      user: null,
+      accessToken: currentToken,
+      refreshToken: null,
+    }),
   };
 });
+
+vi.mock('wouter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('wouter')>();
+  return {
+    ...actual,
+    Redirect: ({ to }: { to: string }) => <div data-testid="redirect-to">{to}</div>,
+  };
+});
+
 
 describe('LoginPage', () => {
   it('renders inside a centered login card with form fields and submit', async () => {
@@ -40,5 +57,16 @@ describe('LoginPage', () => {
     await user.type(screen.getByLabelText(/password/i), 'password123');
     await user.click(screen.getByRole('button', { name: /enter terminal/i }));
     expect(loginMock).toHaveBeenCalledWith('admin', 'password123');
+  });
+
+  it('redirects to / when already authenticated', () => {
+    currentToken = 'existing-token';
+    render(
+      <AuthProvider>
+        <LoginPage />
+      </AuthProvider>,
+    );
+    expect(screen.getByTestId('redirect-to')).toHaveTextContent('/');
+    currentToken = null;
   });
 });

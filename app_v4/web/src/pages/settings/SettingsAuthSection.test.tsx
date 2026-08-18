@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsAuthSection } from './SettingsAuthSection';
 
@@ -34,8 +34,7 @@ describe('SettingsAuthSection', () => {
     const user = userEvent.setup();
     render(<SettingsAuthSection />);
     const access = screen.getByLabelText(/Access token/i);
-    await user.clear(access);
-    await user.type(access, '30');
+    fireEvent.change(access, { target: { value: '30' } });
     const tokenCard = access.closest('article')!;
     const save = tokenCard.querySelector('button')! as HTMLButtonElement;
     await user.click(save);

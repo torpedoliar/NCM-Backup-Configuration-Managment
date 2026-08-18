@@ -12,6 +12,7 @@ from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
+from app_v4.service.timeutil import to_aware_utc
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -64,8 +65,8 @@ def _to_out(user) -> UserOut:
         username=user.username,
         role=user.role,
         is_active=user.is_active,
-        created_at=user.created_at,
-        last_login_at=user.last_login_at,
+        created_at=to_aware_utc(user.created_at),
+        last_login_at=to_aware_utc(user.last_login_at),
     )
 
 

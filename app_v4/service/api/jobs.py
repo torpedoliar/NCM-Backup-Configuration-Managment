@@ -12,6 +12,7 @@ from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.events import publish
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
+from app_v4.service.timeutil import to_aware_utc
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -62,8 +63,31 @@ def _to_out(job) -> JobOut:
         schedule_minute=job.schedule_minute,
         day_of_week=job.day_of_week,
         day_of_month=job.day_of_month,
-        last_run_at=job.last_ran_at,
+        last_run_at=to_aware_utc(job.last_ran_at),
     )
+
+
+async def _resync_scheduler(runtime: ServiceRuntime) -> None:
+    """Reflect job changes to APScheduler immediately.
+
+    Without this, the periodic _sync_loop (30s tick) is the only path that
+    re-arms triggers, so a freshly-edited 11:05 job may stay armed at the
+    previous time for up to 30 seconds — and if a clock interaction happens
+    in that window, miss its first fire entirely.
+
+    Sync errors are swallowed: the row was already saved by the caller, and
+    the periodic loop will try again on the next tick. Bubbling here would
+    surface as a 500 even though the persisted job is correct.
+    """
+    if runtime.scheduler_service is None:
+        return
+    try:
+        await runtime.scheduler_service.sync_once()
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(
+            "scheduler resync after job change failed", exc_info=True
+        )
 
 
 @router.get("", response_model=list[JobOut])
@@ -106,6 +130,7 @@ async def create_job(
         ip=request.client.host if request.client else None,
         detail=payload.model_dump(),
     )
+    await _resync_scheduler(runtime)
     return _to_out(job)
 
 
@@ -172,6 +197,7 @@ async def update_job(
         ip=request.client.host if request.client else None,
         detail=changes,
     )
+    await _resync_scheduler(runtime)
     return _to_out(job)
 
 
@@ -195,4 +221,5 @@ async def delete_job(
         target_id=str(job_id),
         ip=request.client.host if request.client else None,
     )
+    await _resync_scheduler(runtime)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

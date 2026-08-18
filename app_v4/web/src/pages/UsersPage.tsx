@@ -8,6 +8,7 @@ import {
 } from '../api/hooks';
 import { useAuth } from '../auth/AuthProvider';
 import type { Role } from '../api/types';
+import { formatTzDateTime } from '../lib/fmt';
 
 const ROLES: Role[] = ['admin', 'operator', 'viewer'];
 
@@ -89,6 +90,7 @@ export function UsersPage() {
         </div>
       </header>
 
+      <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr>
@@ -116,7 +118,7 @@ export function UsersPage() {
                       onChange={() => update.mutate({ id: u.id, input: { is_active: !u.is_active } })}
                     />
                   </td>
-                  <td>{new Date(u.created_at).toLocaleDateString()}</td>
+                  <td>{formatTzDateTime(u.created_at)}</td>
                   <td className="row-actions">
                     <button onClick={() => startEdit(u)}>Edit</button>
                     <button data-action="reset" onClick={() => setResetingUserId(u.id)}>
@@ -152,6 +154,7 @@ export function UsersPage() {
           )}
         </tbody>
       </table>
+      </div>
     </main>
   );
 }

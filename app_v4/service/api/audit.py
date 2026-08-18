@@ -8,8 +8,11 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app_v4.data.models import User
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, require_role
+from app_v4.service.timeutil import to_aware_utc
+from sqlalchemy import select
 
 router = APIRouter(tags=["audit"])
 
@@ -19,6 +22,7 @@ class AuditOut(BaseModel):
 
     id: int
     user_id: int | None
+    username: str | None
     action: str
     target_type: str | None
     target_id: str | None
@@ -62,4 +66,26 @@ async def list_audit(
         to_ts=to_ts,
     )
     response.headers["X-Total-Count"] = str(total)
-    return [AuditOut.model_validate(row) for row in rows]
+
+    user_ids = {row.user_id for row in rows if row.user_id is not None}
+    name_map: dict[int, str] = {}
+    if user_ids:
+        result = await session.execute(select(User.id, User.username).where(User.id.in_(user_ids)))
+        name_map = {uid: uname for uid, uname in result.all()}
+
+    out: list[AuditOut] = []
+    for row in rows:
+        out.append(
+            AuditOut(
+                id=row.id,
+                user_id=row.user_id,
+                username=name_map.get(row.user_id) if row.user_id is not None else None,
+                action=row.action,
+                target_type=row.target_type,
+                target_id=row.target_id,
+                ip=row.ip,
+                ts=to_aware_utc(row.ts),
+                detail_json=row.detail_json,
+            )
+        )
+    return out

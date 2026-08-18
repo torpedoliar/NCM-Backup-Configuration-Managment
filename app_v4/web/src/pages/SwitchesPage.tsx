@@ -13,8 +13,15 @@ import {
 import { CredentialCombo } from '../components/CredentialCombo';
 import type { CredentialRecord, SwitchRecord } from '../api/types';
 
-const PROTOCOLS = ['ssh', 'telnet', 'websmart'] as const;
-const DEFAULT_PORT: Record<string, number> = { ssh: 22, telnet: 23, websmart: 443 };
+const PROTOCOLS = ['ssh', 'telnet', 'http', 'https', 'websmart', 'websmart-v2'] as const;
+const DEFAULT_PORT: Record<string, number> = {
+  ssh: 22,
+  telnet: 23,
+  http: 80,
+  https: 443,
+  websmart: 80,
+  'websmart-v2': 80,
+};
 
 interface DraftSwitch {
   id: number | null;
@@ -98,6 +105,7 @@ export function SwitchesPage() {
         </div>
       </header>
 
+      <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr><th>Name</th><th>Host</th><th>Protocol</th><th>Port</th><th>Credential</th><th>State</th><th>Actions</th></tr>
@@ -157,6 +165,7 @@ export function SwitchesPage() {
           )}
         </tbody>
       </table>
+      </div>
     </main>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   downloadBackup,
+  downloadBackupReport,
   useDeleteBackup,
   useFilteredBackups,
   useSwitches,
@@ -8,6 +9,7 @@ import {
 import { useAuth } from '../auth/AuthProvider';
 import { BackupViewModal } from '../components/BackupViewModal';
 import type { BackupFilters } from '../api/types';
+import { formatTzDateTime } from '../lib/fmt';
 
 function defaultFromIso(): string {
   const d = new Date();
@@ -105,6 +107,14 @@ export function HistoryPage() {
         </label>
       </section>
 
+      <div className="action-row" style={{ margin: '12px 0' }}>
+        <span className="marker">EXPORT</span>
+        <button onClick={() => downloadBackupReport('csv', filters)}>Export CSV</button>
+        <button onClick={() => downloadBackupReport('xlsx', filters)}>Export Excel</button>
+        <button onClick={() => downloadBackupReport('pdf', filters)}>Export PDF</button>
+      </div>
+
+      <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr><th>Time</th><th>Switch</th><th>Type</th><th>State</th><th>Size</th><th>Message</th><th>Actions</th></tr>
@@ -114,7 +124,7 @@ export function HistoryPage() {
             const switchName = switches.find((s) => s.id === b.switch_id)?.name ?? b.switch_id;
             return (
               <tr key={b.id}>
-                <td>{new Date(b.created_at).toLocaleString()}</td>
+                <td>{formatTzDateTime(b.created_at)}</td>
                 <td>{switchName}</td>
                 <td><span className={`badge type-${b.backup_type}`}>{b.backup_type}</span></td>
                 <td><span className={`badge state-${b.success ? 'ok' : 'fail'}`}>{b.success ? 'ok' : 'failed'}</span></td>
@@ -136,6 +146,7 @@ export function HistoryPage() {
           })}
         </tbody>
       </table>
+      </div>
 
       {viewing !== null && <BackupViewModal backupId={viewing} onClose={() => setViewing(null)} />}
     </main>

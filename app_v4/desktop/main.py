@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import io
 import os
 import sys
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -27,6 +29,105 @@ from app_v4.desktop.setup.service_config import ServiceSetupConfig
 from app_v4.desktop.setup.wizard import SetupWizard
 from app_v4.desktop.shell.main_window import MainWindow
 from app_v4.desktop.theme import load_theme_qss
+
+
+@dataclass(frozen=True)
+class DesktopMode:
+    serve: bool
+    host: str | None
+    port: int | None
+
+
+@dataclass(frozen=True)
+class ServeRunResult:
+    exit_code: int
+    message: str
+
+
+def parse_desktop_args(argv: list[str]) -> DesktopMode:
+    """Parse desktop entrypoint arguments.
+
+    Default behavior (no flags) is GUI mode, preserving the legacy entrypoint.
+    --serve runs the backend headless, suitable for a Windows scheduled task or
+    background service. --host / --port override the persisted bind settings
+    only for the headless run.
+    """
+    parser = argparse.ArgumentParser(prog="ncm-v4-desktop", add_help=True)
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Run backend headless (no GUI, no login prompt). Used for autostart.",
+    )
+    parser.add_argument("--host", default=None, help="Override bind host (serve mode).")
+    parser.add_argument("--port", type=int, default=None, help="Override bind port (serve mode).")
+    args = parser.parse_args(argv)
+    return DesktopMode(serve=bool(args.serve), host=args.host, port=args.port)
+
+
+def _block_until_signal_default() -> None:
+    """Block on Ctrl-C / SIGTERM. Used by run_serve in production."""
+    import signal
+    import threading
+
+    stop_event = threading.Event()
+
+    def _stop(_signum, _frame):
+        stop_event.set()
+
+    try:
+        signal.signal(signal.SIGINT, _stop)
+        signal.signal(signal.SIGTERM, _stop)
+    except (ValueError, AttributeError):
+        # Some platforms (Windows GUI bundles) reject signal handlers; fall back
+        # to a plain wait so the call still blocks until the process is killed.
+        pass
+
+    stop_event.wait()
+
+
+def run_serve(
+    mode: DesktopMode,
+    base_dir: Path,
+    *,
+    load_settings,
+    is_initialized,
+    backend_factory,
+    wait_for_port,
+    block_until_signal,
+) -> ServeRunResult:
+    """Headless backend entrypoint used by Windows autostart / scheduled tasks.
+
+    Refuses to start if the install hasn't gone through first-run setup, since
+    there is no GUI to drive the wizard. Honours --host / --port overrides for
+    the current invocation only (does not persist them).
+    """
+    if not is_initialized(base_dir):
+        return ServeRunResult(
+            exit_code=1,
+            message=(
+                "NCM v4 is not initialized. Run the desktop GUI once to complete first-run setup "
+                "before enabling auto-start."
+            ),
+        )
+
+    settings_file = base_dir / "data" / "service.json"
+    persisted = load_settings(settings_file) or ServiceSettings(bind_host="127.0.0.1", bind_port=8443)
+    host = mode.host or persisted.bind_host
+    port = mode.port or persisted.bind_port
+
+    backend = backend_factory(host=host, port=port)
+    backend.start()
+    if not wait_for_port(host, port, timeout=30):
+        backend.stop()
+        return ServeRunResult(
+            exit_code=1,
+            message=f"Backend did not start on {host}:{port}.",
+        )
+    try:
+        block_until_signal()
+        return ServeRunResult(exit_code=0, message="Backend stopped.")
+    finally:
+        backend.stop()
 
 
 PromptForPort = Callable[[str, int, int], "int | None"]
@@ -171,7 +272,12 @@ def _resolve_bind_settings(
 
 
 def main() -> int:
+    mode = parse_desktop_args(sys.argv[1:])
     _ensure_stdio_streams()
+
+    if mode.serve:
+        return _run_serve_main(mode)
+
     QCoreApplication.setOrganizationName("NCM")
     QCoreApplication.setApplicationName("NCM v4 Ops Terminal")
     app = QApplication(sys.argv)
@@ -222,6 +328,27 @@ def main() -> int:
         return app.exec()
     finally:
         backend.stop()
+
+
+def _run_serve_main(mode: DesktopMode) -> int:
+    base_dir = _resource_base_dir()
+    from app_v4.core.logging import configure_file_logger
+    configure_file_logger(base_dir / "logs")
+    os.environ["NCM_V4_BASE_DIR"] = str(base_dir)
+
+    result = run_serve(
+        mode=mode,
+        base_dir=base_dir,
+        load_settings=load_service_settings,
+        is_initialized=is_initialized,
+        backend_factory=lambda host, port: BackendThread(host=host, port=port),
+        wait_for_port=wait_for_port,
+        block_until_signal=_block_until_signal_default,
+    )
+    if result.exit_code != 0:
+        # Stderr is captured by the wrapper or service log; print so logs see it.
+        print(result.message, file=sys.stderr)
+    return int(result.exit_code)
 
 
 if __name__ == "__main__":

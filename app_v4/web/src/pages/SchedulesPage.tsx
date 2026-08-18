@@ -4,10 +4,14 @@ import {
   useDeleteJob,
   useJobs,
   useRunJobNow,
+  useSchedulerStatus,
   useSwitches,
+  useTimeSettings,
   useUpdateJob,
 } from '../api/hooks';
 import type { JobRecord } from '../api/types';
+import { formatTzDateTime } from '../lib/fmt';
+import { humanizeError } from '../lib/errors';
 
 type ScheduleType = 'interval' | 'daily' | 'weekly' | 'monthly';
 
@@ -71,8 +75,12 @@ function describeSchedule(job: JobRecord): string {
 
 export function SchedulesPage() {
   const [draft, setDraft] = useState<DraftJob | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { data: switches = [] } = useSwitches();
   const { data: jobs = [] } = useJobs();
+  const { data: schedulerStatus } = useSchedulerStatus();
+  const { data: timeSettings } = useTimeSettings();
+  const tz = timeSettings?.timezone ?? 'Asia/Jakarta';
   const create = useCreateJob();
   const update = useUpdateJob();
   const remove = useDeleteJob();
@@ -101,10 +109,16 @@ export function SchedulesPage() {
 
   function cancel() {
     setDraft(null);
+    setSaveError(null);
   }
 
   function save() {
-    if (!draft || draft.switch_id === null) return;
+    setSaveError(null);
+    if (!draft) return;
+    if (draft.switch_id === null) {
+      setSaveError('Pick a switch first.');
+      return;
+    }
     const payload = {
       switch_id: draft.switch_id,
       name: draft.name || `Backup ${switches.find((s) => s.id === draft.switch_id)?.name ?? ''}`,
@@ -115,10 +129,11 @@ export function SchedulesPage() {
       day_of_month: draft.type === 'monthly' ? draft.day_of_month ?? 1 : null,
       enabled: draft.enabled,
     };
+    const onErr = (err: unknown) => setSaveError(humanizeError(err));
     if (draft.id === null) {
-      create.mutate(payload, { onSuccess: cancel });
+      create.mutate(payload, { onSuccess: cancel, onError: onErr });
     } else {
-      update.mutate({ id: draft.id, input: payload }, { onSuccess: cancel });
+      update.mutate({ id: draft.id, input: payload }, { onSuccess: cancel, onError: onErr });
     }
   }
 
@@ -139,11 +154,15 @@ export function SchedulesPage() {
         </div>
       </header>
 
+      {saveError ? <div role="alert" className="settings-error" style={{ margin: '8px 0' }}>{saveError}</div> : null}
+
+      <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr>
             <th>Switch</th>
             <th>Schedule</th>
+            <th>Next run ({tz})</th>
             <th>Last run</th>
             <th>Enabled</th>
             <th>Actions</th>
@@ -175,7 +194,14 @@ export function SchedulesPage() {
               <tr key={job.id}>
                 <td>{switches.find((s) => s.id === job.switch_id)?.name ?? `#${job.switch_id}`}</td>
                 <td>{describeSchedule(job)}</td>
-                <td>{job.last_run_at ? new Date(job.last_run_at).toLocaleString() : '—'}</td>
+                <td>
+                  {(() => {
+                    const info = schedulerStatus?.jobs.find((j) => j.job_id === job.id);
+                    if (!info?.next_run_time) return job.enabled ? 'pending sync…' : 'disabled';
+                    return formatTzDateTime(info.next_run_time, tz);
+                  })()}
+                </td>
+                <td>{job.last_run_at ? formatTzDateTime(job.last_run_at, tz) : '—'}</td>
                 <td>
                   <label>
                     <input
@@ -206,6 +232,7 @@ export function SchedulesPage() {
           )}
         </tbody>
       </table>
+      </div>
     </main>
   );
 }
@@ -281,6 +308,7 @@ function DraftScheduleRow(props: {
           </>
         )}
       </td>
+      <td>—</td>
       <td>—</td>
       <td>
         <input

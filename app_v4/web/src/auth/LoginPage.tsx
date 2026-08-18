@@ -1,5 +1,7 @@
 import { type FormEvent, useState } from 'react';
+import { Redirect } from 'wouter';
 import { useAuth } from './AuthProvider';
+import { humanizeError } from '../lib/errors';
 import './login.css';
 
 export function LoginPage() {
@@ -9,14 +11,16 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  if (auth.accessToken) return <Redirect to="/" />;
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
       await auth.login(username, password);
-    } catch {
-      setError('Login failed. Check credentials and try again.');
+    } catch (err) {
+      setError(humanizeError(err));
     } finally {
       setSubmitting(false);
     }
