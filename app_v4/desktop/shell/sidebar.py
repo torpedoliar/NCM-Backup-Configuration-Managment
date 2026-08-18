@@ -17,7 +17,7 @@ class Sidebar(QFrame):
         self.subtitle.setObjectName("Marker")
         layout.addWidget(self.subtitle)
 
-        self.version_tag = QLabel("V3.5.7 / PROD")
+        self.version_tag = QLabel("V4.6.0 / PROD")
         self.version_tag.setObjectName("Marker")
         layout.addWidget(self.version_tag)
 

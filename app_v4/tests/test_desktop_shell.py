@@ -30,4 +30,4 @@ def test_desktop_shell_has_ops_terminal_status(qtbot):
     qtbot.addWidget(window)
 
     assert window.topbar.service_pulse.text() == "SERVICE / RUNNING"
-    assert window.sidebar.version_tag.text() == "V3.5.7 / PROD"
+    assert window.sidebar.version_tag.text() == "V4.6.0 / PROD"

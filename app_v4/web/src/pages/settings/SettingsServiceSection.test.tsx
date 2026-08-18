@@ -7,7 +7,7 @@ const mutate = vi.fn();
 
 vi.mock('../../api/hooks', () => ({
   useSystemStatus: () => ({
-    data: { service: 'running', version: '4.0.0', started_at: '2026-05-19T08:00:00Z', host: '127.0.0.1',
+    data: { service: 'running', version: '4.6.0', started_at: '2026-05-19T08:00:00Z', host: '127.0.0.1',
             port: 8443, uptime_seconds: 7321, scheduler_running: true, db_size_bytes: 12345,
             data_dir: '/data', backups_dir: '/backups', logs_dir: '/logs' },
     isLoading: false,

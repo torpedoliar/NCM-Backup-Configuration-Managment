@@ -31,7 +31,7 @@ def create_app(runtime: ServiceRuntime) -> FastAPI:
         yield
         await runtime.shutdown()
 
-    app = FastAPI(title="NCM v4 Backend", version="4.0.0-dev", lifespan=lifespan)
+    app = FastAPI(title="NCM v4 Backend", version="4.6.0", lifespan=lifespan)
     app.state.runtime = runtime
     register_problem_handlers(app)
     paths = resolve_paths(runtime.settings)

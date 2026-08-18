@@ -51,7 +51,7 @@ async def test_system_status_requires_viewer_role(test_settings, session_factory
 
     assert response.status_code == 200
     assert response.json()["service"] == "running"
-    assert response.json()["version"] == "4.0.0-dev"
+    assert response.json()["version"] == "4.6.0"
 
 
 @pytest.mark.asyncio
