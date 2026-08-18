@@ -21,8 +21,8 @@ build/
 *.key
 *.log
 logs/
-data/
-backups/
+/data/
+/backups/
 
 # IDE
 .vscode/
@@ -70,3 +70,8 @@ app_v4/tools/**/__pycache__/
 
 # Production / generated artifacts
 production/
+
+# Legacy artifacts (v1 era, kept as reference on disk)
+*.zip
+*.exe
+Sample Backup/
