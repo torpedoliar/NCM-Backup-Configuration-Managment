@@ -11,7 +11,7 @@ async def test_desktop_api_client_login_sets_tokens():
         return httpx.Response(200, json={"access_token": "a", "refresh_token": "r", "token_type": "bearer"})
 
     client = DesktopApiClient("http://127.0.0.1:8443", transport=httpx.MockTransport(handler))
-    await client.login("admin", "secret")
+    await client.login("admin", "test-password-not-real")
 
     assert client.access_token == "a"
     assert client.refresh_token == "r"

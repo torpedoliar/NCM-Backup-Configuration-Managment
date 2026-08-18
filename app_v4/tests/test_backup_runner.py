@@ -105,7 +105,7 @@ async def test_backup_runner_accepts_websmart_protocol_from_client_factory():
         client_factory=factory,
     )
 
-    result = await runner.execute_backup("websmart", "10.0.0.10", 80, "admin", "secret")
+    result = await runner.execute_backup("websmart", "10.0.0.10", 80, "admin", "test-password-not-real")
 
     assert result.success is True
     assert result.config_text == VALID_CONFIG
@@ -124,9 +124,9 @@ def test_backup_runner_maps_websmart_protocols_to_legacy_client_modes(monkeypatc
     runner = BackupRunner(settings=Settings(network_connect_timeout=7))
     monkeypatch.setattr("app_v4.net.runner.AsyncWebSmartClient", DummyWebSmart)
 
-    runner._make_client("websmart", "10.0.0.10", 80, "admin", "secret", "")
+    runner._make_client("websmart", "10.0.0.10", 80, "admin", "test-password-not-real", "")
     runner._make_client("websmart-v2", "10.0.0.11", 80, "manager", "friend", "")
-    runner._make_client("https", "10.0.0.12", 443, "admin", "secret", "")
+    runner._make_client("https", "10.0.0.12", 443, "admin", "test-password-not-real", "")
 
     assert created[0]["scheme"] == "http"
     assert created[0]["force_v2_only"] is False

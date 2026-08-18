@@ -29,7 +29,7 @@ async def test_backup_service_creates_success_record_and_file(test_settings, ses
     )
     async with session_factory() as session:
         repo = Repository(session)
-        blob = crypto_service.encrypt_credential("admin", "secret", "enable")
+        blob = crypto_service.encrypt_credential("admin", "test-password-not-real", "enable")
         cred = await repo.create_credential("cred", blob)
         switch = await repo.create_switch("sw01", "10.0.0.1", "ssh", 22, cred.id)
         await session.commit()
@@ -56,7 +56,7 @@ async def test_backup_service_writes_to_custom_backup_root(test_settings, sessio
     )
     async with session_factory() as session:
         repo = Repository(session)
-        blob = crypto_service.encrypt_credential("admin", "secret", "enable")
+        blob = crypto_service.encrypt_credential("admin", "test-password-not-real", "enable")
         cred = await repo.create_credential("cred", blob)
         switch = await repo.create_switch("sw01", "10.0.0.1", "ssh", 22, cred.id)
         await session.commit()
@@ -80,7 +80,7 @@ async def test_backup_service_creates_failed_record(test_settings, session_facto
     )
     async with session_factory() as session:
         repo = Repository(session)
-        blob = crypto_service.encrypt_credential("admin", "secret", "")
+        blob = crypto_service.encrypt_credential("admin", "test-password-not-real", "")
         cred = await repo.create_credential("cred", blob)
         switch = await repo.create_switch("sw01", "10.0.0.1", "ssh", 22, cred.id)
         await session.commit()
@@ -141,7 +141,7 @@ async def test_manual_backup_blocked_for_inactive_switch(test_settings, session_
     )
     async with session_factory() as session:
         repo = Repository(session)
-        blob = crypto_service.encrypt_credential("admin", "secret", "")
+        blob = crypto_service.encrypt_credential("admin", "test-password-not-real", "")
         cred = await repo.create_credential("cred", blob)
         switch = await repo.create_switch("sw_off", "10.0.0.99", "ssh", 22, cred.id)
         await session.commit()

@@ -28,7 +28,7 @@ class FakeTelnetReader:
 
 
 def _make_client(enable_password: str = "") -> AsyncTelnetClient:
-    return AsyncTelnetClient("switch", 23, "admin", "secret", enable_password=enable_password)
+    return AsyncTelnetClient("switch", 23, "admin", "test-password-not-real", enable_password=enable_password)
 
 
 @pytest.mark.asyncio

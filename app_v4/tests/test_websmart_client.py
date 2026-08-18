@@ -43,7 +43,7 @@ async def test_traditional_websmart_login_downloads_direct_config():
     app.router.add_get("/iss.conf", config)
     runner, port = await _start_server(app)
 
-    client = AsyncWebSmartClient("127.0.0.1", port, "admin", "secret", timeout=5)
+    client = AsyncWebSmartClient("127.0.0.1", port, "admin", "test-password-not-real", timeout=5)
     try:
         assert await client.connect() is True
         text = await client.get_running_config([])
@@ -51,7 +51,7 @@ async def test_traditional_websmart_login_downloads_direct_config():
         await client.disconnect()
         await runner.cleanup()
 
-    assert seen_login == [("admin", "secret")]
+    assert seen_login == [("admin", "test-password-not-real")]
     assert text == VALID_CONFIG
 
 
@@ -87,7 +87,7 @@ async def test_traditional_websmart_submits_backup_form():
     app.router.add_post("/download", download)
     runner, port = await _start_server(app)
 
-    client = AsyncWebSmartClient("127.0.0.1", port, "admin", "secret", timeout=5)
+    client = AsyncWebSmartClient("127.0.0.1", port, "admin", "test-password-not-real", timeout=5)
     try:
         assert await client.connect() is True
         text = await client.get_running_config([])
@@ -123,7 +123,7 @@ async def test_traditional_websmart_login_does_not_follow_redirect_before_gambit
     app.router.add_get("/iss.conf", config)
     runner, port = await _start_server(app)
 
-    client = AsyncWebSmartClient("127.0.0.1", port, "admin", "secret", timeout=5)
+    client = AsyncWebSmartClient("127.0.0.1", port, "admin", "test-password-not-real", timeout=5)
     try:
         assert await client.connect() is True
         text = await client.get_running_config([])
@@ -164,7 +164,7 @@ async def test_traditional_websmart_rejects_short_direct_download_and_falls_back
     app.router.add_post("/download", download)
     runner, port = await _start_server(app)
 
-    client = AsyncWebSmartClient("127.0.0.1", port, "admin", "secret", timeout=5)
+    client = AsyncWebSmartClient("127.0.0.1", port, "admin", "test-password-not-real", timeout=5)
     try:
         await client.connect()
         text = await client.get_running_config([])

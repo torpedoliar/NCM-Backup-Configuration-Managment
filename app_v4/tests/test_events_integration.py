@@ -45,7 +45,7 @@ async def test_backup_service_broadcasts_lifecycle_events(test_settings, session
     )
     async with session_factory() as session:
         repo = Repository(session)
-        blob = crypto_service.encrypt_credential("admin", "secret", "")
+        blob = crypto_service.encrypt_credential("admin", "test-password-not-real", "")
         cred = await repo.create_credential("cred", blob)
         switch = await repo.create_switch("sw01", "10.0.0.1", "ssh", 22, cred.id)
         await session.commit()

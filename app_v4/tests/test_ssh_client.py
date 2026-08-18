@@ -44,7 +44,7 @@ class NonInteractiveConn:
 
 @pytest.mark.asyncio
 async def test_ssh_client_enters_enable_mode_through_interactive_shell():
-    client = AsyncSshClient("switch", 22, "admin", "secret", "enable-secret")
+    client = AsyncSshClient("switch", 22, "admin", "test-password-not-real", "enable-secret")
     client.conn = NonInteractiveConn()
     client.process = FakeProcess(["Password:", "switch#"])
 
@@ -56,7 +56,7 @@ async def test_ssh_client_enters_enable_mode_through_interactive_shell():
 
 @pytest.mark.asyncio
 async def test_ssh_client_disables_paging_through_interactive_shell():
-    client = AsyncSshClient("switch", 22, "admin", "secret")
+    client = AsyncSshClient("switch", 22, "admin", "test-password-not-real")
     client.conn = NonInteractiveConn()
     client.process = FakeProcess(["% Invalid input\nswitch#", "switch#"])
 
@@ -68,7 +68,7 @@ async def test_ssh_client_disables_paging_through_interactive_shell():
 
 @pytest.mark.asyncio
 async def test_ssh_client_fetches_paginated_config_through_interactive_shell():
-    client = AsyncSshClient("switch", 22, "admin", "secret")
+    client = AsyncSshClient("switch", 22, "admin", "test-password-not-real")
     client.conn = NonInteractiveConn()
     client.process = FakeProcess([
         "show running-config\ninterface 1\nMore: <space>",
@@ -84,7 +84,7 @@ async def test_ssh_client_fetches_paginated_config_through_interactive_shell():
 
 @pytest.mark.asyncio
 async def test_ssh_client_paging_indicator_at_prompt_line_does_not_break_early():
-    client = AsyncSshClient("switch", 22, "admin", "secret")
+    client = AsyncSshClient("switch", 22, "admin", "test-password-not-real")
     client.conn = NonInteractiveConn()
     client.process = FakeProcess([
         "show running-config\ninterface 1\nswitch#--More--",

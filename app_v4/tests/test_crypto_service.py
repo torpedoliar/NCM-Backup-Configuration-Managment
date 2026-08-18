@@ -8,7 +8,7 @@ def test_crypto_service_round_trips_credentials(tmp_path: Path):
     settings = Settings(base_dir=tmp_path)
     crypto = CryptoService(settings=settings, passphrase="correct horse battery staple")
 
-    blob = crypto.encrypt_credential("admin", "secret", "enable")
+    blob = crypto.encrypt_credential("admin", "test-password-not-real", "enable")
     decrypted = crypto.decrypt_credential(blob)
 
     assert decrypted == {
