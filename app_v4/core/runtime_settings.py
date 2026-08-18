@@ -29,9 +29,23 @@ class AuthSettings:
 
 
 @dataclass(frozen=True)
+class BackupLocationSettings:
+    backup_root_folder: str | None = None
+
+
+@dataclass(frozen=True)
+class TimeSettings:
+    timezone: str = "Asia/Jakarta"
+    ntp_servers: tuple[str, ...] = ("pool.ntp.org",)
+    ntp_enabled: bool = False
+
+
+@dataclass(frozen=True)
 class RuntimeSettings:
     retention: RetentionSettings = field(default_factory=RetentionSettings)
     auth: AuthSettings = field(default_factory=AuthSettings)
+    backup_location: BackupLocationSettings = field(default_factory=BackupLocationSettings)
+    time: TimeSettings = field(default_factory=TimeSettings)
 
 
 def load_runtime_settings(path: Path) -> RuntimeSettings:
@@ -41,6 +55,14 @@ def load_runtime_settings(path: Path) -> RuntimeSettings:
         data = json.loads(path.read_text(encoding="utf-8"))
         retention_data = data.get("retention", {})
         auth_data = data.get("auth", {})
+        backup_location_data = data.get("backup_location", {})
+        time_data = data.get("time", {})
+        time_kwargs = {
+            k: v for k, v in time_data.items()
+            if k in TimeSettings.__dataclass_fields__
+        }
+        if isinstance(time_kwargs.get("ntp_servers"), list):
+            time_kwargs["ntp_servers"] = tuple(time_kwargs["ntp_servers"])
         return RuntimeSettings(
             retention=RetentionSettings(**{
                 k: v for k, v in retention_data.items()
@@ -50,6 +72,11 @@ def load_runtime_settings(path: Path) -> RuntimeSettings:
                 k: v for k, v in auth_data.items()
                 if k in AuthSettings.__dataclass_fields__
             }),
+            backup_location=BackupLocationSettings(**{
+                k: v for k, v in backup_location_data.items()
+                if k in BackupLocationSettings.__dataclass_fields__
+            }),
+            time=TimeSettings(**time_kwargs),
         )
     except (json.JSONDecodeError, TypeError, ValueError):
         return RuntimeSettings()
@@ -57,4 +84,7 @@ def load_runtime_settings(path: Path) -> RuntimeSettings:
 
 def save_runtime_settings(path: Path, settings: RuntimeSettings) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
+    serializable = asdict(settings)
+    if isinstance(serializable.get("time", {}).get("ntp_servers"), tuple):
+        serializable["time"]["ntp_servers"] = list(serializable["time"]["ntp_servers"])
+    path.write_text(json.dumps(serializable, indent=2), encoding="utf-8")

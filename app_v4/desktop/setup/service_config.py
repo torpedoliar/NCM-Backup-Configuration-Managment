@@ -14,7 +14,3 @@ class ServiceSetupConfig:
     bind_port: int = 8443
     lan_bind_enabled: bool = False
     cert_pfx_path: Path | None = None
-
-    @property
-    def service_url(self) -> str:
-        return f"https://{self.bind_host}:{self.bind_port}"
