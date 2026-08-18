@@ -226,3 +226,31 @@ export interface ApiKeyCreated {
   prefix: string;
   key: string;
 }
+
+export interface DecodeVlan {
+  id: number;
+  name: string | null;
+}
+
+export interface DecodePort {
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  mode: string;
+  native_vlan: number | null;
+  access_vlan: number | null;
+  trunk_allowed_vlans: number[];
+}
+
+export interface DecodedBackup {
+  backup_id: number;
+  switch_id: number;
+  switch_name: string;
+  protocol: string;
+  dialect: string;
+  hostname: string | null;
+  backup_taken_at: string | null;
+  vlans: DecodeVlan[];
+  ports: DecodePort[];
+  parse_warnings: string[];
+}

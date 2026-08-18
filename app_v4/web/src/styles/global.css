@@ -244,6 +244,17 @@ a { color: inherit; }
   color: var(--amber);
   word-break: break-all;
 }
+.vlan-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.vlan-chip {
+  border: 1px solid var(--line-2);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
 .diff-output,
 .audit-detail {
   max-width: 100%;

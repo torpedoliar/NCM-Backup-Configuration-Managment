@@ -18,6 +18,7 @@ import type {
   CredentialCreateInput,
   CredentialRecord,
   CredentialUpdateInput,
+  DecodedBackup,
   JobCreateInput,
   JobRecord,
   JobUpdateInput,
@@ -470,5 +471,14 @@ export function useRevokeApiKey() {
   return useMutation({
     mutationFn: async (id: number) => (await api.delete(`/api-keys/${id}`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+  });
+}
+
+export function useDecodedBackup(backupId: number | null) {
+  return useQuery({
+    queryKey: ['backups', 'decode', backupId],
+    queryFn: async () => (await api.get<DecodedBackup>(`/backups/${backupId}/decode`)).data,
+    enabled: backupId !== null,
+    staleTime: 60 * SECOND,
   });
 }

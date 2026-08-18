@@ -10,6 +10,7 @@ const SwitchesPage = lazy(() => import('./pages/SwitchesPage').then((m) => ({ de
 const CredentialsPage = lazy(() => import('./pages/CredentialsPage').then((m) => ({ default: m.CredentialsPage })));
 const HistoryPage = lazy(() => import('./pages/HistoryPage').then((m) => ({ default: m.HistoryPage })));
 const DiffPage = lazy(() => import('./pages/DiffPage').then((m) => ({ default: m.DiffPage })));
+const DecodePage = lazy(() => import('./pages/DecodePage').then((m) => ({ default: m.DecodePage })));
 const SchedulesPage = lazy(() => import('./pages/SchedulesPage').then((m) => ({ default: m.SchedulesPage })));
 const UsersPage = lazy(() => import('./pages/UsersPage').then((m) => ({ default: m.UsersPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
@@ -32,6 +33,7 @@ export function App() {
               <Route path="/credentials" component={CredentialsPage} />
               <Route path="/history" component={HistoryPage} />
               <Route path="/diff" component={DiffPage} />
+              <Route path="/decode" component={DecodePage} />
               <Route path="/schedules" component={SchedulesPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/settings" component={SettingsPage} />
