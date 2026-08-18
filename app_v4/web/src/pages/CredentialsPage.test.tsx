@@ -35,7 +35,7 @@ describe('CredentialsPage', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<CredentialsPage />);
     await user.click(screen.getByRole('button', { name: /delete/i }));
-    expect(deleteMutate).toHaveBeenCalledWith(1);
+    expect(deleteMutate).toHaveBeenCalledWith(1, expect.anything());
     confirm.mockRestore();
   });
 });

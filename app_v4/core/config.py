@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _default_base_dir() -> Path:
+    """Data must not follow the launch CWD: a packaged app keeps its data next
+    to the executable, while dev mode keeps the repo-relative behavior."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path.cwd()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="NCM_V4_", extra="ignore")
 
-    base_dir: Path = Field(default_factory=lambda: Path.cwd())
+    base_dir: Path = Field(default_factory=_default_base_dir)
     service_host: str = "127.0.0.1"
     service_port: int = 8443
     jwt_access_minutes: int = 15
@@ -35,7 +44,3 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         db_path = self.base_dir / "data" / "app.db"
         return f"sqlite+aiosqlite:///{db_path.as_posix()}"
-
-    @property
-    def service_url(self) -> str:
-        return f"https://{self.service_host}:{self.service_port}"

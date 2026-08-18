@@ -297,6 +297,11 @@ class AsyncWebSmartClient:
     def _is_config_payload(self, payload: bytes, text: str, content_type: str) -> bool:
         if not payload or "text/html" in content_type:
             return False
+        if self._looks_like_websmart_dump(text):
+            # These switches serve their running-config as an SNMP MIB dump whose
+            # header legitimately contains NUL padding, CLI-less rows and words
+            # like "invalid" (unused VLANs) — HTML failure markers do not apply.
+            return not self._looks_like_login_page(text)
         if not text.strip() or b"\x00" in payload[:4096]:
             return False
         sample = text[:4000].lower()
@@ -355,6 +360,9 @@ class AsyncWebSmartClient:
         sample = text[:4000].lower()
         return ("login" in sample or "logon" in sample) and not self._looks_like_config(text)
 
+    def _looks_like_websmart_dump(self, text: str) -> bool:
+        return "@" in text[:200] and "1.3.6.1" in text
+
     def _has_failure_text(self, text: str) -> bool:
         lowered = text.lower()
         return any(
@@ -373,6 +381,8 @@ class AsyncWebSmartClient:
         )
 
     def _looks_like_config(self, text: str) -> bool:
+        if self._looks_like_websmart_dump(text):
+            return True
         sample = text[:4000]
         structural_patterns = (
             r"^\s*(?:!|#\s*)?(?:sysname|hostname)\b",

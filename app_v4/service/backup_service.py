@@ -109,7 +109,13 @@ class BackupService:
             enc_blob = switch.credential.enc_blob
 
         await publish(self.event_hub, "backup_started", {"switch_id": switch_id, "switch_name": switch_name, "backup_type": backup_type})
-        credentials = self.crypto_service.decrypt_credential(enc_blob)
+        try:
+            credentials = self.crypto_service.decrypt_credential(enc_blob)
+        except ValueError as exc:
+            raise ValueError(
+                f"Credential for switch {switch_name!r} cannot be decrypted "
+                "(master key mismatch or corrupted blob); recreate the credential"
+            ) from exc
         run_result = await self.runner.execute_backup(
             protocol=protocol,
             host=host,

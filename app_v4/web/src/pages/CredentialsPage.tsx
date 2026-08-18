@@ -6,6 +6,7 @@ import {
   useUpdateCredential,
 } from '../api/hooks';
 import type { CredentialUpdateInput } from '../api/types';
+import { humanizeError } from '../lib/errors';
 
 interface DraftCred {
   id: number | null;
@@ -19,36 +20,48 @@ const EMPTY: DraftCred = { id: null, name: '', username: '', password: '', enabl
 
 export function CredentialsPage() {
   const [draft, setDraft] = useState<DraftCred | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const { data: credentials = [] } = useCredentials();
   const create = useCreateCredential();
   const update = useUpdateCredential();
   const remove = useDeleteCredential();
 
   function startAdd() {
+    setError(null);
     setDraft({ ...EMPTY });
   }
 
   function startEdit(c: { id: number; name: string; username?: string }) {
+    setError(null);
     setDraft({ id: c.id, name: c.name, username: c.username ?? '', password: '', enable_password: '' });
   }
 
   function cancel() {
+    setError(null);
     setDraft(null);
   }
 
   function save() {
     if (!draft) return;
+    setError(null);
     if (draft.id === null) {
       create.mutate(
         { name: draft.name, username: draft.username, password: draft.password, enable_password: draft.enable_password || undefined },
-        { onSuccess: cancel },
+        { onSuccess: cancel, onError: (err: unknown) => setError(humanizeError(err)) },
       );
     } else {
       // On update, only send fields that were typed (don't accidentally blank password).
       const input: CredentialUpdateInput = { name: draft.name, username: draft.username };
       if (draft.password) input.password = draft.password;
       if (draft.enable_password) input.enable_password = draft.enable_password;
-      update.mutate({ id: draft.id, input }, { onSuccess: cancel });
+      update.mutate({ id: draft.id, input }, { onSuccess: cancel, onError: (err: unknown) => setError(humanizeError(err)) });
+    }
+  }
+
+  function handleDelete(c: { id: number; name: string }) {
+    setError(null);
+    if (window.confirm(`Delete credential ${c.name}?`)) {
+      remove.mutate(c.id, { onError: (err: unknown) => setError(humanizeError(err)) });
     }
   }
 
@@ -61,7 +74,9 @@ export function CredentialsPage() {
           <button onClick={startAdd} disabled={draft !== null}>+ Add credential</button>
         </div>
       </header>
+      {error ? <div role="alert" className="settings-error">{error}</div> : null}
 
+      <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr><th>Name</th><th>Username</th><th>Secret</th><th>Actions</th></tr>
@@ -80,11 +95,7 @@ export function CredentialsPage() {
                 <td>••••••••</td>
                 <td className="row-actions">
                   <button onClick={() => startEdit(c)}>Edit</button>
-                  <button
-                    onClick={() => {
-                      if (window.confirm(`Delete credential ${c.name}?`)) remove.mutate(c.id);
-                    }}
-                  >
+                  <button onClick={() => handleDelete(c)}>
                     Delete
                   </button>
                 </td>
@@ -93,6 +104,7 @@ export function CredentialsPage() {
           )}
         </tbody>
       </table>
+      </div>
     </main>
   );
 }

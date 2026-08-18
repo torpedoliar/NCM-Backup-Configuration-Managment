@@ -45,6 +45,7 @@ async def test_create_credential_encrypts_payload(
     assert response.status_code == 201
     body = response.json()
     assert body["name"] == "lab-ssh"
+    assert body["username"] == "admin"
     assert "password" not in body
 
     async with session_factory() as session:
@@ -84,6 +85,30 @@ async def test_list_credentials_requires_operator_or_admin(
     assert viewer_resp.status_code == 403
     assert admin_resp.status_code == 200
     assert [c["name"] for c in admin_resp.json()] == ["lab"]
+
+
+@pytest.mark.asyncio
+async def test_list_credentials_returns_username(test_settings, session_factory, crypto_service):
+    runtime = ServiceRuntime.for_tests(
+        test_settings, session_factory, jwt_secret=b"k" * 32, crypto_service=crypto_service
+    )
+    async with session_factory() as session:
+        repo = Repository(session)
+        blob = crypto_service.encrypt_credential("yohanes", "pw", "")
+        await repo.create_credential(name="lab", enc_blob=blob)
+        await repo.create_credential(name="broken", enc_blob=b"\x00garbage")
+        await session.commit()
+    client = TestClient(create_app(runtime))
+
+    response = client.get(
+        "/api/v1/credentials",
+        headers={"Authorization": f"Bearer {_admin_token(runtime)}"},
+    )
+
+    assert response.status_code == 200
+    by_name = {c["name"]: c["username"] for c in response.json()}
+    assert by_name["lab"] == "yohanes"
+    assert by_name["broken"] == ""
 
 
 @pytest.mark.asyncio

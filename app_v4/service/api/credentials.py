@@ -18,14 +18,20 @@ router = APIRouter(prefix="/credentials", tags=["credentials"])
 class CredentialOut(BaseModel):
     id: int
     name: str
+    username: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
 
-def _credential_to_out(cred) -> CredentialOut:
+def _credential_to_out(cred, crypto) -> CredentialOut:
+    try:
+        username = crypto.decrypt_credential(cred.enc_blob)["username"]
+    except ValueError:
+        username = ""
     return CredentialOut(
         id=cred.id,
         name=cred.name,
+        username=username,
         created_at=getattr(cred, "created_at", None),
         updated_at=getattr(cred, "updated_at", None),
     )
@@ -53,11 +59,13 @@ def _require_crypto(runtime: ServiceRuntime):
 
 @router.get("", response_model=list[CredentialOut])
 async def list_credentials(
+    runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
     _user: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> list[CredentialOut]:
+    crypto = _require_crypto(runtime)
     repo = Repository(session)
-    return [_credential_to_out(c) for c in await repo.list_credentials()]
+    return [_credential_to_out(c, crypto) for c in await repo.list_credentials()]
 
 
 @router.post("", response_model=CredentialOut, status_code=status.HTTP_201_CREATED)
@@ -84,7 +92,7 @@ async def create_credential(
         ip=request.client.host if request.client else None,
         detail={"name": cred.name},
     )
-    return _credential_to_out(cred)
+    return _credential_to_out(cred, crypto)
 
 
 @router.patch("/{cred_id}", response_model=CredentialOut)
@@ -134,7 +142,7 @@ async def update_credential(
             "secret_changed": secret_changed,
         },
     )
-    return _credential_to_out(updated)
+    return _credential_to_out(updated, crypto)
 
 
 @router.delete("/{cred_id}", status_code=status.HTTP_204_NO_CONTENT)
