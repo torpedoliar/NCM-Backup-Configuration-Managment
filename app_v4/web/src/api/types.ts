@@ -87,6 +87,7 @@ export type UserUpdateInput = Partial<Omit<UserCreateInput, 'password'>>;
 export interface AuditEntry {
   id: number;
   user_id: number | null;
+  username: string | null;
   action: string;
   target_type: string | null;
   target_id: string | null;
@@ -144,6 +145,52 @@ export interface AuthSettings {
   password_require_symbol: boolean;
 }
 
+export interface BackupLocationSettings {
+  backup_root_folder: string;
+  resolved_backups_dir: string;
+}
+
+export interface TimeSettings {
+  timezone: string;
+  ntp_servers: string[];
+  ntp_enabled: boolean;
+  available_timezones: string[];
+  server_now_utc: string;
+  server_now_local: string;
+}
+
+export interface RetentionRunResult {
+  audit_deleted: number;
+  backups_deleted: number;
+  backup_files_deleted: number;
+}
+
+export interface SchedulerJobInfo {
+  job_id: number;
+  next_run_time: string | null;
+  trigger: string | null;
+}
+
+export interface SchedulerStatus {
+  running: boolean;
+  timezone: string;
+  lock_acquired: boolean;
+  lock_file: string;
+  jobs: SchedulerJobInfo[];
+}
+
+export interface AutostartStatus {
+  installed: boolean;
+  ready: boolean;
+  raw_status: string | null;
+  executable_path: string | null;
+}
+
+export interface AutostartUpdate {
+  enabled: boolean;
+  trigger?: 'startup' | 'logon';
+}
+
 export interface LogLine {
   ts: string;
   level: string;
@@ -162,4 +209,20 @@ export interface LogsFilters {
   lines?: number;
   level?: string;
   q?: string;
+}
+
+export interface ApiKeyRecord {
+  id: number;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked: boolean;
+}
+
+export interface ApiKeyCreated {
+  id: number;
+  name: string;
+  prefix: string;
+  key: string;
 }

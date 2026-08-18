@@ -1,11 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import type {
+  ApiKeyCreated,
+  ApiKeyRecord,
   AuditEntry,
   AuditFilters,
   AuditPageData,
   AuthSettings,
+  AutostartStatus,
+  AutostartUpdate,
   BackupFilters,
+  BackupLocationSettings,
+  TimeSettings,
+  RetentionRunResult,
+  SchedulerStatus,
   BackupRecord,
   CredentialCreateInput,
   CredentialRecord,
@@ -176,6 +184,7 @@ export function useCreateJob() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['jobs'] });
       qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+      qc.invalidateQueries({ queryKey: ['system', 'scheduler-status'] });
     },
   });
 }
@@ -185,7 +194,10 @@ export function useUpdateJob() {
   return useMutation({
     mutationFn: async (vars: { id: number; input: JobUpdateInput }) =>
       (await api.patch<JobRecord>(`/jobs/${vars.id}`, vars.input)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      qc.invalidateQueries({ queryKey: ['system', 'scheduler-status'] });
+    },
   });
 }
 
@@ -196,6 +208,7 @@ export function useDeleteJob() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['jobs'] });
       qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+      qc.invalidateQueries({ queryKey: ['system', 'scheduler-status'] });
     },
   });
 }
@@ -207,6 +220,8 @@ export function useRunJobNow() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['backups'] });
       qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      qc.invalidateQueries({ queryKey: ['system', 'scheduler-status'] });
     },
   });
 }
@@ -324,6 +339,99 @@ export function useAuthSettings() {
   });
 }
 
+export function useBackupLocation() {
+  return useQuery({
+    queryKey: ['system', 'backup-location'],
+    queryFn: async () => (await api.get<BackupLocationSettings>('/system/backup-location')).data,
+  });
+}
+
+export function usePatchBackupLocation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Pick<BackupLocationSettings, 'backup_root_folder'>) =>
+      (await api.patch<BackupLocationSettings>('/system/backup-location', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['system', 'backup-location'] });
+      qc.invalidateQueries({ queryKey: ['system', 'status'] });
+    },
+  });
+}
+
+export function useTimeSettings() {
+  return useQuery({
+    queryKey: ['system', 'time-settings'],
+    queryFn: async () => (await api.get<TimeSettings>('/system/time-settings')).data,
+    staleTime: 30 * SECOND,
+  });
+}
+
+export function usePatchTimeSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Partial<Pick<TimeSettings, 'timezone' | 'ntp_servers' | 'ntp_enabled'>>) =>
+      (await api.patch<TimeSettings>('/system/time-settings', input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['system', 'time-settings'] }),
+  });
+}
+
+export async function downloadBackupReport(
+  format: 'csv' | 'xlsx' | 'pdf',
+  filters: BackupFilters,
+): Promise<void> {
+  const response = await api.get('/backups/report', {
+    params: { format, ...filters },
+    responseType: 'blob',
+  });
+  const blob = response.data as Blob;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const cd = response.headers['content-disposition'] as string | undefined;
+  const match = cd?.match(/filename="?([^"]+)"?/);
+  a.download = match?.[1] ?? `backups.${format}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function useRunRetentionNow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => (await api.post<RetentionRunResult>('/system/retention/run')).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['backups'] });
+      qc.invalidateQueries({ queryKey: ['audit'] });
+      qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+    },
+  });
+}
+
+export function useSchedulerStatus() {
+  return useQuery({
+    queryKey: ['system', 'scheduler-status'],
+    queryFn: async () => (await api.get<SchedulerStatus>('/system/scheduler-status')).data,
+    refetchInterval: 30 * SECOND,
+    staleTime: 15 * SECOND,
+  });
+}
+
+export function useAutostartStatus() {
+  return useQuery({
+    queryKey: ['system', 'autostart'],
+    queryFn: async () => (await api.get<AutostartStatus>('/system/autostart')).data,
+    staleTime: 30 * SECOND,
+  });
+}
+
+export function useUpdateAutostart() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AutostartUpdate) =>
+      (await api.put<AutostartStatus>('/system/autostart', input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['system', 'autostart'] }),
+  });
+}
+
 export function usePatchAuthSettings() {
   const qc = useQueryClient();
   return useMutation({
@@ -338,5 +446,29 @@ export function useLogs(filters: LogsFilters, autoRefresh: boolean) {
     queryKey: ['system', 'logs', filters],
     queryFn: async () => (await api.get<LogsResponse>('/system/logs', { params: filters })).data,
     refetchInterval: autoRefresh ? 5 * SECOND : false,
+  });
+}
+
+export function useApiKeys() {
+  return useQuery({
+    queryKey: ['api-keys'],
+    queryFn: async () => (await api.get<ApiKeyRecord[]>('/api-keys')).data,
+    staleTime: 30 * SECOND,
+  });
+}
+
+export function useCreateApiKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => (await api.post<ApiKeyCreated>('/api-keys', { name })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+  });
+}
+
+export function useRevokeApiKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/api-keys/${id}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
   });
 }
