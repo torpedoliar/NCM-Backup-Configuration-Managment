@@ -35,7 +35,8 @@ def test_websmart_egress_bitmap_decode():
     cfg = websmart_snmp.parse(FIXTURE.read_text(encoding="utf-8"))
     # vlan 88 egress ffffffffffff0000 -> ports 1..48 all members (trunk allowed)
     trunk_ports_on_88 = [p.name for p in cfg.ports if 88 in p.trunk_allowed_vlans]
-    assert len(trunk_ports_on_88) >= 40
+    assert len(trunk_ports_on_88) == 48
+    assert sorted(int(n) for n in trunk_ports_on_88) == list(range(1, 49))
     # vlan 23 egress 0000000040010000 -> ports 34, 48
     members_23 = {int(p.name) for p in cfg.ports if 23 in p.trunk_allowed_vlans}
     assert {34, 48} == members_23
@@ -43,11 +44,29 @@ def test_websmart_egress_bitmap_decode():
 
 def test_websmart_pvid_gives_native_or_access():
     cfg = websmart_snmp.parse(FIXTURE.read_text(encoding="utf-8"))
-    # port 1 PVID=6, port 8 PVID=205 (from dot1qPvid table)
+    # port 1 PVID=6, port 8 PVID=205 (from dot1qPvid table). Both carry tagged
+    # VLANs, so the PVID lands on native_vlan and the mode is trunk.
     p1 = _port(cfg, "1")
-    assert (p1.native_vlan == 6) or (p1.access_vlan == 6)
+    assert p1.mode == "trunk"
+    assert p1.native_vlan == 6
+    assert p1.access_vlan is None
+    assert p1.trunk_allowed_vlans == [1, 6, 88]
     p8 = _port(cfg, "8")
-    assert (p8.native_vlan == 205) or (p8.access_vlan == 205)
+    assert p8.mode == "trunk"
+    assert p8.native_vlan == 205
+    assert p8.access_vlan is None
+    assert p8.trunk_allowed_vlans == [1, 6, 88, 205]
+
+
+def test_websmart_access_port_takes_pvid_as_access_vlan():
+    # Port 50 is an egress member of vlan 1 only and is untagged there, so it
+    # is an access port and the PVID lands on access_vlan, not native_vlan.
+    cfg = websmart_snmp.parse(FIXTURE.read_text(encoding="utf-8"))
+    p50 = _port(cfg, "50")
+    assert p50.mode == "access"
+    assert p50.access_vlan == 1
+    assert p50.native_vlan is None
+    assert p50.trunk_allowed_vlans == []
 
 
 def test_websmart_clean_fixture_has_no_warnings():
@@ -166,4 +185,99 @@ def test_octet_string_containing_tab_and_cr_bytes():
     cfg = websmart_snmp.parse(text)
     # 0x09 -> ports 5, 8; 0x0d -> ports 13, 14, 16
     assert sorted(int(p.name) for p in cfg.ports) == [5, 8, 13, 14, 16]
+    assert cfg.warnings == []
+
+
+def test_rejected_untagged_bitmap_leaves_mode_unknown_but_keeps_pvid():
+    # The egress bitmap is good (port 1 is a member of vlan 7) but the untagged
+    # bitmap for that same vlan is unreadable. Whether port 1 is tagged there is
+    # then unknowable, so no mode may be asserted -- in particular not "trunk"
+    # with a fabricated native_vlan/trunk_allowed_vlans. The PVID survives.
+    text = _dump(
+        f"@   1\t{_VLAN_STATIC}",
+        "2\t.1.7\t 4\t   5\tVLAN7",
+        "2\t.2.7\t 4\t   1\t\x80",  # egress: port 1
+        "2\t.4.7\t 4\t   8\t\x80",  # untagged: declares 8 bytes, carries 1
+        f"@   2\t{_PORT_VLAN}",
+        "2\t.1.1\t66\t7",
+    )
+    cfg = websmart_snmp.parse(text)
+    p1 = _port(cfg, "1")
+    assert p1.mode == "unknown"
+    assert p1.access_vlan == 7  # PVID preserved
+    assert p1.native_vlan is None
+    assert p1.trunk_allowed_vlans == []
+    assert any("declared" in w for w in cfg.warnings)
+
+
+def test_good_untagged_bitmap_is_the_control_for_the_rejected_case():
+    # Same dump as above but with an honest untagged length: port 1 is untagged
+    # in its only vlan, so it resolves to a plain access port. This pins that
+    # the unknown-mode fallback above is caused by the rejection, not by the
+    # dump's shape.
+    text = _dump(
+        f"@   1\t{_VLAN_STATIC}",
+        "2\t.1.7\t 4\t   5\tVLAN7",
+        "2\t.2.7\t 4\t   1\t\x80",
+        "2\t.4.7\t 4\t   1\t\x80",
+        f"@   2\t{_PORT_VLAN}",
+        "2\t.1.1\t66\t7",
+    )
+    cfg = websmart_snmp.parse(text)
+    p1 = _port(cfg, "1")
+    assert p1.mode == "access"
+    assert p1.access_vlan == 7
+    assert p1.trunk_allowed_vlans == []
+    assert cfg.warnings == []
+
+
+def test_negative_declared_length_warns_and_keeps_no_value():
+    # int("-3") parses fine and len(raw) < -3 is never true, so a negative
+    # length would otherwise slice trailing bytes off silently: "VLAN7ABC"[:-3]
+    # would yield the plausible-looking name "VLAN7" with no warning at all.
+    text = _dump(
+        f"@   1\t{_VLAN_STATIC}",
+        "2\t.1.7\t 4\t  -3\tVLAN7ABC",
+    )
+    cfg = websmart_snmp.parse(text)
+    assert cfg.vlans == []
+    assert any("negative" in w for w in cfg.warnings)
+
+
+def test_pvid_outside_untagged_membership_warns():
+    # The PVID (99) names a vlan the port is not a member of. The access vlan is
+    # guessed from membership, but the disagreement must not vanish silently.
+    text = _dump(
+        f"@   1\t{_VLAN_STATIC}",
+        "2\t.1.7\t 4\t   5\tVLAN7",
+        "2\t.1.9\t 4\t   5\tVLAN9",
+        "2\t.2.7\t 4\t   1\t\x80",  # egress vlan 7: port 1
+        "2\t.4.7\t 4\t   1\t\x80",  # untagged vlan 7: port 1
+        "2\t.2.9\t 4\t   1\t\x80",  # egress vlan 9: port 1
+        "2\t.4.9\t 4\t   1\t\x80",  # untagged vlan 9: port 1
+        f"@   2\t{_PORT_VLAN}",
+        "2\t.1.1\t66\t99",
+    )
+    cfg = websmart_snmp.parse(text)
+    p1 = _port(cfg, "1")
+    assert p1.mode == "access"
+    assert p1.access_vlan == 7  # lowest member, existing tie-break kept
+    assert any("99" in w and "not in its untagged membership" in w for w in cfg.warnings)
+
+
+def test_pvid_inside_untagged_membership_does_not_warn():
+    # Control for the test above: an agreeing PVID is silent.
+    text = _dump(
+        f"@   1\t{_VLAN_STATIC}",
+        "2\t.1.7\t 4\t   5\tVLAN7",
+        "2\t.1.9\t 4\t   5\tVLAN9",
+        "2\t.2.7\t 4\t   1\t\x80",
+        "2\t.4.7\t 4\t   1\t\x80",
+        "2\t.2.9\t 4\t   1\t\x80",
+        "2\t.4.9\t 4\t   1\t\x80",
+        f"@   2\t{_PORT_VLAN}",
+        "2\t.1.1\t66\t9",
+    )
+    cfg = websmart_snmp.parse(text)
+    assert _port(cfg, "1").access_vlan == 9
     assert cfg.warnings == []

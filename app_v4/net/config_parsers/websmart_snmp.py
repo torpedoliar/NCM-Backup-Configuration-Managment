@@ -15,7 +15,14 @@ byte-to-codepoint mapping, so the original bytes round-trip through
 delimiter-looking bytes, the value is taken as the exact declared number of
 bytes rather than as "rest of line": extra trailing bytes (a CR from CRLF line
 endings, say) are sliced off, while a row carrying fewer bytes than it declares
-was truncated or re-encoded, cannot be trusted, and is skipped with a warning.
+-- or declaring a negative length -- was truncated or re-encoded, cannot be
+trusted, and is skipped with a warning.
+
+A skipped bitmap never costs PVID-derived data. A rejected *untagged* bitmap
+additionally suppresses mode derivation for the ports in that VLAN, because
+"nobody is untagged here" and "we could not read who is untagged" are not
+distinguishable from an absent entry, and guessing would assert a confident
+wrong ``trunk``.
 """
 
 from __future__ import annotations
@@ -64,11 +71,17 @@ def _bitmap_ports(octets: bytes) -> set[int]:
 def _octets(cfg: ParsedConfig, value: str, declared: int, line: str) -> bytes | None:
     """Recover the declared number of raw bytes from an octet-string value.
 
-    Returns None (with a warning) when fewer bytes are present than declared,
-    which means the row was truncated or re-encoded and its content cannot be
-    trusted.
+    Returns None (with a warning) when the declared length is negative, or when
+    fewer bytes are present than declared, which means the row was truncated or
+    re-encoded and its content cannot be trusted.
     """
     raw = value.encode("latin-1", errors="replace")
+    if declared < 0:
+        # ``raw[:-3]`` would silently drop trailing bytes and look successful.
+        cfg.warnings.append(
+            f"negative declared length {declared} in row: {line!r}"
+        )
+        return None
     if len(raw) < declared:
         cfg.warnings.append(
             f"octet string shorter than declared length {declared} "
@@ -101,6 +114,9 @@ def parse(text: str) -> ParsedConfig:
     vlan_names: dict[int, str] = {}
     egress: dict[int, set[int]] = {}
     untagged: dict[int, set[int]] = {}
+    # VLANs whose untagged bitmap was rejected. Their egress members cannot be
+    # classified tagged-vs-untagged, so no mode may be asserted for them.
+    unreadable: set[int] = set()
     pvid: dict[int, int] = {}
 
     base: str | None = None
@@ -151,7 +167,13 @@ def parse(text: str) -> ParsedConfig:
         bitmap = _octets(cfg, value, declared, line)
         if bitmap is None:
             # Membership for this VLAN is unknown, but PVID-derived data for the
-            # affected ports is independent and stays intact.
+            # affected ports is independent and stays intact. A rejected
+            # *untagged* bitmap is worse than a missing one: an absent entry is
+            # indistinguishable from "no port is untagged here", which would
+            # make every egress member look tagged. Record the VLAN so ports
+            # touching it decline to assert a mode.
+            if col == _COL_UNTAGGED_PORTS:
+                unreadable.add(index)
             continue
         target = egress if col == _COL_EGRESS_PORTS else untagged
         target[index] = _bitmap_ports(bitmap)
@@ -164,7 +186,13 @@ def parse(text: str) -> ParsedConfig:
         pv = pvid.get(port)
         member = sorted(v for v, ports in egress.items() if port in ports)
         tagged = [v for v in member if port not in untagged.get(v, set())]
-        if tagged:
+        if any(v in unreadable for v in member):
+            # At least one VLAN this port belongs to has no trustworthy untagged
+            # bitmap, so tagged-vs-untagged cannot be told apart. Assert nothing;
+            # the PVID is independent and survives. The rejection was already
+            # warned about at the row.
+            pd.access_vlan = pv
+        elif tagged:
             # Carrying at least one tagged VLAN makes this a trunk; the PVID is
             # then the native (untagged) VLAN.
             pd.mode = "trunk"
@@ -172,6 +200,13 @@ def parse(text: str) -> ParsedConfig:
             pd.trunk_allowed_vlans = member
         elif member:
             pd.mode = "access"
+            if pv is not None and pv not in member:
+                # The switch reports a PVID this port is not a member of. Guess
+                # the lowest untagged VLAN, but never discard the PVID silently.
+                cfg.warnings.append(
+                    f"port {port} PVID {pv} is not in its untagged membership "
+                    f"{member}; using access vlan {member[0]}"
+                )
             pd.access_vlan = pv if pv in member else member[0]
         elif pv is not None:
             # No usable membership data (no egress bitmap, or it was rejected);
