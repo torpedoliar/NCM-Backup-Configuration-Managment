@@ -25,9 +25,43 @@ def test_parse_config_unknown_is_warning_not_error():
 
 
 def test_parse_config_never_raises_on_degenerate_input():
-    # parse_config is total: empty, whitespace and binary garbage must all come
-    # back as an empty ParsedConfig carrying a warning, never as an exception.
-    for text in ("", "\n\n", "\x00\xff\x1b[2J garbage \x7f"):
+    # parse_config is total. The first three inputs stop at detect_dialect and
+    # exercise only the unknown branch; the last two trip a marker and so are
+    # actually handed to a delegate parser, which is the only place a raise is
+    # plausible. (The API takes str, so "garbage" here means a str carrying
+    # control codepoints, not bytes.)
+    degenerate = [
+        "",
+        "\n\n",
+        "\x00\xff\x1b[2J garbage \x7f",
+        "interface port1.0.",
+        "@ 1\t1.3.6.1.2.1.17.7.1.4.3.1\n2\t.2.7\t 4\t 99999999\tzz\n",
+    ]
+    for text in degenerate:
         cfg = parse_config(text)
         assert cfg.ports == []
         assert cfg.warnings
+
+
+def test_recognised_dialect_with_no_ports_is_warned():
+    # A Dell config whose description quotes a neighbour's AWP port name trips
+    # the awplus marker first and is routed to the wrong parser: awplus.parse
+    # finds nothing and, having read no malformed rows, warns about nothing.
+    # Without the dispatcher's own check this is indistinguishable from a switch
+    # that genuinely has no ports.
+    text = (
+        "interface ethernet g1\n"
+        'description "uplink to interface port1.0.24 on core"\n'
+    )
+    assert detect_dialect(text) == "awplus"  # the misroute, pinned
+    cfg = parse_config(text)
+    assert cfg.ports == []
+    assert any("parsed no ports" in w for w in cfg.warnings)
+
+
+def test_ports_found_adds_no_dispatcher_warning():
+    # Control for the test above: the warning is caused by the empty result, not
+    # attached to every dispatched parse.
+    cfg = parse_config((FX / "dell.txt").read_text(encoding="utf-8"))
+    assert cfg.ports
+    assert not any("parsed no ports" in w for w in cfg.warnings)
