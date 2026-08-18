@@ -22,10 +22,11 @@ def create_app(runtime: ServiceRuntime) -> FastAPI:
     register_problem_handlers(app)
     paths = resolve_paths(runtime.settings)
 
-    from app_v4.service.api import (
+from app_v4.service.api import (
         api_keys,
         audit,
         auth,
+        autostart,
         backups,
         credentials,
         jobs,
@@ -46,6 +47,7 @@ def create_app(runtime: ServiceRuntime) -> FastAPI:
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(network_doc.router, prefix="/api/v1")
     app.include_router(system.router, prefix="/api/v1")
+    app.include_router(autostart.router, prefix="/api/v1")
     app.include_router(ws.router)
 
     assets_dir = paths.static_dir / "assets"
