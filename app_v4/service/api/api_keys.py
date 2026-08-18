@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims
+from app_v4.data.models import ApiKey
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.problem import problem
@@ -92,8 +93,10 @@ async def revoke_api_key(
     actor: AccessClaims = Depends(require_role("admin")),
 ) -> Response:
     repo = Repository(session)
-    if not await repo.revoke_api_key(key_id):
+    key = await session.get(ApiKey, key_id)
+    if key is None:
         raise problem(404, "Not Found", "API key not found")
+    await repo.revoke_api_key(key_id)
     await session.commit()
     await runtime.audit_writer.record(
         user_id=actor.user_id,
@@ -101,5 +104,6 @@ async def revoke_api_key(
         target_type="api_key",
         target_id=str(key_id),
         ip=request.client.host if request.client else None,
+        detail={"name": key.name},
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

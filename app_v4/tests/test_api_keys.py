@@ -1,10 +1,13 @@
 import hashlib
+import json
 
 import pytest
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app_v4.data.repository import Repository
 from app_v4.service.app import create_app
+from app_v4.service.deps import require_api_key
 from app_v4.service.runtime import ServiceRuntime
 
 
@@ -14,6 +17,17 @@ def _admin_token(runtime: ServiceRuntime) -> str:
 
 def _viewer_token(runtime: ServiceRuntime) -> str:
     return runtime.auth_service.issue_access_token(2, "viewer", "viewer")
+
+
+def _api_key_probe_app(runtime: ServiceRuntime) -> FastAPI:
+    app = FastAPI()
+    app.state.runtime = runtime
+
+    @app.get("/probe")
+    async def probe(name: str = Depends(require_api_key)):
+        return {"name": name}
+
+    return app
 
 
 @pytest.mark.asyncio
@@ -43,11 +57,25 @@ async def test_create_lists_and_revoke(test_settings, session_factory):
     assert "key_hash" not in listed.json()[0]
 
     key_id = body["id"]
+    probe_client = TestClient(_api_key_probe_app(runtime))
+    assert probe_client.get("/probe", headers={"X-API-Key": body["key"]}).status_code == 200
     assert client.delete(f"/api/v1/api-keys/{key_id}", headers=hdr).status_code == 204
+    assert probe_client.get("/probe", headers={"X-API-Key": body["key"]}).status_code == 401
 
     listed_after_revoke = client.get("/api/v1/api-keys", headers=hdr)
     assert listed_after_revoke.status_code == 200
     assert listed_after_revoke.json()[0]["revoked"] is True
+
+    async with session_factory() as session:
+        audits = await Repository(session).list_audit(limit=10)
+    actions = {audit.action: audit for audit in audits}
+    assert {"apikey.created", "apikey.revoked"} <= actions.keys()
+    for action in ("apikey.created", "apikey.revoked"):
+        audit = actions[action]
+        assert audit.target_id == str(key_id)
+        assert json.loads(audit.detail_json) == {"name": "netdoc"}
+        assert body["key"] not in audit.detail_json
+        assert stored.key_hash not in audit.detail_json
 
 
 @pytest.mark.asyncio
