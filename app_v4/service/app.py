@@ -22,8 +22,9 @@ def create_app(runtime: ServiceRuntime) -> FastAPI:
     register_problem_handlers(app)
     paths = resolve_paths(runtime.settings)
 
-    from app_v4.service.api import audit, auth, backups, credentials, jobs, switches, system, users, ws
+    from app_v4.service.api import api_keys, audit, auth, backups, credentials, jobs, switches, system, users, ws
 
+    app.include_router(api_keys.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(audit.router, prefix="/api/v1")
     app.include_router(users.router, prefix="/api/v1")
