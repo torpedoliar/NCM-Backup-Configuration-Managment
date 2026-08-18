@@ -180,7 +180,7 @@ revoked: bool = false
 ```
 Table auto-created by `Base.metadata.create_all` (no Alembic; SQLite).
 
-Plaintext key = `ncm_` + `secrets.token_urlsafe(32)`. Stored only as
+Plaintext key = `ncr_` + `secrets.token_urlsafe(32)`. Stored only as
 sha256; returned in full **once** at creation.
 
 ### 6.2 Dependency — `require_api_key` (`service/deps.py`)

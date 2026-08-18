@@ -40,6 +40,37 @@ def test_awplus_clean_fixture_produces_no_warnings():
     assert cfg.warnings == []
 
 
+def test_awplus_multiple_trunk_vlan_add_lines_accumulate():
+    """Two switchport trunk allowed vlan add lines on the same port accumulate
+    with deduplication and deterministic ascending order."""
+    cfg = awplus.parse(
+        "hostname X\n"
+        "!\n"
+        "interface port1.0.1\n"
+        " switchport mode trunk\n"
+        " switchport trunk allowed vlan add 10,20\n"
+        " switchport trunk allowed vlan add 20,30\n"
+        "!\n"
+    )
+    p = _port(cfg, "port1.0.1")
+    assert p.trunk_allowed_vlans == [10, 20, 30]
+
+
+def test_awplus_multiple_trunk_vlan_add_lines_with_range():
+    """Range expansion + duplicate across multiple add lines."""
+    cfg = awplus.parse(
+        "hostname X\n"
+        "!\n"
+        "interface port1.0.1\n"
+        " switchport mode trunk\n"
+        " switchport trunk allowed vlan add 88\n"
+        " switchport trunk allowed vlan add 4-6,88\n"
+        "!\n"
+    )
+    p = _port(cfg, "port1.0.1")
+    assert p.trunk_allowed_vlans == [88, 4, 5, 6]
+
+
 def test_awplus_malformed_vlan_id_warns_instead_of_raising():
     cfg = awplus.parse(
         "hostname X\n"

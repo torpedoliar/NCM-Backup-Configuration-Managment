@@ -29,7 +29,7 @@ async def require_api_key(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     session: AsyncSession = Depends(get_db),
 ) -> str:
-    presented = x_api_key
+    presented = x_api_key.strip() if x_api_key else None
     if presented is None and authorization:
         scheme, separator, value = authorization.partition(" ")
         if scheme.lower() == "bearer" and separator:

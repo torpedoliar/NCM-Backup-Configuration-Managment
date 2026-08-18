@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -106,7 +107,7 @@ async def test_network_doc_malformed_config_does_not_break_bulk(test_settings, s
     assert response.status_code == 200
     warnings = response.json()[0]["parse_warnings"]
     assert warnings == ["unable to parse backup"]
-    assert sentinel not in warnings
+    assert sentinel not in response.text
 
 
 @pytest.mark.asyncio
@@ -139,3 +140,25 @@ async def test_network_doc_returns_404_for_missing_switch(test_settings, session
 
     response = TestClient(create_app(runtime)).get("/api/v1/network-doc/999", headers=_key_headers())
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_network_doc_backup_taken_at_is_utc_aware(test_settings, session_factory, tmp_path):
+    """backup_taken_at serializes with a UTC offset even when the DB value is naive."""
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    switch_id = await _seed(session_factory, tmp_path)
+    # Overwrite the backup's taken_at with a naive datetime to simulate legacy DB
+    async with session_factory() as session:
+        repo = Repository(session)
+        backup = await repo.get_latest_backup(switch_id)
+        assert backup is not None
+        backup.taken_at = datetime(2026, 8, 17, 10, 30, 0)  # naive, no tzinfo
+        await session.commit()
+
+    response = TestClient(create_app(runtime)).get(
+        f"/api/v1/network-doc/{switch_id}", headers=_key_headers()
+    )
+    assert response.status_code == 200
+    raw = response.json()["backup_taken_at"]
+    assert isinstance(raw, str), f"expected string, got {type(raw)}"
+    assert raw.endswith("+00:00") or raw.endswith("Z"), f"no UTC offset in {raw!r}"

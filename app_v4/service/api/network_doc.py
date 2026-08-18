@@ -12,6 +12,7 @@ from app_v4.data.repository import Repository
 from app_v4.net.config_parsers import ParsedConfig, parse_config
 from app_v4.service.deps import get_db, require_api_key
 from app_v4.service.problem import problem
+from app_v4.service.timeutil import to_aware_utc
 
 router = APIRouter(prefix="/network-doc", tags=["network-doc"])
 logger = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ async def _build_doc(repo: Repository, switch) -> SwitchDoc:
 
     if backup is not None:
         backup_id = backup.id
-        taken_at = backup.taken_at
+        taken_at = to_aware_utc(backup.taken_at)
         try:
             path = Path(backup.file_path) if backup.file_path else None
             if path is None or not path.is_file():

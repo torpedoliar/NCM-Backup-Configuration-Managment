@@ -54,6 +54,8 @@ async def test_valid_key_passes_case_insensitive_bearer_or_x_api_key(test_settin
         {"Authorization": "Basic secret-key"},
         {"Authorization": "Bearer"},
         {"Authorization": "Bearer    "},
+        {"X-API-Key": "   "},
+        {"X-API-Key": "  \t  "},
     ],
 )
 async def test_missing_bad_or_malformed_key_is_rejected(test_settings, session_factory, headers):

@@ -64,7 +64,11 @@ def parse(text: str) -> ParsedConfig:
             if vid is not None:
                 cur.native_vlan = vid
         elif s.startswith("switchport trunk allowed vlan add "):
-            cur.trunk_allowed_vlans = expand_id_list(s.split("add ", 1)[1])
+            cur.trunk_allowed_vlans = list(
+                dict.fromkeys(
+                    cur.trunk_allowed_vlans + expand_id_list(s.split("add ", 1)[1])
+                )
+            )
         elif s.startswith("switchport access vlan "):
             vid = _vlan_id(cfg, s)
             if vid is not None:
