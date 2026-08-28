@@ -11,6 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app_v4.core.utcdatetime import utc_now
 from app_v4.core.config import Settings
 from app_v4.core.paths import resolve_paths
 from app_v4.core.runtime_settings import load_runtime_settings
@@ -139,28 +140,8 @@ class SchedulerService:
         for job in jobs:
             if not job.enabled or job.switch_id not in active_switch_ids:
                 continue
-            time_pair = (job.schedule_hour, job.schedule_minute)
-            if job.id not in self.job_map:
-                self.add_job(
-                    job.id,
-                    job.switch_id,
-                    job.interval_minutes,
-                    job.schedule_hour,
-                    job.schedule_minute,
-                    job.day_of_week,
-                    job.day_of_month,
-                )
-            elif self.job_interval_map.get(job.id) != job.interval_minutes or self.job_time_map.get(job.id) != time_pair:
-                self.remove_job(job.id)
-                self.add_job(
-                    job.id,
-                    job.switch_id,
-                    job.interval_minutes,
-                    job.schedule_hour,
-                    job.schedule_minute,
-                    job.day_of_week,
-                    job.day_of_month,
-                )
+            if job.id not in self.job_map or self._schedule_changed(job.id, job):
+                self._rearm_job(job.id, jobs)
 
     def add_job(
         self,
@@ -189,7 +170,56 @@ class SchedulerService:
         )
         self.job_map[job_id] = aps_id
         self.job_interval_map[job_id] = interval_minutes
-        self.job_time_map[job_id] = (schedule_hour, schedule_minute)
+        # Keep the same tuple shape that _schedule_changed compares, otherwise
+        # every sync_once tick sees a "change" and re-arms the trigger.
+        self.job_time_map[job_id] = (schedule_hour, schedule_minute, day_of_week, day_of_month)
+
+    def _rearm_job(self, job_id: int, jobs: list) -> None:
+        """Re-arm one job into APScheduler, preserving the in-flight next fire.
+
+        ``sync_once`` runs every 30s; a naive remove+add on each tick would
+        recompute the cron trigger's start as "now" — and for a daily schedule
+        whose fire time is already past today, the candidate is stale and lands
+        inside the misfire grace window, so APScheduler silently shifts the
+        next run one day ahead and the job never fires again. Sync is therefore
+        idempotent unless schedule fields actually changed, and even then the
+        current ``next_run_time`` is carried over so no fire is lost or moved.
+        """
+        old_next = self.next_run_for(job_id)
+        job = next((j for j in jobs if j.id == job_id), None)
+        if job is None:
+            self.remove_job(job_id)
+            return
+        keep_next = (
+            old_next is not None
+            and old_next > datetime.now(self.timezone)
+            and not self._schedule_changed(job_id, job)
+        )
+        self.remove_job(job_id)
+        self.add_job(
+            job.id,
+            job.switch_id,
+            job.interval_minutes,
+            job.schedule_hour,
+            job.schedule_minute,
+            job.day_of_week,
+            job.day_of_month,
+        )
+        if keep_next:
+            aps_job = self.scheduler.get_job(self.job_map[job_id])
+            if aps_job is not None:
+                aps_job.modify(next_run_time=old_next)
+
+    def _schedule_changed(self, job_id: int, job) -> bool:
+        """True when the job's schedule fields differ from what was last armed."""
+        if self.job_interval_map.get(job_id) != job.interval_minutes:
+            return True
+        return self.job_time_map.get(job_id) != (
+            job.schedule_hour,
+            job.schedule_minute,
+            job.day_of_week,
+            job.day_of_month,
+        )
 
     def remove_job(self, job_id: int) -> None:
         aps_id = self.job_map.pop(job_id, None)
@@ -231,7 +261,12 @@ class SchedulerService:
         aps_job = self.scheduler.get_job(aps_id)
         if aps_job is None:
             return None
-        return aps_job.next_run_time
+        # APScheduler 3.11 exposes next_run_time as a property that raises
+        # AttributeError until the job is scheduled (e.g. scheduler not started).
+        try:
+            return aps_job.next_run_time
+        except AttributeError:
+            return None
 
     def status_snapshot(self) -> dict:
         snapshot = {
@@ -253,7 +288,7 @@ class SchedulerService:
         return snapshot
 
     async def execute_scheduled_backup(self, job_id: int, switch_id: int) -> None:
-        started_at = datetime.utcnow()
+        started_at = utc_now()
         await publish(self.event_hub, "job_triggered", {"job_id": job_id, "switch_id": switch_id})
         await self.backup_service.execute_backup(
             switch_id=switch_id,

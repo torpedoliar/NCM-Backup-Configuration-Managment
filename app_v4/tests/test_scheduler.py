@@ -139,6 +139,137 @@ def test_scheduler_uses_runtime_timezone_setting(tmp_path, session_factory):
 
 
 @pytest.mark.asyncio
+async def test_sync_once_without_changes_is_a_noop(test_settings, session_factory):
+    """Regression: sync_once must not remove+re-add a stable job.
+
+    The 30s sync loop used to re-arm every tick, which wiped the scheduler's
+    counted next_run_time and could shift a daily job one day ahead — the job
+    then "ran once and never again". An unchanged job must stay untouched.
+    """
+    backup_service = FakeBackupService()
+    scheduler = SchedulerService(test_settings, session_factory, backup_service)
+    await scheduler.start()
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(switch.id, 1440, True, 12, 31)
+        await session.commit()
+        job_id = job.id
+
+    await scheduler.sync_once()
+    aps_id = scheduler.job_map[job_id]
+    first = scheduler.scheduler.get_job(aps_id)
+    assert first is not None
+    next_run_before = scheduler.next_run_for(job_id)
+
+    # Simulate the sync loop: nothing changed, but a few ticks pass.
+    await scheduler.sync_once()
+    await scheduler.sync_once()
+    second = scheduler.scheduler.get_job(aps_id)
+    assert second is not None
+    # Same APS job survived: no remove+add happened, next fire unchanged.
+    assert scheduler.next_run_for(job_id) == next_run_before
+
+    await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_sync_once_does_not_rearm_unchanged_scheduled_job(test_settings, session_factory):
+    """Regression: the change detection compares schedule fields with the same
+    tuple shape stored by add_job. A daily job (interval 1440) must not be
+    removed+re-added on every sync tick."""
+    backup_service = FakeBackupService()
+    scheduler = SchedulerService(test_settings, session_factory, backup_service)
+    await scheduler.start()
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(
+            switch.id, 1440, True, 23, 45,
+            day_of_week="fri", day_of_month=None,
+        )
+        await session.commit()
+        job_id = job.id
+
+    await scheduler.sync_once()
+    aps_id = scheduler.job_map[job_id]
+    first = scheduler.scheduler.get_job(aps_id)
+    next_run_before = first.next_run_time
+
+    # Simulate the 30s sync loop: several ticks with nothing changed.
+    await scheduler.sync_once()
+    await scheduler.sync_once()
+    await scheduler.sync_once()
+
+    second = scheduler.scheduler.get_job(aps_id)
+    assert scheduler.next_run_for(job_id) == next_run_before
+    # If the trigger object identity changed, a remove+add happened (churn).
+    assert second is first, "unchanged job was removed+re-added by sync_once"
+
+    await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_rearm_preserves_next_run_for_unchanged_schedule(test_settings, session_factory):
+    """Regression: re-arming (e.g. after a timezone change) must not move the
+    scheduled next fire of a daily job whose schedule fields are unchanged."""
+    backup_service = FakeBackupService()
+    scheduler = SchedulerService(test_settings, session_factory, backup_service)
+    await scheduler.start()
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(switch.id, 1440, True, 12, 31)
+        await session.commit()
+        job_id = job.id
+
+    await scheduler.sync_once()
+    before = scheduler.next_run_for(job_id)
+    assert before is not None
+
+    async with session_factory() as session:
+        jobs = await Repository(session).list_jobs()
+
+    scheduler._rearm_job(job_id, jobs)
+    after = scheduler.next_run_for(job_id)
+    assert after == before, f"next run moved from {before} to {after}"
+
+    await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_sync_once_reschedules_when_schedule_time_changes(test_settings, session_factory):
+    """When the user edits the schedule time, the new time must take effect."""
+    backup_service = FakeBackupService()
+    scheduler = SchedulerService(test_settings, session_factory, backup_service)
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(switch.id, 1440, True, 12, 31)
+        await session.commit()
+        job_id = job.id
+
+    await scheduler.sync_once()
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.update_job(job_id, schedule_hour=15, schedule_minute=5)
+        await session.commit()
+
+    await scheduler.sync_once()
+    aps_id = scheduler.job_map[job_id]
+    trigger = scheduler.scheduler.get_job(aps_id).trigger
+    fields = {f.name: str(f) for f in trigger.fields}
+    assert fields["hour"] == "15"
+    assert fields["minute"] == "5"
+
+    await scheduler.stop()
+
+
+@pytest.mark.asyncio
 async def test_scheduler_catch_up_runs_enabled_jobs_once_on_start(test_settings, session_factory):
     """Match legacy pattern: when the backend starts, run every enabled job
     once so missed schedules during downtime still produce a backup."""
