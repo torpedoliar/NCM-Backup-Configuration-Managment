@@ -362,12 +362,10 @@ class SchedulerService:
             rs = load_runtime_settings(self._runtime_settings_path)
             if not rs.notify.email_enabled:
                 return
-            content = await self.review_service.send_reminder()
-            subject, body = content["subject"], content["body"]
-            if not subject:
+            content = await self.review_service.send_reminder(review_url=self.notify.review_url())
+            if not content["subject"]:
                 return
-            body = body.replace("Review queue: \n", f"Review queue: {self.notify.review_url()}\n")
-            await self.notify.email(subject, body)
+            await self.notify.email(content["subject"], content["body"])
         except Exception:  # noqa: BLE001
             import logging
             logging.getLogger(__name__).warning(

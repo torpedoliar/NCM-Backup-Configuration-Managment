@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -200,10 +199,11 @@ class ReviewService:
                 )
         return rows
 
-    async def send_reminder(self) -> dict[str, str]:
+    async def send_reminder(self, review_url: str = "") -> dict[str, str]:
         """Build the review-reminder email body (subject, body) or empty strings.
 
-        Called by the scheduler job; empty strings mean "nothing to send".
+        ``review_url`` is the public review-queue link inserted into the body.
+        Empty strings returned mean "nothing to send".
         """
         try:
             async with self.session_factory() as session:
@@ -232,13 +232,10 @@ class ReviewService:
                 lines.append(f"Stale baselines (>{compliance['attestation_days']} days): {len(compliance['baselines_stale'])}")
                 for name in compliance["baselines_stale"][:10]:
                     lines.append(f"  - {name}")
-            lines.append("")
-            lines.append("Review queue: {url}".format(url=""))  # URL added by caller (Notifier)
+            if review_url:
+                lines.append("")
+                lines.append(f"Review queue: {review_url}")
             return {"subject": f"[NCM] Config review: {len(pending)} pending", "body": "\n".join(lines)}
         except Exception:  # noqa: BLE001
             logger.exception("review reminder build failed")
             return {"subject": "", "body": ""}
-
-
-def content_hash(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()

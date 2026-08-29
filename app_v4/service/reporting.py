@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import csv
+import io
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
+
+from openpyxl import Workbook
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import landscape, A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app_v4.core.utcdatetime import utc_now
 
@@ -49,9 +57,6 @@ def _row_values(row: BackupReportRow) -> list[str]:
 
 
 def render_csv(rows: list[BackupReportRow]) -> bytes:
-    import csv
-    import io
-
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(HEADERS)
@@ -61,8 +66,6 @@ def render_csv(rows: list[BackupReportRow]) -> bytes:
 
 
 def render_xlsx(rows: list[BackupReportRow], title: str = "Backup report") -> bytes:
-    from openpyxl import Workbook
-
     wb = Workbook()
     sheet = wb.active
     sheet.title = "Backups"
@@ -80,17 +83,6 @@ def render_xlsx(rows: list[BackupReportRow], title: str = "Backup report") -> by
 
 
 def render_pdf(rows: list[BackupReportRow], title: str = "Backup report") -> bytes:
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import landscape, A4
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import (
-        Paragraph,
-        SimpleDocTemplate,
-        Spacer,
-        Table,
-        TableStyle,
-    )
-
     output = BytesIO()
     doc = SimpleDocTemplate(
         output,
@@ -147,9 +139,6 @@ def _compliance_values(row: ComplianceRow) -> list[str]:
 
 
 def render_compliance_csv(rows: list[ComplianceRow]) -> bytes:
-    import csv
-    import io
-
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(COMPLIANCE_HEADERS)
@@ -159,8 +148,6 @@ def render_compliance_csv(rows: list[ComplianceRow]) -> bytes:
 
 
 def render_compliance_xlsx(rows: list[ComplianceRow], title: str = "Config compliance report") -> bytes:
-    from openpyxl import Workbook
-
     wb = Workbook()
     sheet = wb.active
     sheet.title = "Compliance"
@@ -177,11 +164,6 @@ def render_compliance_xlsx(rows: list[ComplianceRow], title: str = "Config compl
 
 
 def render_compliance_pdf(rows: list[ComplianceRow], title: str = "Config compliance report") -> bytes:
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import landscape, A4
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-
     output = BytesIO()
     doc = SimpleDocTemplate(
         output,
