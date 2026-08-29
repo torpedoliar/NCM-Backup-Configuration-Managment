@@ -15,6 +15,10 @@ vi.mock('../api/hooks', () => ({
   useDeleteCredential: () => ({ mutate: deleteMutate, isPending: false }),
 }));
 
+vi.mock('../auth/AuthProvider', () => ({
+  useOptionalAuth: () => ({ user: { id: 1, username: 'admin', role: 'admin', is_active: true } }),
+}));
+
 describe('CredentialsPage', () => {
   it('opens an inline draft row on + Add credential', async () => {
     const user = userEvent.setup();

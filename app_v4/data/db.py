@@ -26,6 +26,9 @@ async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _run_sqlite_migrations(conn)
+    # PRAGMAs must run outside the transaction block above: SQLite rejects
+    # switching journal_mode=WAL from within an open transaction.
+    async with engine.connect() as conn:
         await conn.execute(text("pragma journal_mode=WAL"))
         await conn.execute(text("pragma foreign_keys=ON"))
 
@@ -37,6 +40,14 @@ async def _run_sqlite_migrations(conn) -> None:
     await _add_column_if_missing(conn, "switches", "deactivated_at", "DATETIME")
     await _add_column_if_missing(conn, "jobs", "day_of_week", "VARCHAR(3)")
     await _add_column_if_missing(conn, "jobs", "day_of_month", "INTEGER")
+    await _add_column_if_missing(conn, "jobs", "name", "VARCHAR(100)")
+    await conn.execute(
+        text(
+            "update jobs set name = (select switches.name from switches "
+            "where switches.id = jobs.switch_id) "
+            "where name is null or name = ''"
+        )
+    )
     await _add_column_if_missing(conn, "users", "failed_login_count", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "users", "last_failed_login_at", "DATETIME")
     await _add_column_if_missing(conn, "users", "locked_until", "DATETIME")

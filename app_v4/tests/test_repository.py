@@ -313,3 +313,83 @@ async def test_list_audit_filters_and_counts(session_factory):
     assert all(r.action.startswith("auth.") for r in only_auth)
     assert all(r.user_id == user_id for r in only_user1)
     assert total == 2
+
+
+@pytest.mark.asyncio
+async def test_system_metrics_failures_24h_filters_by_age(session_factory):
+    """failures_24h must count only in the last 24h, failures_total all-time."""
+    from datetime import timedelta
+    from app_v4.core.utcdatetime import utc_now
+    from app_v4.data.models import Backup
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("c_metrics", b"x")
+        switch = await repo.create_switch("sw_metrics", "10.0.0.1", "ssh", 22, cred.id)
+        # One failed backup now (counts toward 24h and total).
+        await repo.create_backup(switch.id, "", "", 0, False, "boom", "manual")
+        # One failed backup 40 days ago (counts only toward total).
+        old = await repo.create_backup(switch.id, "", "", 0, False, "old boom", "automatic")
+        old.taken_at = utc_now() - timedelta(days=40)
+        await session.commit()
+
+        values = await repo.system_metrics()
+
+    assert values["failures_24h"] == 1
+    assert values["failures_total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_list_backups_offset_and_count(session_factory):
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("c_paging", b"x")
+        switch = await repo.create_switch("sw_paging", "10.0.0.1", "ssh", 22, cred.id)
+        for i in range(5):
+            await repo.create_backup(switch.id, f"/f{i}.txt", f"h{i}", 10, True, f"msg-{i}", "manual")
+        await session.commit()
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        total = await repo.count_backups()
+        page2 = await repo.list_backups(limit=2, offset=2)
+        # list_backups orders by taken_at DESC; all 5 created within the same
+        # second, so exact ordering by created time is ambiguous — just assert
+        # the paging mechanics: offset 2 skips 2 and total counts all 5.
+        assert total == 5
+        assert len(page2) == 2
+
+
+@pytest.mark.asyncio
+async def test_latest_backup_per_switch_server_side(session_factory):
+    """Fleet dashboard must see every switch's true newest backup regardless of
+    global list limits (the old client tricked truncation)."""
+    from datetime import timedelta
+    from app_v4.core.utcdatetime import utc_now
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("c_lps", b"x")
+        sw_a = await repo.create_switch("sw-a", "10.0.0.1", "ssh", 22, cred.id)
+        sw_b = await repo.create_switch("sw-b", "10.0.0.2", "ssh", 22, cred.id)
+
+        now = utc_now()
+        a_old = await repo.create_backup(sw_a.id, "/a-old.txt", "h1", 10, True, "old", "automatic")
+        a_old.taken_at = now - timedelta(days=2)
+        a_new = await repo.create_backup(sw_a.id, "/a-new.txt", "h2", 10, True, "new", "automatic")
+        a_new.taken_at = now
+        b_only = await repo.create_backup(sw_b.id, "/b-only.txt", "h3", 10, True, "only", "automatic")
+        b_only.taken_at = now - timedelta(days=30)
+        # failed backup must not surface for the success-only variant
+        b_fail = await repo.create_backup(sw_b.id, "", "", 0, False, "fail", "automatic")
+        b_fail.taken_at = now
+        await session.commit()
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        rows = await repo.latest_backup_per_switch(only_success=True)
+
+    by_switch = {r.switch_id: r for r in rows}
+    assert set(by_switch) == {sw_a.id, sw_b.id}
+    assert by_switch[sw_a.id].file_path == "/a-new.txt"
+    assert by_switch[sw_b.id].file_path == "/b-only.txt"

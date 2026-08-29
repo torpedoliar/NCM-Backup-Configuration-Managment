@@ -1,6 +1,15 @@
 from __future__ import annotations
 
 
+def vlan_id_from_token(cfg, token: str, line: str) -> int | None:
+    """Coerce a vlan-id token to int, warning instead of raising on garbage."""
+    try:
+        return int(token)
+    except ValueError:
+        cfg.warnings.append(f"unparsable vlan id {token!r} in line: {line}")
+        return None
+
+
 def expand_id_list(spec: str) -> list[int]:
     """Expand a VLAN/port id spec like '4-6,8-12,88' into a flat int list.
 

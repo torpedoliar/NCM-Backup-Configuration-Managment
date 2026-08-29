@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Cache only parsed configuration content. Database identity is overlaid for every
 # response so matching backup hashes can never cross-contaminate switch metadata.
 _PARSE_CACHE: dict[str, ParsedConfig] = {}
+_PARSE_CACHE_LIMIT = 256
 
 
 class VlanOut(BaseModel):
@@ -55,6 +56,11 @@ def _parse_cached(content_hash: str, text: str) -> ParsedConfig:
         return _PARSE_CACHE[content_hash]
     cfg = parse_config(text)
     if content_hash:
+        if len(_PARSE_CACHE) >= _PARSE_CACHE_LIMIT:
+            try:
+                _PARSE_CACHE.pop(next(iter(_PARSE_CACHE)))
+            except (KeyError, StopIteration):
+                pass
         _PARSE_CACHE[content_hash] = cfg
     return cfg
 

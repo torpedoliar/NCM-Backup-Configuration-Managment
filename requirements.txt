@@ -1,3 +1,6 @@
+# NOTE: NCM v4 runtime/test dependencies live in app_v4/requirements-v4.txt.
+# This root file mirrors the legacy v1/v2 desktop build and is kept for
+# backward compatibility with the old installer.
 ttkbootstrap>=1.10.1
 paramiko>=3.4.0
 telnetlib3>=2.0.4

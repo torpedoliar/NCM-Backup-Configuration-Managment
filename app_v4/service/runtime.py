@@ -14,6 +14,7 @@ from app_v4.core.dpapi import WindowsDpapiProvider
 from app_v4.core.key_envelope import KeyEnvelopeStore
 from app_v4.core.paths import resolve_paths
 from app_v4.core.runtime_settings import AuthSettings, RuntimeSettings, load_runtime_settings
+from app_v4.core.utcdatetime import utc_now
 from app_v4.data.db import create_session_factory, init_db
 from app_v4.service.audit import AuditWriter
 from app_v4.service.backup_service import BackupService
@@ -47,7 +48,7 @@ class ServiceRuntime:
     backup_service: BackupService | None = None
     scheduler_service: SchedulerService | None = None
     retention_service: RetentionService | None = None
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=utc_now)
 
     async def shutdown(self) -> None:
         if self.scheduler_service is not None:

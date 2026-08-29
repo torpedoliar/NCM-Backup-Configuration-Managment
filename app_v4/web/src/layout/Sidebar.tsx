@@ -27,14 +27,18 @@ export function Sidebar() {
       label: 'Management',
       items: [
         { href: '/switches', text: 'Switches', count: count(metrics?.switches), icon: '▤' },
-        { href: '/credentials', text: 'Credentials', icon: '⌁' },
+        ...(role === 'viewer'
+          ? []
+          : [{ href: '/credentials', text: 'Credentials', icon: '⌁' }]),
         { href: '/schedules', text: 'Schedules', count: count(metrics?.jobs), icon: '◷' },
       ],
     },
     {
       label: 'Administration',
       items: [
-        { href: '/users', text: 'Users', count: count(undefined), icon: '◎' },
+        ...(role === 'viewer'
+          ? []
+          : [{ href: '/users', text: 'Users', count: count(undefined), icon: '◎' }]),
         { href: '/settings', text: 'Settings', icon: '⚙' },
       ],
     },

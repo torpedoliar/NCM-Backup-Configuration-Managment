@@ -46,10 +46,11 @@ export function useSystemMetrics() {
   });
 }
 
-export function useSwitches() {
+export function useSwitches(includeInactive = false) {
   return useQuery({
-    queryKey: ['switches'],
-    queryFn: async () => (await api.get<SwitchRecord[]>('/switches')).data,
+    queryKey: ['switches', { include_inactive: includeInactive }],
+    queryFn: async () =>
+      (await api.get<SwitchRecord[]>('/switches', { params: { include_inactive: includeInactive } })).data,
     staleTime: 60 * SECOND,
   });
 }
@@ -62,10 +63,15 @@ export function useCredentials() {
   });
 }
 
-export function useBackups(switchId?: number) {
+export function useBackups(switchId?: number, opts?: { from_ts?: string; limit?: number }) {
   return useQuery({
-    queryKey: ['backups', switchId],
-    queryFn: async () => (await api.get<BackupRecord[]>('/backups', { params: { switch_id: switchId } })).data,
+    queryKey: ['backups', switchId, opts ?? {}],
+    queryFn: async () =>
+      (
+        await api.get<BackupRecord[]>('/backups', {
+          params: { switch_id: switchId, from_ts: opts?.from_ts, limit: opts?.limit },
+        })
+      ).data,
     staleTime: 30 * SECOND,
   });
 }
@@ -100,7 +106,7 @@ export function useTriggerBackup() {
 export function useLatestBackupPerSwitch() {
   return useQuery({
     queryKey: ['backups', 'latest-per-switch'],
-    queryFn: async () => (await api.get<BackupRecord[]>('/backups', { params: { limit: 1000 } })).data,
+    queryFn: async () => (await api.get<BackupRecord[]>('/backups/latest-per-switch')).data,
     staleTime: 30 * SECOND,
   });
 }
@@ -263,6 +269,23 @@ export function useFilteredBackups(filters: BackupFilters) {
   return useQuery({
     queryKey: ['backups', 'filtered', filters],
     queryFn: async () => (await api.get<BackupRecord[]>('/backups', { params: filters })).data,
+    staleTime: 15 * SECOND,
+  });
+}
+
+export type PagedBackups = { rows: BackupRecord[]; total: number };
+
+export function usePagedBackups(filters: BackupFilters, opts: { offset: number; limit: number }) {
+  return useQuery({
+    queryKey: ['backups', 'filtered', filters, opts],
+    queryFn: async () => {
+      const response = await api.get<BackupRecord[]>('/backups', {
+        params: { ...filters, offset: opts.offset, limit: opts.limit },
+      });
+      const headerTotal = response.headers['x-total-count'];
+      const total = Number(headerTotal);
+      return { rows: response.data, total: Number.isFinite(total) ? total : response.data.length } as PagedBackups;
+    },
     staleTime: 15 * SECOND,
   });
 }

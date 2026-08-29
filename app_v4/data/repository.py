@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timedelta
 
+from app_v4.core.utcdatetime import utc_now
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -65,7 +67,7 @@ class Repository:
     async def mark_user_login(self, user_id: int) -> None:
         user = await self.get_user_by_id(user_id)
         if user is not None:
-            user.last_login_at = datetime.utcnow()
+            user.last_login_at = utc_now()
 
     async def count_users(self) -> int:
         result = await self.session.execute(select(func.count(User.id)))
@@ -86,7 +88,7 @@ class Repository:
             refresh_token_hash=refresh_token_hash,
             ip=ip,
             user_agent=user_agent,
-            expires_at=datetime.utcnow() + timedelta(days=days_valid),
+            expires_at=utc_now() + timedelta(days=days_valid),
             revoked=False,
         )
         self.session.add(row)
@@ -133,7 +135,7 @@ class Repository:
             cred.name = name
         if enc_blob is not None:
             cred.enc_blob = enc_blob
-        cred.updated_at = datetime.utcnow()
+        cred.updated_at = utc_now()
         return cred
 
     async def delete_credential(self, cred_id: int) -> bool:
@@ -180,7 +182,7 @@ class Repository:
     async def touch_api_key_last_used(self, key_id: int) -> None:
         key = await self.session.get(ApiKey, key_id)
         if key is not None:
-            key.last_used_at = datetime.utcnow()
+            key.last_used_at = utc_now()
 
     # ----- switches -----
 
@@ -230,7 +232,7 @@ class Repository:
         for key, value in kwargs.items():
             if value is not None and hasattr(switch, key):
                 setattr(switch, key, value)
-        switch.updated_at = datetime.utcnow()
+        switch.updated_at = utc_now()
         return switch
 
     async def deactivate_switch(self, switch_id: int) -> Switch | None:
@@ -238,8 +240,8 @@ class Repository:
         if switch is None:
             return None
         switch.is_active = False
-        switch.deactivated_at = datetime.utcnow()
-        switch.updated_at = datetime.utcnow()
+        switch.deactivated_at = utc_now()
+        switch.updated_at = utc_now()
         return switch
 
     async def activate_switch(self, switch_id: int) -> Switch | None:
@@ -248,7 +250,7 @@ class Repository:
             return None
         switch.is_active = True
         switch.deactivated_at = None
-        switch.updated_at = datetime.utcnow()
+        switch.updated_at = utc_now()
         return switch
 
     async def delete_switch(self, switch_id: int) -> bool:
@@ -374,33 +376,68 @@ class Repository:
     async def get_backup(self, backup_id: int) -> Backup | None:
         return await self.session.get(Backup, backup_id)
 
+    def _backup_filters(
+        self,
+        switch_id: int | None,
+        success: bool | None,
+        backup_type: str | None,
+        from_ts: datetime | None,
+        to_ts: datetime | None,
+        q: str | None,
+    ):
+        conds = []
+        if switch_id is not None:
+            conds.append(Backup.switch_id == switch_id)
+        if success is not None:
+            conds.append(Backup.success.is_(success))
+        if backup_type is not None:
+            conds.append(Backup.backup_type == backup_type)
+        if from_ts is not None:
+            conds.append(Backup.taken_at >= from_ts)
+        if to_ts is not None:
+            conds.append(Backup.taken_at <= to_ts)
+        if q:
+            conds.append(Backup.message.ilike(f"%{q}%"))
+        return conds
+
     async def list_backups(
         self,
         switch_id: int | None = None,
         limit: int | None = None,
+        offset: int = 0,
         success: bool | None = None,
         backup_type: str | None = None,
         from_ts: datetime | None = None,
         to_ts: datetime | None = None,
         q: str | None = None,
     ) -> list[Backup]:
-        stmt = select(Backup).order_by(Backup.taken_at.desc())
-        if switch_id is not None:
-            stmt = stmt.where(Backup.switch_id == switch_id)
-        if success is not None:
-            stmt = stmt.where(Backup.success.is_(success))
-        if backup_type is not None:
-            stmt = stmt.where(Backup.backup_type == backup_type)
-        if from_ts is not None:
-            stmt = stmt.where(Backup.taken_at >= from_ts)
-        if to_ts is not None:
-            stmt = stmt.where(Backup.taken_at <= to_ts)
-        if q:
-            stmt = stmt.where(Backup.message.ilike(f"%{q}%"))
+        stmt = (
+            select(Backup)
+            .where(*self._backup_filters(switch_id, success, backup_type, from_ts, to_ts, q))
+            .order_by(Backup.taken_at.desc())
+        )
+        if offset:
+            stmt = stmt.offset(offset)
         if limit is not None:
             stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_backups(
+        self,
+        switch_id: int | None = None,
+        success: bool | None = None,
+        backup_type: str | None = None,
+        from_ts: datetime | None = None,
+        to_ts: datetime | None = None,
+        q: str | None = None,
+    ) -> int:
+        """Total rows matching the same filters as list_backups (for paging)."""
+        stmt = select(func.count(Backup.id)).where(
+            *self._backup_filters(switch_id, success, backup_type, from_ts, to_ts, q)
+        )
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one())
 
     async def get_latest_backup(self, switch_id: int) -> Backup | None:
         result = await self.session.execute(
@@ -410,6 +447,33 @@ class Repository:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def latest_backup_per_switch(self, only_success: bool = True) -> list[Backup]:
+        """Newest backup row for each switch, computed server-side.
+
+        The fleet grid previously fetched ``/backups?limit=1000`` and derived
+        "latest per switch" in the browser — a switch whose newest backup fell
+        outside the newest 1000 rows globally reported as UNKNOWN. This query
+        groups by switch_id so every switch gets its true latest row regardless
+        of fleet size.
+        """
+        # Filter BEFORE grouping: joining on the per-switch max taken_at and then
+        # filtering would drop a switch whose newest row is filtered out.
+        base = select(Backup.switch_id, func.max(Backup.taken_at).label("taken_at"))
+        if only_success:
+            base = base.where(Backup.success.is_(True))
+        sub = base.group_by(Backup.switch_id).subquery()
+        stmt = (
+            select(Backup)
+            .join(
+                sub,
+                (Backup.switch_id == sub.c.switch_id)
+                & (Backup.taken_at == sub.c.taken_at),
+            )
+            .order_by(Backup.switch_id)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def delete_backup(self, backup_id: int) -> bool:
         backup = await self.get_backup(backup_id)
@@ -429,9 +493,11 @@ class Repository:
         schedule_minute: int = 0,
         day_of_week: str | None = None,
         day_of_month: int | None = None,
+        name: str | None = None,
     ) -> Job:
         job = Job(
             switch_id=switch_id,
+            name=name,
             interval_minutes=interval_minutes,
             enabled=enabled,
             schedule_hour=schedule_hour,
@@ -463,7 +529,7 @@ class Repository:
         for key, value in kwargs.items():
             if hasattr(job, key) and (value is not None or key in NULLABLE_FIELDS):
                 setattr(job, key, value)
-        job.updated_at = datetime.utcnow()
+        job.updated_at = utc_now()
         return job
 
     async def delete_job(self, job_id: int) -> bool:
@@ -476,16 +542,25 @@ class Repository:
     # ----- system -----
 
     async def system_metrics(self) -> dict[str, int]:
+        cutoff_24h = utc_now() - timedelta(days=1)
         row = (
             await self.session.execute(
                 select(
                     select(func.count(Switch.id)).scalar_subquery().label("switches"),
                     select(func.count(Backup.id)).scalar_subquery().label("backups"),
                     select(func.count(Job.id)).scalar_subquery().label("jobs"),
+                    # Backend contract was mislabelled: "failures_24h" used to
+                    # count every failed backup ever. The UI labels this metric
+                    # "FAILED · 24H", so filter to the last 24 hours. Total
+                    # failures (for success-rate) is computed by the caller.
+                    select(func.count(Backup.id))
+                    .where(Backup.success.is_(False), Backup.taken_at >= cutoff_24h)
+                    .scalar_subquery()
+                    .label("failures_24h"),
                     select(func.count(Backup.id))
                     .where(Backup.success.is_(False))
                     .scalar_subquery()
-                    .label("failed_backups"),
+                    .label("failures_total"),
                 )
             )
         ).one()
@@ -493,7 +568,8 @@ class Repository:
             "switches": int(row.switches),
             "backups": int(row.backups),
             "jobs": int(row.jobs),
-            "failed_backups": int(row.failed_backups),
+            "failures_24h": int(row.failures_24h),
+            "failures_total": int(row.failures_total),
         }
 
 

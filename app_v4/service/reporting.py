@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
 
+from app_v4.core.utcdatetime import utc_now
+
 
 @dataclass(frozen=True)
 class BackupReportRow:
@@ -88,7 +90,7 @@ def render_pdf(rows: list[BackupReportRow], title: str = "Backup report") -> byt
     elements = [
         Paragraph(title, styles["Title"]),
         Paragraph(
-            f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC · {len(rows)} rows",
+            f"Generated {utc_now().strftime('%Y-%m-%d %H:%M:%S')} UTC · {len(rows)} rows",
             styles["BodyText"],
         ),
         Spacer(1, 12),

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims
+from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.events import publish
@@ -56,7 +57,7 @@ def _to_out(job) -> JobOut:
     return JobOut(
         id=job.id,
         switch_id=job.switch_id,
-        name=switch_name,
+        name=job.name or switch_name,
         interval_minutes=job.interval_minutes,
         enabled=job.enabled,
         schedule_hour=job.schedule_hour,
@@ -108,11 +109,12 @@ async def create_job(
     actor: AccessClaims = Depends(require_role("admin", "operator")),
 ) -> JobOut:
     repo = Repository(session)
-    if await repo.get_switch(payload.switch_id) is None:
+    switch = await repo.get_switch(payload.switch_id)
+    if switch is None:
         raise problem(422, "Unprocessable Entity", "Referenced switch does not exist")
-    # `name` is accepted for forward compatibility but ignored — JobOut.name is derived from the switch.
     job = await repo.create_job(
         switch_id=payload.switch_id,
+        name=payload.name or switch.name,
         interval_minutes=payload.interval_minutes,
         enabled=payload.enabled,
         schedule_hour=payload.schedule_hour,
@@ -157,7 +159,7 @@ async def run_job_now(
         target_id=str(job_id),
         ip=request.client.host if request.client else None,
     )
-    started_at = datetime.utcnow()
+    started_at = utc_now()
     await publish(
         runtime.event_hub,
         "job_triggered",

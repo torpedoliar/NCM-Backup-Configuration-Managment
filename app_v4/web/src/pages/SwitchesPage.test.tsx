@@ -26,7 +26,7 @@ describe('SwitchesPage', () => {
     const user = userEvent.setup();
     render(<SwitchesPage />);
     await user.click(screen.getByRole('button', { name: /add switch/i }));
-    expect(screen.getByPlaceholderText(/name/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/^Name$/)).toBeInTheDocument();
   });
 
   it('hides inactive switches by default and reveals via filter', async () => {
@@ -35,5 +35,33 @@ describe('SwitchesPage', () => {
     expect(screen.queryByText('SW-OLD-01')).toBeNull();
     await user.click(screen.getByLabelText(/show inactive/i));
     expect(screen.getByText('SW-OLD-01')).toBeInTheDocument();
+  });
+
+  it('filters rows by search term across name and ip', async () => {
+    const user = userEvent.setup();
+    render(<SwitchesPage />);
+    await user.click(screen.getByLabelText(/show inactive/i));
+    await user.type(screen.getByLabelText(/search/i), '10.0.0.99');
+    expect(screen.getByText('SW-OLD-01')).toBeInTheDocument();
+    expect(screen.queryByText('SW-CORE-01')).toBeNull();
+  });
+
+  it('filters rows by protocol', async () => {
+    const user = userEvent.setup();
+    render(<SwitchesPage />);
+    await user.click(screen.getByLabelText(/show inactive/i));
+    await user.selectOptions(screen.getByLabelText(/protocol/i), 'telnet');
+    expect(screen.getByText('SW-OLD-01')).toBeInTheDocument();
+    expect(screen.queryByText('SW-CORE-01')).toBeNull();
+  });
+
+  it('sorts rows by selected sort key', async () => {
+    const user = userEvent.setup();
+    render(<SwitchesPage />);
+    await user.click(screen.getByLabelText(/show inactive/i));
+    await user.selectOptions(screen.getByLabelText(/sort/i), 'name-desc');
+    const rows = screen.getAllByRole('row');
+    expect(rows[1]).toHaveTextContent('SW-OLD-01');
+    expect(rows[2]).toHaveTextContent('SW-CORE-01');
   });
 });

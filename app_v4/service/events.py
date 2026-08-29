@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from fastapi import WebSocket
+
+from app_v4.core.utcdatetime import utc_now
 
 
 @dataclass
@@ -15,7 +16,7 @@ class EventMessage:
 
     @classmethod
     def create(cls, event_type: str, payload: dict[str, Any]) -> "EventMessage":
-        return cls(type=event_type, payload=payload, ts=datetime.utcnow().isoformat() + "Z")
+        return cls(type=event_type, payload=payload, ts=utc_now().isoformat() + "Z")
 
 
 class EventHub:

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { api, attachAuthInterceptor, loginRequest, meRequest, setAccessToken } from '../api/client';
+import { api, attachAuthInterceptor, loginRequest, meRequest, setAccessToken, setRefreshListener, setRefreshToken } from '../api/client';
 import type { CurrentUser } from '../api/types';
 
 type AuthValue = {
@@ -32,7 +32,15 @@ export function AuthProvider({ children, initialAccessToken, initialRefreshToken
 
   useEffect(() => {
     setAccessToken(accessToken);
-  }, [accessToken]);
+    setRefreshToken(refreshToken);
+    // Keep the axios layer in sync whenever a silent refresh rotates the pair.
+    const listener = (newAccess: string, newRefresh: string) => {
+      setToken(newAccess);
+      setRefreshTokenState(newRefresh);
+    };
+    setRefreshListener(listener);
+    return () => setRefreshListener(null);
+  }, [accessToken, refreshToken]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -64,6 +72,7 @@ export function AuthProvider({ children, initialAccessToken, initialRefreshToken
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     setAccessToken(null);
+    setRefreshToken(null);
     setToken(null);
     setRefreshTokenState(null);
     setUser(null);
@@ -88,6 +97,7 @@ export function AuthProvider({ children, initialAccessToken, initialRefreshToken
       localStorage.setItem('access_token', tokenPair.access_token);
       localStorage.setItem('refresh_token', tokenPair.refresh_token);
       setAccessToken(tokenPair.access_token);
+      setRefreshToken(tokenPair.refresh_token);
       setToken(tokenPair.access_token);
       setRefreshTokenState(tokenPair.refresh_token);
       navigate('/');

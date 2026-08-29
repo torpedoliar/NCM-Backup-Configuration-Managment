@@ -18,6 +18,7 @@ export interface SystemMetrics {
   backups: number;
   jobs: number;
   failures_24h: number;
+  failures_total: number;
 }
 
 export interface LiveEvent {

@@ -610,3 +610,41 @@ a { color: inherit; }
   .ops-content { padding: 18px; }
   .ops-footer { display: none; }
 }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+.viewer-box {
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+}
+.viewer-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.viewer-pre {
+  max-height: 480px;
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.viewer-empty {
+  margin: 0;
+  padding: 16px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}

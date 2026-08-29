@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4 import __version__
 from app_v4.core.auth_service import AccessClaims
+from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.log_tail import LogLine, tail_log
@@ -44,6 +45,7 @@ class MetricsResponse(BaseModel):
     backups: int
     jobs: int
     failures_24h: int
+    failures_total: int
 
 
 class RetentionResponse(BaseModel):
@@ -117,7 +119,7 @@ async def status(
         started_at=to_aware_utc(runtime.started_at),
         host=runtime.settings.service_host,
         port=runtime.settings.service_port,
-        uptime_seconds=int((datetime.utcnow() - runtime.started_at).total_seconds()),
+        uptime_seconds=int((utc_now() - runtime.started_at).total_seconds()),
         scheduler_running=runtime.scheduler_service.scheduler.running if runtime.scheduler_service else False,
         db_size_bytes=paths.database_file.stat().st_size if paths.database_file.exists() else 0,
         data_dir=str(paths.data_dir),
@@ -137,7 +139,8 @@ async def metrics(
         switches=values["switches"],
         backups=values["backups"],
         jobs=values["jobs"],
-        failures_24h=values["failed_backups"],
+        failures_24h=values["failures_24h"],
+        failures_total=values["failures_total"],
     )
 
 

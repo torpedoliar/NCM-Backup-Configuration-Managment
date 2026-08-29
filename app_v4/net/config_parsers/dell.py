@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from app_v4.net.config_parsers._common import expand_id_list, expand_ports_gN
+from app_v4.net.config_parsers._common import expand_id_list, expand_ports_gN, vlan_id_from_token
 from app_v4.net.config_parsers.types import ParsedConfig, PortDoc, VlanDoc
 
 _HOSTNAME = re.compile(r"^hostname\s+(\S+)")
@@ -14,19 +14,6 @@ _VLAN_NAME = re.compile(r"^name\s+(.+)")
 
 def _unquote(text: str) -> str:
     return text.strip().strip('"')
-
-
-def _vlan_id(cfg: ParsedConfig, token: str, line: str) -> int | None:
-    """Convert a vlan id token to int, or warn and return None.
-
-    Keeps ``parse`` total: a malformed id is recorded as a warning rather than
-    raised, so a single bad line never costs the caller the whole config.
-    """
-    try:
-        return int(token)
-    except ValueError:
-        cfg.warnings.append(f"unparsable vlan id {token!r} in line: {line}")
-        return None
 
 
 def parse(text: str) -> ParsedConfig:
@@ -64,7 +51,7 @@ def parse(text: str) -> ParsedConfig:
             continue
         m = _IF_VLAN.match(s)
         if m:
-            vid = _vlan_id(cfg, m.group(1), s)
+            vid = vlan_id_from_token(cfg, m.group(1), s)
             targets, ctx = [], None if vid is None else ("vlan", vid)
             continue
         if s.startswith("interface "):
@@ -83,13 +70,13 @@ def parse(text: str) -> ParsedConfig:
                     if get(t).mode == "unknown":
                         get(t).mode = "trunk"
             elif s.startswith("switchport access vlan "):
-                v = _vlan_id(cfg, s.rsplit(" ", 1)[1], s)
+                v = vlan_id_from_token(cfg, s.rsplit(" ", 1)[1], s)
                 if v is not None:
                     for t in targets:
                         p = get(t)
                         p.mode, p.access_vlan = "access", v
             elif s.startswith("switchport trunk native vlan "):
-                v = _vlan_id(cfg, s.rsplit(" ", 1)[1], s)
+                v = vlan_id_from_token(cfg, s.rsplit(" ", 1)[1], s)
                 if v is not None:
                     for t in targets:
                         p = get(t)

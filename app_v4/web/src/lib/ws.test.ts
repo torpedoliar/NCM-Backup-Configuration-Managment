@@ -30,4 +30,12 @@ describe('openLiveSocket', () => {
     socket.onmessage?.({ data: 'not-json' });
     expect(useLiveEvents.getState().events).toHaveLength(0);
   });
+
+  it('filters the server handshake "connected" frame out of the feed', () => {
+    const socket = openLiveSocket('token') as unknown as FakeWebSocket;
+    socket.onmessage?.({ data: JSON.stringify({ type: 'connected', payload: { user: 'admin' }, ts: '2026-05-20T01:00:00Z' }) });
+    socket.onmessage?.({ data: JSON.stringify({ type: 'backup_completed', payload: {}, ts: '2026-05-20T01:00:01Z' }) });
+    expect(useLiveEvents.getState().events).toHaveLength(1);
+    expect(useLiveEvents.getState().events[0].type).toBe('backup_completed');
+  });
 });

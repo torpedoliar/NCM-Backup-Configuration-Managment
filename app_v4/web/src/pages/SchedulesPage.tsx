@@ -196,8 +196,14 @@ export function SchedulesPage() {
                 <td>{describeSchedule(job)}</td>
                 <td>
                   {(() => {
+                    if (!job.enabled) return 'disabled';
+                    // A job on a deactivated switch will never be armed by the
+                    // scheduler — report that instead of "pending sync…" forever.
+                    const switchActive = switches.find((s) => s.id === job.switch_id)?.is_active ?? true;
+                    if (!switchActive) return 'switch inactive';
+                    if (!schedulerStatus?.running) return 'scheduler offline';
                     const info = schedulerStatus?.jobs.find((j) => j.job_id === job.id);
-                    if (!info?.next_run_time) return job.enabled ? 'pending sync…' : 'disabled';
+                    if (!info?.next_run_time) return 'pending sync…';
                     return formatTzDateTime(info.next_run_time, tz);
                   })()}
                 </td>

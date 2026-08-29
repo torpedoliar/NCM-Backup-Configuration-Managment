@@ -41,6 +41,15 @@ export function UsersPage() {
   const remove = useDeleteUser();
   const resetPwd = useResetUserPassword();
 
+  if (auth.user?.role !== 'admin') {
+    return (
+      <main>
+        <p className="marker">User management</p>
+        <div role="alert" className="settings-error">Only admins can manage users.</div>
+      </main>
+    );
+  }
+
   function startAdd() {
     setDraft({ ...EMPTY_DRAFT });
   }

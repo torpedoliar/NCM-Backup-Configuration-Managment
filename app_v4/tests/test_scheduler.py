@@ -312,3 +312,54 @@ async def test_scheduler_catch_up_skips_inactive_switches(test_settings, session
     assert summary["started"] == 0
     assert summary["skipped_inactive_switch"] == 1
     assert backup_service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_catch_up_skips_job_that_already_ran_recently_on_schedule(test_settings, session_factory):
+    """Regression: catch-up must not double-run a daily job that already produced
+    a backup after its last fire (routine restart at 09:00 must not re-backup)."""
+    from app_v4.core.utcdatetime import utc_now
+    from datetime import timedelta
+
+    backup_service = FakeBackupService()
+    scheduler = SchedulerService(test_settings, session_factory, backup_service)
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(switch.id, 1440, enabled=True, schedule_hour=8, schedule_minute=0)
+        # It last ran today at 08:00 (on schedule) — nothing was missed.
+        job.last_ran_at = utc_now().replace(hour=8, minute=0, second=0, microsecond=0)
+        await session.commit()
+        job_id = job.id
+
+    summary = await scheduler.catch_up_missed_schedules()
+
+    assert summary["started"] == 0
+    assert summary["skipped_not_due"] == 1
+    assert backup_service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_catch_up_runs_job_that_missed_its_fire(test_settings, session_factory):
+    """Catch-up still recovers a schedule whose fire came due while offline: a
+    daily 08:00 job that last ran yesterday is genuinely missed today."""
+    from app_v4.core.utcdatetime import utc_now
+    from datetime import timedelta
+
+    backup_service = FakeBackupService()
+    scheduler = SchedulerService(test_settings, session_factory, backup_service)
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("cred", b"x")
+        switch = await repo.create_switch("sw", "10.0.0.1", "ssh", 22, cred.id)
+        job = await repo.create_job(switch.id, 1440, enabled=True, schedule_hour=8, schedule_minute=0)
+        job.last_ran_at = utc_now() - timedelta(days=1)  # last ran yesterday
+        await session.commit()
+        job_id = job.id
+        switch_id = switch.id
+
+    summary = await scheduler.catch_up_missed_schedules()
+
+    assert summary["started"] == 1
+    assert backup_service.calls == [(switch_id, "automatic", job_id, None)]

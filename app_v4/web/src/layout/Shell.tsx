@@ -1,8 +1,12 @@
 import type { ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { useOptionalAuth } from '../auth/AuthProvider';
+import { useLiveSocket } from '../lib/ws';
 
 export function Shell({ children }: { children: ReactNode }) {
+  const auth = useOptionalAuth();
+  useLiveSocket(auth?.accessToken ?? null);
   return (
     <div className="ops-shell">
       <Sidebar />

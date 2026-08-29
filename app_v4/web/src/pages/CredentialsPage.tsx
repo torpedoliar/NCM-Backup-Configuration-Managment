@@ -5,6 +5,7 @@ import {
   useDeleteCredential,
   useUpdateCredential,
 } from '../api/hooks';
+import { useOptionalAuth } from '../auth/AuthProvider';
 import type { CredentialUpdateInput } from '../api/types';
 import { humanizeError } from '../lib/errors';
 
@@ -19,12 +20,22 @@ interface DraftCred {
 const EMPTY: DraftCred = { id: null, name: '', username: '', password: '', enable_password: '' };
 
 export function CredentialsPage() {
+  const auth = useOptionalAuth();
   const [draft, setDraft] = useState<DraftCred | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { data: credentials = [] } = useCredentials();
   const create = useCreateCredential();
   const update = useUpdateCredential();
   const remove = useDeleteCredential();
+
+  if (auth?.user?.role !== 'admin') {
+    return (
+      <main>
+        <p className="marker">Credentials</p>
+        <div role="alert" className="settings-error">Only admins can manage credentials.</div>
+      </main>
+    );
+  }
 
   function startAdd() {
     setError(null);

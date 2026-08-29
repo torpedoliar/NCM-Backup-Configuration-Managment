@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims, TokenPair
+from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository, hash_refresh_token
 from app_v4.service.deps import get_db, get_runtime, require_user
 from app_v4.service.problem import problem
@@ -60,7 +61,7 @@ async def login(
         raise problem(401, "Unauthorized", "Invalid username or password")
 
     auth_cfg = runtime.auth_settings_provider()
-    now = datetime.utcnow()
+    now = utc_now()
 
     if user.locked_until is not None and user.locked_until > now:
         await runtime.audit_writer.record(
@@ -136,7 +137,7 @@ async def refresh(
 ) -> LoginResponse:
     repo = Repository(session)
     current = await repo.get_session_by_refresh_hash(hash_refresh_token(payload.refresh_token))
-    if current is None or current.revoked or current.expires_at <= datetime.utcnow():
+    if current is None or current.revoked or current.expires_at <= utc_now():
         await runtime.audit_writer.record(
             action="auth.refresh_failed",
             ip=request.client.host if request.client else None,

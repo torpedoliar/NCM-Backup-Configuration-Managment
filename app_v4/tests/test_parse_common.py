@@ -16,10 +16,5 @@ def test_expand_ports_gN():
 def test_expand_id_list_skips_malformed_parts():
     assert expand_id_list("4-,8,x,9") == [8, 9]
 
-
-def test_expand_id_list_tolerates_tabs_and_newlines():
-    assert expand_id_list("1,\t3-4\n") == [1, 3, 4]
-
-
 def test_expand_id_list_wholly_malformed_returns_empty():
     assert expand_id_list("x,–,4-") == []

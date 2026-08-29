@@ -40,12 +40,12 @@ def test_dell_clean_fixture_produces_no_warnings():
 
 
 def test_dell_exit_ends_block_so_orphaned_lines_are_dropped():
-    # dell.txt carries editing damage: 'switchport trunk allowed vlan add 20'
-    # (line 128) and 'description KeAt8724' (line 65) both sit after an 'exit'
-    # with no interface line of their own. Without the exit reset they would
-    # leak onto the preceding block's ports.
+    # dell.txt carries editing damage: 'description KeAt8724' (line 65) sits
+    # after an 'exit' with no interface line of its own. Without the exit reset
+    # it would leak onto the preceding block's ports (g20 and g23).
     cfg = dell.parse(FIXTURE.read_text(encoding="utf-8"))
     assert _port(cfg, "g20").trunk_allowed_vlans == [4, 14, 15, 18, 24]
+    assert _port(cfg, "g20").description == "marissa"
     assert _port(cfg, "g23").description is None
 
 

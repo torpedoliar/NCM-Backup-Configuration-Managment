@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -79,6 +79,7 @@ class SchedulerService:
         self.job_time_map: dict[int, tuple[int, int]] = {}
         self._sync_task: asyncio.Task | None = None
         self._lock_acquired = False
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def _effective_timezone_name(self) -> str:
         try:
@@ -86,7 +87,50 @@ class SchedulerService:
         except Exception:
             return "Asia/Jakarta"
 
+    # ---- loop confinement -------------------------------------------------
+    # The AsyncIOScheduler is bound to the loop it is started on (the runtime
+    # thread). API handlers run on uvicorn's HTTP loop and must NOT touch the
+    # scheduler's in-memory job store from another thread — unfenced dict/list
+    # mutations (add_job/remove_job/reschedule) racing the loop's _process_jobs
+    # can raise ConflictingIdError/JobLookupError or drop jobs. Every public
+    # mutation therefore runs on the scheduler's own loop; callers on the HTTP
+    # loop briefly block (or await) for the result while the runtime loop
+    # stays safe.
+
+    @staticmethod
+    def _current_loop():
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+    async def _run_on_scheduler_loop(self, coro_factory):
+        """Run coroutine ``coro_factory()`` on the scheduler's own loop.
+
+        Returns an awaitable that resolves in the caller's loop. When already
+        on the scheduler loop (sync loop, job dispatch) it runs inline.
+        """
+        loop = self._loop
+        if loop is None or self._current_loop() is loop:
+            return await coro_factory()
+        return await asyncio.wrap_future(
+            asyncio.run_coroutine_threadsafe(coro_factory(), loop)
+        )
+
+    def _run_sync_on_scheduler_loop(self, func, *args):
+        """Run sync ``func`` on the scheduler's own loop, blocking briefly."""
+        loop = self._loop
+        if loop is None or self._current_loop() is loop:
+            return func(*args)
+
+        async def _wrapper():
+            return func(*args)
+
+        future = asyncio.run_coroutine_threadsafe(_wrapper(), loop)
+        return future.result()
+
     async def start(self) -> bool:
+        self._loop = asyncio.get_running_loop()
         if not self._acquire_lock():
             return False
         self.scheduler.start()
@@ -128,6 +172,9 @@ class SchedulerService:
         self._release_lock()
 
     async def sync_once(self) -> None:
+        await self._run_on_scheduler_loop(self._sync_once_impl)
+
+    async def _sync_once_impl(self) -> None:
         async with self.session_factory() as session:
             repo = Repository(session)
             jobs = await repo.list_jobs()
@@ -144,6 +191,27 @@ class SchedulerService:
                 self._rearm_job(job.id, jobs)
 
     def add_job(
+        self,
+        job_id: int,
+        switch_id: int,
+        interval_minutes: int,
+        schedule_hour: int,
+        schedule_minute: int,
+        day_of_week: str | None = None,
+        day_of_month: int | None = None,
+    ) -> None:
+        self._run_sync_on_scheduler_loop(
+            self._add_job,
+            job_id,
+            switch_id,
+            interval_minutes,
+            schedule_hour,
+            schedule_minute,
+            day_of_week,
+            day_of_month,
+        )
+
+    def _add_job(
         self,
         job_id: int,
         switch_id: int,
@@ -222,6 +290,9 @@ class SchedulerService:
         )
 
     def remove_job(self, job_id: int) -> None:
+        self._run_sync_on_scheduler_loop(self._remove_job, job_id)
+
+    def _remove_job(self, job_id: int) -> None:
         aps_id = self.job_map.pop(job_id, None)
         self.job_interval_map.pop(job_id, None)
         self.job_time_map.pop(job_id, None)
@@ -229,6 +300,9 @@ class SchedulerService:
             self.scheduler.remove_job(aps_id)
 
     def reschedule_retention(self, hour: int, minute: int) -> None:
+        self._run_sync_on_scheduler_loop(self._reschedule_retention, hour, minute)
+
+    def _reschedule_retention(self, hour: int, minute: int) -> None:
         if self.scheduler.get_job("retention-nightly"):
             self.scheduler.reschedule_job(
                 "retention-nightly",
@@ -236,6 +310,9 @@ class SchedulerService:
             )
 
     def reload_timezone(self) -> None:
+        self._run_sync_on_scheduler_loop(self._reload_timezone)
+
+    def _reload_timezone(self) -> None:
         new_tz = _resolve_timezone(self._effective_timezone_name())
         if new_tz.key == self.timezone.key:
             return
@@ -252,7 +329,12 @@ class SchedulerService:
             )
         for job_id in list(self.job_map):
             self.remove_job(job_id)
-        # Trigger sync_loop to reattach jobs with the new tz on next iteration.
+        # Re-arm all jobs immediately with the new timezone instead of waiting
+        # up to 30s for the sync loop — otherwise schedule editing stalls and a
+        # job could miss its next fire entirely. (Outside a running loop the
+        # periodic sync loop picks the jobs back up.)
+        if self._current_loop() is not None:
+            asyncio.create_task(self.sync_once())
 
     def next_run_for(self, job_id: int) -> datetime | None:
         aps_id = self.job_map.get(job_id)
@@ -301,22 +383,63 @@ class SchedulerService:
             await repo.update_job(job_id, last_ran_at=started_at)
             await session.commit()
 
+    def _schedule_is_missed(self, job, now: datetime) -> bool:
+        """True when a scheduled fire has passed since the job's last run.
+
+        Catch-up must recover schedules that were due while the host was off —
+        but NOT double-run a job that already produced a backup on schedule. We
+        ask the job's own trigger for the first fire at-or-after ``last_ran_at``:
+        when that fire is already in the past (or the job never ran at all), a
+        backup was genuinely missed; otherwise the next fire is still ahead and
+        there is nothing to recover.
+        """
+        last = job.last_ran_at
+        # A job that never ran (or whose last run predates the schedule) is
+        # always a candidate — the first fire is, by definition, missed.
+        if last is None:
+            return True
+        # last_ran_at is stored as naive UTC; the trigger works in the
+        # scheduler's local timezone, so convert both bounds into it.
+        last_local = last.replace(tzinfo=timezone.utc).astimezone(self.timezone)
+        now_local = now.replace(tzinfo=timezone.utc).astimezone(self.timezone)
+        trigger = self._build_trigger(
+            job.interval_minutes,
+            job.schedule_hour,
+            job.schedule_minute,
+            job.day_of_week,
+            job.day_of_month,
+        )
+        try:
+            # First fire on or after the job's last run.
+            next_after_last = trigger.get_next_fire_time(
+                previous_fire_time=last_local,
+                now=last_local,
+            )
+        except (ValueError, TypeError):
+            return False
+        if next_after_last is None:
+            # Schedule yields no future fire (e.g. past-only cron); nothing to recover.
+            return False
+        return next_after_last <= now_local
+
     async def catch_up_missed_schedules(self) -> dict[str, int]:
-        """Run every enabled job once on startup, mirroring legacy v3 behavior.
+        """Recover schedules that genuinely fired while the host was offline.
 
-        Why: when the host was off (or the backend was down) the scheduled
-        firing time passes silently. APScheduler's interval/cron triggers do
-        not back-date — they only fire from the next match forward. Running
-        each enabled job once at startup recovers a backup that would
-        otherwise have been missed and matches what the legacy app did.
+        When the host was off (or the backend down) a scheduled firing passes
+        silently: APScheduler does not back-date interval/cron triggers, it only
+        fires from the next match forward. Catch-up runs each enabled job on
+        startup ONLY when its schedule has actually produced a passed fire since
+        the job last ran (``_schedule_is_missed``) — so a daily schedule that
+        already produced a backup is never double-run after a routine restart.
 
-        Skipped jobs (disabled or pointing at a deactivated switch) are
-        counted in the return value so callers / tests can verify the
-        decision path.
+        Skipped jobs (disabled, inactive switch, or nothing missed) are counted
+        in the return value so callers / tests can verify the decision path.
         """
         started = 0
         skipped_disabled = 0
         skipped_inactive_switch = 0
+        skipped_not_due = 0
+        now = utc_now()
         async with self.session_factory() as session:
             repo = Repository(session)
             jobs = await repo.list_jobs()
@@ -329,6 +452,9 @@ class SchedulerService:
                 continue
             if job.switch_id not in active_switch_ids:
                 skipped_inactive_switch += 1
+                continue
+            if not self._schedule_is_missed(job, now):
+                skipped_not_due += 1
                 continue
             try:
                 await self.execute_scheduled_backup(job.id, job.switch_id)
@@ -344,6 +470,7 @@ class SchedulerService:
             "started": started,
             "skipped_disabled": skipped_disabled,
             "skipped_inactive_switch": skipped_inactive_switch,
+            "skipped_not_due": skipped_not_due,
         }
 
     def _build_trigger(

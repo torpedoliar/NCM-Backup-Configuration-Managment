@@ -18,6 +18,9 @@ export function SettingsAutostartSection() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // The mechanism select is locked once installed; data.method may not match
+  // the initial local `method` state, so remember the installed one for disables.
+  const installedMethod = data?.method ?? null;
 
   if (isLoading || !data) return <p>Loading…</p>;
 
@@ -28,7 +31,10 @@ export function SettingsAutostartSection() {
       {
         enabled: next,
         trigger,
-        method,
+        // When disabling, always target the mechanism that is actually
+        // installed — the mechanism select is locked once installed, so the
+        // local `method` state may not match it.
+        method: next ? method : installedMethod ?? method,
         run_whether_logged_on: runLoggedOn,
         username: runLoggedOn ? username : undefined,
         password: runLoggedOn ? password : undefined,

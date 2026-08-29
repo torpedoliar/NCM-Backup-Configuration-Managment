@@ -75,3 +75,6 @@ production/
 *.zip
 *.exe
 Sample Backup/
+
+# Pre-build data backups (live app.db + master keys) - never commit
+_prebuild_backup_*/

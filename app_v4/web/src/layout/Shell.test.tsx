@@ -3,6 +3,8 @@ import { it, expect, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Shell } from './Shell';
 
+vi.mock('../lib/ws', () => ({ useLiveSocket: () => undefined }));
+
 vi.mock('../auth/AuthProvider', () => ({
   useAuth: () => ({
     user: { id: 1, username: 'admin', role: 'admin', is_active: true },
@@ -11,6 +13,7 @@ vi.mock('../auth/AuthProvider', () => ({
     login: vi.fn(),
     logout: vi.fn(),
   }),
+  useOptionalAuth: () => ({ accessToken: 'token' }),
 }));
 
 vi.mock('../api/hooks', () => ({

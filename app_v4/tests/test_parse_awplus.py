@@ -87,3 +87,50 @@ def test_awplus_malformed_vlan_id_warns_instead_of_raising():
     assert p.native_vlan is None
     assert len(cfg.warnings) == 2
     assert all("unparsable vlan id" in w for w in cfg.warnings)
+
+
+def test_awplus_range_interfaces_expand_into_individual_ports():
+    """Range lines like 'interface port1.0.1-1.0.2' must yield one port per
+    member, not vanish (regression: single-port regex only)."""
+    cfg = awplus.parse(
+        "hostname X\n"
+        "!\n"
+        "interface port1.0.1-1.0.2\n"
+        " switchport mode trunk\n"
+        " switchport trunk allowed vlan add 107,900\n"
+        " switchport trunk native vlan 2\n"
+        "!\n"
+        "interface port1.0.3-1.0.12\n"
+        " switchport mode trunk\n"
+        " switchport trunk allowed vlan add 107,900\n"
+        "!\n"
+        "interface port1.0.13\n"
+        " shutdown\n"
+        " switchport mode trunk\n"
+        " switchport trunk allowed vlan add 2,107,900\n"
+        "!\n"
+    )
+    assert {p.name for p in cfg.ports} == {f"port1.0.{n}" for n in range(1, 14)}
+    p1 = _port(cfg, "port1.0.1")
+    assert p1.mode == "trunk"
+    assert p1.native_vlan == 2
+    assert p1.trunk_allowed_vlans == [107, 900]
+    p12 = _port(cfg, "port1.0.12")
+    assert p12.trunk_allowed_vlans == [107, 900]
+    p13 = _port(cfg, "port1.0.13")
+    assert p13.enabled is False
+    assert p13.trunk_allowed_vlans == [2, 107, 900]
+
+
+def test_awplus_comma_list_interface_expands():
+    cfg = awplus.parse(
+        "hostname X\n"
+        "!\n"
+        "interface port1.0.1,port1.0.3-1.0.4\n"
+        " shutdown\n"
+        " switchport mode access\n"
+        "!\n"
+    )
+    assert {p.name for p in cfg.ports} == {"port1.0.1", "port1.0.3", "port1.0.4"}
+    assert all(p.enabled is False for p in cfg.ports)
+    assert all(p.mode == "access" for p in cfg.ports)

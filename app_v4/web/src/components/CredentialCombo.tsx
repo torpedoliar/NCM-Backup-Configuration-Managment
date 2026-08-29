@@ -7,11 +7,14 @@ export function CredentialCombo({
   value,
   onChange,
   onCreateNew,
+  allowCreate = true,
 }: {
   credentials: CredentialRecord[];
   value: number | null;
   onChange: (id: number) => void;
   onCreateNew: () => void;
+  /** Hides the "+ New credential" option. Credential creation is admin-only. */
+  allowCreate?: boolean;
 }) {
   return (
     <select
@@ -34,7 +37,7 @@ export function CredentialCombo({
           {c.name}
         </option>
       ))}
-      <option value={NEW_SENTINEL}>+ New credential</option>
+      {allowCreate ? <option value={NEW_SENTINEL}>+ New credential</option> : null}
     </select>
   );
 }

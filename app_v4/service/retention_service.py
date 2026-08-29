@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import select
 
+from app_v4.core.utcdatetime import utc_now
 from app_v4.core.config import Settings
 from app_v4.data.models import Backup, Switch
 from app_v4.data.repository import Repository
@@ -41,7 +42,7 @@ class RetentionService:
         return self._effective_retention_settings().audit_retention_days
 
     async def trim_audit(self) -> int:
-        cutoff = datetime.utcnow() - timedelta(days=self._effective_audit_retention_days())
+        cutoff = utc_now() - timedelta(days=self._effective_audit_retention_days())
         async with self.session_factory() as session:
             repo = Repository(session)
             deleted = await repo.delete_audit_older_than(cutoff)
@@ -50,7 +51,7 @@ class RetentionService:
 
     async def trim_backups(self) -> dict[str, int]:
         cfg = self._effective_retention_settings()
-        cutoff = datetime.utcnow() - timedelta(days=cfg.backup_retention_days)
+        cutoff = utc_now() - timedelta(days=cfg.backup_retention_days)
         deleted_rows = 0
         deleted_files = 0
         async with self.session_factory() as session:

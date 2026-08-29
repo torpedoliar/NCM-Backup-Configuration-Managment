@@ -1,15 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   downloadBackup,
   downloadBackupReport,
+  fetchBackupContent,
   useDeleteBackup,
-  useFilteredBackups,
+  usePagedBackups,
   useSwitches,
 } from '../api/hooks';
 import { useAuth } from '../auth/AuthProvider';
-import { BackupViewModal } from '../components/BackupViewModal';
 import type { BackupFilters } from '../api/types';
 import { formatTzDateTime } from '../lib/fmt';
+
+const BACKUPS_PER_PAGE = 10;
 
 function defaultFromIso(): string {
   const d = new Date();
@@ -23,10 +25,35 @@ export function HistoryPage() {
   const [filters, setFilters] = useState<BackupFilters>(() => ({
     from_ts: `${defaultFromIso()}T00:00:00Z`,
   }));
+  const [page, setPage] = useState(0);
   const [viewing, setViewing] = useState<number | null>(null);
+  const [viewText, setViewText] = useState<string | null>(null);
+  const [viewError, setViewError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
   const { data: switches = [] } = useSwitches();
-  const { data: rows = [] } = useFilteredBackups(filters);
+  const paged = usePagedBackups(filters, { offset: page * BACKUPS_PER_PAGE, limit: BACKUPS_PER_PAGE });
+  const rows = paged.data?.rows ?? [];
+  const total = paged.data?.total ?? 0;
   const remove = useDeleteBackup();
+
+  useEffect(() => {
+    setPage(0);
+  }, [filters]);
+
+  useEffect(() => {
+    if (viewing === null) return;
+    let cancelled = false;
+    setViewText(null);
+    setViewError(null);
+    fetchBackupContent(viewing)
+      .then((t) => { if (!cancelled) setViewText(t); })
+      .catch((err) => { if (!cancelled) setViewError(err.message ?? 'Failed to load'); });
+    return () => { cancelled = true; };
+  }, [viewing]);
+
+  const pageCount = Math.max(1, Math.ceil(total / BACKUPS_PER_PAGE));
+  const safePage = Math.min(page, pageCount - 1);
 
   function isoToDateInput(iso?: string): string {
     return iso ? iso.slice(0, 10) : '';
@@ -37,6 +64,19 @@ export function HistoryPage() {
   function dateInputToIsoEnd(value: string): string | undefined {
     return value ? `${value}T23:59:59Z` : undefined;
   }
+
+  async function copy() {
+    if (viewText === null) return;
+    try {
+      await navigator.clipboard.writeText(viewText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API may be unavailable; ignore silently.
+    }
+  }
+
+  const pageRows = rows;
 
   return (
     <main>
@@ -120,7 +160,7 @@ export function HistoryPage() {
           <tr><th>Time</th><th>Switch</th><th>Type</th><th>State</th><th>Size</th><th>Message</th><th>Actions</th></tr>
         </thead>
         <tbody>
-          {rows.map((b) => {
+          {pageRows.map((b) => {
             const switchName = switches.find((s) => s.id === b.switch_id)?.name ?? b.switch_id;
             return (
               <tr key={b.id}>
@@ -148,7 +188,31 @@ export function HistoryPage() {
       </table>
       </div>
 
-      {viewing !== null && <BackupViewModal backupId={viewing} onClose={() => setViewing(null)} />}
+      <div className="pager">
+        <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={safePage === 0}>‹ Prev</button>
+        <span className="marker">PAGE {safePage + 1} / {pageCount}</span>
+        <button onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={safePage >= pageCount - 1}>Next ›</button>
+      </div>
+
+      <section className="viewer-box" aria-label="Backup config viewer">
+        <header className="viewer-box-header">
+          <span className="marker">VIEW CONFIG{viewing !== null ? ` · BACKUP #${viewing}` : ''}</span>
+          {viewing !== null && (
+            <div className="row-actions">
+              <button onClick={copy} disabled={viewText === null}>
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+              <button onClick={() => setViewing(null)}>Close</button>
+            </div>
+          )}
+        </header>
+        {viewError ? <p role="alert" className="viewer-empty">{viewError}</p> : null}
+        {viewing !== null && viewText === null && !viewError ? <p className="viewer-empty">Loading…</p> : null}
+        {viewText !== null ? <pre className="viewer-pre">{viewText}</pre> : null}
+        {viewing === null ? (
+          <p className="viewer-empty">Select a backup and click View to inspect its config here.</p>
+        ) : null}
+      </section>
     </main>
   );
 }

@@ -99,6 +99,8 @@ def _hostname(text: str) -> str | None:
         declared = int(m.group(1))
     except ValueError:
         return None
+    if declared < 0:
+        return None
     name = m.group(2).encode("latin-1", errors="replace")[:declared]
     return name.decode("latin-1").strip("\x00").strip() or None
 

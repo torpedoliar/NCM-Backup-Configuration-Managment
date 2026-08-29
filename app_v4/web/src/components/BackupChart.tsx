@@ -9,8 +9,8 @@ function dayKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-export function BackupChart({ range }: { range: DashboardRange }) {
-  const { data = [] } = useBackups();
+export function BackupChart({ range, fromTs }: { range: DashboardRange; fromTs?: string }) {
+  const { data = [] } = useBackups(undefined, { from_ts: fromTs });
   const days = DAYS_PER_RANGE[range];
   const today = new Date();
 

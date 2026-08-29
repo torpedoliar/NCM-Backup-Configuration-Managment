@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims
+from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
 from app_v4.net.config_parsers import detect_dialect, parse_config
 from app_v4.service.deps import get_db, get_runtime, require_role
@@ -113,8 +114,10 @@ async def trigger_backup(
 
 @router.get("/backups", response_model=list[BackupOut])
 async def list_backups(
+    response: Response,
     switch_id: int | None = None,
     limit: int = 100,
+    offset: int = 0,
     success: bool | None = None,
     backup_type: str | None = None,
     from_ts: datetime | None = None,
@@ -124,11 +127,21 @@ async def list_backups(
     _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
 ) -> list[BackupOut]:
     repo = Repository(session)
+    total = await repo.count_backups(
+        switch_id=switch_id,
+        success=success,
+        backup_type=backup_type,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        q=q,
+    )
+    response.headers["X-Total-Count"] = str(total)
     return [
         _to_out(b)
         for b in await repo.list_backups(
             switch_id=switch_id,
             limit=limit,
+            offset=offset,
             success=success,
             backup_type=backup_type,
             from_ts=from_ts,
@@ -136,6 +149,19 @@ async def list_backups(
             q=q,
         )
     ]
+
+
+@router.get("/backups/latest-per-switch", response_model=list[BackupOut])
+async def latest_backup_per_switch(
+    session: AsyncSession = Depends(get_db),
+    _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
+) -> list[BackupOut]:
+    """Newest successful backup for every switch (server-side grouping).
+
+    Declared before ``/backups/{backup_id}`` so the literal path wins.
+    """
+    repo = Repository(session)
+    return [_to_out(b) for b in await repo.latest_backup_per_switch(only_success=True)]
 
 
 @router.get("/backups/report")
@@ -179,7 +205,7 @@ async def export_backups_report(
         )
         for row in rows
     ]
-    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    stamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
     if format == "csv":
         body = render_csv(report_rows)
         filename = f"backups-{stamp}.csv"
