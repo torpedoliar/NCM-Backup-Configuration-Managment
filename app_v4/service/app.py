@@ -16,6 +16,7 @@ from app_v4.service.api import (
     credentials,
     jobs,
     network_doc,
+    reviews,
     switches,
     system,
     users,
@@ -45,6 +46,7 @@ def create_app(runtime: ServiceRuntime) -> FastAPI:
     app.include_router(backups.router, prefix="/api/v1")
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(network_doc.router, prefix="/api/v1")
+    app.include_router(reviews.router, prefix="/api/v1")
     app.include_router(system.router, prefix="/api/v1")
     app.include_router(autostart.router, prefix="/api/v1")
     app.include_router(ws.router)

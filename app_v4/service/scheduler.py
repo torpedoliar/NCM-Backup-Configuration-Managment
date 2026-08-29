@@ -61,12 +61,16 @@ class SchedulerService:
         backup_service: BackupService,
         event_hub: EventHub | None = None,
         retention_service: RetentionService | None = None,
+        review_service=None,
+        notify=None,
     ):
         self.settings = settings
         self.session_factory = session_factory
         self.backup_service = backup_service
         self.event_hub = event_hub
         self.retention_service = retention_service
+        self.review_service = review_service
+        self.notify = notify
         self._lock_file = resolve_paths(settings).scheduler_lock_file
         self._runtime_settings_path = resolve_paths(settings).data_dir / "runtime_settings.json"
         self.timezone = _resolve_timezone(self._effective_timezone_name())
@@ -145,6 +149,7 @@ class SchedulerService:
                 id="retention-nightly",
                 replace_existing=True,
             )
+        self._arm_review_reminder()
         await self.sync_once()
         # Match legacy: run enabled jobs once on startup so missed schedules
         # while the host/backend was offline still get a backup. Failures
@@ -307,6 +312,66 @@ class SchedulerService:
             self.scheduler.reschedule_job(
                 "retention-nightly",
                 trigger=CronTrigger(hour=hour, minute=minute, timezone=self.timezone),
+            )
+
+    # ----- review reminder (ISO 27001 config management) -----
+
+    def _arm_review_reminder(self) -> None:
+        """Register the daily review-reminder job from runtime settings.
+
+        Best-effort: a missing/invalid notify section must not stop startup.
+        """
+        try:
+            from app_v4.core.runtime_settings import load_runtime_settings
+            rs = load_runtime_settings(self._runtime_settings_path)
+            self.scheduler.add_job(
+                self._run_review_reminder,
+                CronTrigger(
+                    hour=rs.notify.review_reminder_hour,
+                    minute=rs.notify.review_reminder_minute,
+                    timezone=self.timezone,
+                ),
+                id="review-reminder",
+                replace_existing=True,
+            )
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(
+                "failed to arm review-reminder job", exc_info=True
+            )
+
+    def reschedule_review_reminder(self, hour: int, minute: int) -> None:
+        self._run_sync_on_scheduler_loop(self._reschedule_review_reminder, hour, minute)
+
+    def _reschedule_review_reminder(self, hour: int, minute: int) -> None:
+        if self.scheduler.get_job("review-reminder"):
+            self.scheduler.reschedule_job(
+                "review-reminder",
+                trigger=CronTrigger(hour=hour, minute=minute, timezone=self.timezone),
+            )
+
+    async def _run_review_reminder(self) -> None:
+        """Daily: email pending reviews + baseline gaps to configured recipients.
+
+        Best-effort — a notifier failure must never break the scheduler loop.
+        """
+        if self.review_service is None or self.notify is None:
+            return
+        try:
+            from app_v4.core.runtime_settings import load_runtime_settings
+            rs = load_runtime_settings(self._runtime_settings_path)
+            if not rs.notify.email_enabled:
+                return
+            content = await self.review_service.send_reminder()
+            subject, body = content["subject"], content["body"]
+            if not subject:
+                return
+            body = body.replace("Review queue: \n", f"Review queue: {self.notify.review_url()}\n")
+            await self.notify.email(subject, body)
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(
+                "review reminder send failed", exc_info=True
             )
 
     def reload_timezone(self) -> None:

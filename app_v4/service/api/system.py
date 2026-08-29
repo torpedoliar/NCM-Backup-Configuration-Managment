@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from app_v4.core.logging import LOG_FILE_NAME
 from app_v4.core.paths import resolve_paths
-from app_v4.core.runtime_settings import BackupLocationSettings, TimeSettings, load_runtime_settings, save_runtime_settings
+from app_v4.core.runtime_settings import BackupLocationSettings, NotifySettings, TimeSettings, load_runtime_settings, save_runtime_settings
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +46,7 @@ class MetricsResponse(BaseModel):
     jobs: int
     failures_24h: int
     failures_total: int
+    pending_reviews: int
 
 
 class RetentionResponse(BaseModel):
@@ -141,6 +142,7 @@ async def metrics(
         jobs=values["jobs"],
         failures_24h=values["failures_24h"],
         failures_total=values["failures_total"],
+        pending_reviews=values["pending_reviews"],
     )
 
 
@@ -433,6 +435,134 @@ async def patch_time_settings(
         detail={"changes": updates},
     )
     return _build_time_response(runtime)
+
+
+class NotifySettingsResponse(BaseModel):
+    enabled: bool
+    webhook_url: str
+    email_enabled: bool
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    smtp_password: str
+    smtp_tls: bool
+    email_to: list[str]
+    app_public_url: str
+    review_reminder_hour: int
+    review_reminder_minute: int
+
+
+class NotifySettingsPatch(BaseModel):
+    enabled: bool | None = None
+    webhook_url: str | None = Field(default=None, max_length=500)
+    email_enabled: bool | None = None
+    smtp_host: str | None = Field(default=None, max_length=255)
+    smtp_port: int | None = Field(default=None, ge=1, le=65535)
+    smtp_username: str | None = Field(default=None, max_length=255)
+    smtp_password: str | None = Field(default=None, max_length=255)
+    smtp_tls: bool | None = None
+    email_to: list[str] | None = None
+    app_public_url: str | None = Field(default=None, max_length=500)
+    review_reminder_hour: int | None = Field(default=None, ge=0, le=23)
+    review_reminder_minute: int | None = Field(default=None, ge=0, le=59)
+
+
+def _build_notify_response(rs) -> NotifySettingsResponse:
+    return NotifySettingsResponse(
+        enabled=rs.notify.enabled,
+        webhook_url=rs.notify.webhook_url,
+        email_enabled=rs.notify.email_enabled,
+        smtp_host=rs.notify.smtp_host,
+        smtp_port=rs.notify.smtp_port,
+        smtp_username=rs.notify.smtp_username,
+        smtp_password=rs.notify.smtp_password,
+        smtp_tls=rs.notify.smtp_tls,
+        email_to=list(rs.notify.email_to),
+        app_public_url=rs.notify.app_public_url,
+        review_reminder_hour=rs.notify.review_reminder_hour,
+        review_reminder_minute=rs.notify.review_reminder_minute,
+    )
+
+
+@router.get("/notify-settings", response_model=NotifySettingsResponse)
+async def get_notify_settings(
+    runtime: ServiceRuntime = Depends(get_runtime),
+    _user=Depends(require_role("admin", "operator")),
+) -> NotifySettingsResponse:
+    paths = resolve_paths(runtime.settings)
+    rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
+    return _build_notify_response(rs)
+
+
+@router.patch("/notify-settings", response_model=NotifySettingsResponse)
+async def patch_notify_settings(
+    payload: NotifySettingsPatch,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    user: AccessClaims = Depends(require_role("admin")),
+) -> NotifySettingsResponse:
+    paths = resolve_paths(runtime.settings)
+    target = paths.data_dir / "runtime_settings.json"
+    updates = payload.model_dump(exclude_none=True)
+    async with runtime.runtime_settings_lock:
+        current = load_runtime_settings(target)
+        old = current.notify
+        new_notify = NotifySettings(
+            enabled=updates.get("enabled", old.enabled),
+            webhook_url=updates.get("webhook_url", old.webhook_url),
+            email_enabled=updates.get("email_enabled", old.email_enabled),
+            smtp_host=updates.get("smtp_host", old.smtp_host),
+            smtp_port=updates.get("smtp_port", old.smtp_port),
+            smtp_username=updates.get("smtp_username", old.smtp_username),
+            smtp_password=updates.get("smtp_password", old.smtp_password),
+            smtp_tls=updates.get("smtp_tls", old.smtp_tls),
+            email_to=tuple(updates.get("email_to", list(old.email_to))),
+            app_public_url=updates.get("app_public_url", old.app_public_url),
+            review_reminder_hour=updates.get("review_reminder_hour", old.review_reminder_hour),
+            review_reminder_minute=updates.get("review_reminder_minute", old.review_reminder_minute),
+        )
+        save_runtime_settings(target, replace(current, notify=new_notify))
+        if runtime.scheduler_service is not None and (
+            "review_reminder_hour" in updates or "review_reminder_minute" in updates
+        ):
+            runtime.scheduler_service.reschedule_review_reminder(
+                new_notify.review_reminder_hour,
+                new_notify.review_reminder_minute,
+            )
+    await runtime.audit_writer.record(
+        user_id=user.user_id,
+        action="system.notify_settings_updated",
+        ip=request.client.host if request.client else None,
+        detail={"changes": updates},
+    )
+    saved = load_runtime_settings(target)
+    return _build_notify_response(saved)
+
+
+@router.post("/notify/test")
+async def test_notify(
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    user: AccessClaims = Depends(require_role("admin")),
+) -> dict:
+    if runtime.notify is None:
+        raise problem(503, "Service Unavailable", "Notifier is not initialized")
+    paths = resolve_paths(runtime.settings)
+    rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
+    if not rs.notify.email_enabled:
+        raise problem(422, "Unprocessable Entity", "Email notifications are disabled")
+    subject = "NCM v4: test notification"
+    body = f"A test notification from NCM v4. Review queue: {runtime.notify.review_url()}"
+    result = await runtime.notify.email(subject, body)
+    await runtime.audit_writer.record(
+        user_id=user.user_id,
+        action="system.notify_test",
+        ip=request.client.host if request.client else None,
+        detail={"ok": result.ok, "channel": result.channel, "detail": result.detail},
+    )
+    if not result.ok:
+        raise problem(502, "Bad Gateway", f"Notification failed: {result.detail}")
+    return {"ok": True, "channel": result.channel}
 
 
 class RetentionRunResponse(BaseModel):

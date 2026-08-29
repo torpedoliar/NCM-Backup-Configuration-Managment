@@ -31,6 +31,12 @@ export function Sidebar() {
           ? []
           : [{ href: '/credentials', text: 'Credentials', icon: '⌁' }]),
         { href: '/schedules', text: 'Schedules', count: count(metrics?.jobs), icon: '◷' },
+        ...(role === 'viewer'
+          ? []
+          : [
+              { href: '/config-review', text: 'Config Review', count: count(metrics?.pending_reviews), icon: '⚠' },
+              { href: '/baselines', text: 'Baselines', icon: '☰' },
+            ]),
       ],
     },
     {

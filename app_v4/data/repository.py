@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app_v4.data.models import ApiKey, AuditLog, Backup, Credential, Job, Session, Switch, User
+from app_v4.data.models import ApiKey, AuditLog, Backup, ConfigBaseline, ConfigReview, Credential, Job, Session, Switch, User
 
 
 NULLABLE_FIELDS = {"day_of_week", "day_of_month"}
@@ -482,6 +482,145 @@ class Repository:
         await self.session.delete(backup)
         return True
 
+    # ----- config baselines & reviews -----
+
+    async def create_baseline(
+        self,
+        kind: str,
+        switch_id: int | None,
+        model: str | None,
+        backup_id: int | None,
+        content_hash: str,
+        created_by: int | None,
+    ) -> ConfigBaseline:
+        baseline = ConfigBaseline(
+            kind=kind,
+            switch_id=switch_id,
+            model=model,
+            backup_id=backup_id,
+            content_hash=content_hash,
+            created_by=created_by,
+        )
+        self.session.add(baseline)
+        await self.session.flush()
+        return baseline
+
+    async def get_baseline_for_switch(self, switch: Switch) -> ConfigBaseline | None:
+        """Per-switch baseline first, then the model template (if switch.model set)."""
+        if switch.id is not None:
+            result = await self.session.execute(
+                select(ConfigBaseline)
+                .where(ConfigBaseline.kind == "switch", ConfigBaseline.switch_id == switch.id)
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+            if row is not None:
+                return row
+        if switch.model:
+            result = await self.session.execute(
+                select(ConfigBaseline)
+                .where(ConfigBaseline.kind == "model", ConfigBaseline.model == switch.model)
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
+        return None
+
+    async def list_baselines(self) -> list[ConfigBaseline]:
+        result = await self.session.execute(
+            select(ConfigBaseline).order_by(ConfigBaseline.kind, ConfigBaseline.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_baseline(self, baseline_id: int) -> ConfigBaseline | None:
+        result = await self.session.get(ConfigBaseline, baseline_id)
+        return result
+
+    async def delete_baseline(self, baseline_id: int) -> bool:
+        baseline = await self.get_baseline(baseline_id)
+        if baseline is None:
+            return False
+        await self.session.delete(baseline)
+        return True
+
+    async def create_review(
+        self,
+        switch_id: int,
+        backup_id: int,
+        baseline_id: int | None,
+        raw_diff: str,
+        diff_summary: str,
+    ) -> ConfigReview:
+        review = ConfigReview(
+            switch_id=switch_id,
+            backup_id=backup_id,
+            baseline_id=baseline_id,
+            status="pending",
+            raw_diff=raw_diff,
+            diff_summary=diff_summary,
+        )
+        self.session.add(review)
+        await self.session.flush()
+        return review
+
+    async def list_reviews(
+        self,
+        status: str | None = None,
+        switch_id: int | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[ConfigReview]:
+        stmt = select(ConfigReview).order_by(ConfigReview.created_at.desc())
+        if status is not None:
+            stmt = stmt.where(ConfigReview.status == status)
+        if switch_id is not None:
+            stmt = stmt.where(ConfigReview.switch_id == switch_id)
+        if offset:
+            stmt = stmt.offset(offset)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_review(self, review_id: int) -> ConfigReview | None:
+        result = await self.session.get(ConfigReview, review_id)
+        return result
+
+    async def update_review(
+        self,
+        review_id: int,
+        status: str | None = None,
+        reviewed_by: int | None = None,
+        comment: str | None = None,
+    ) -> ConfigReview | None:
+        review = await self.get_review(review_id)
+        if review is None:
+            return None
+        if status is not None:
+            review.status = status
+            review.reviewed_by = reviewed_by
+            review.reviewed_at = utc_now()
+        if comment is not None:
+            review.comment = comment
+        await self.session.flush()
+        return review
+
+    async def count_reviews_by_status(self) -> dict[str, int]:
+        rows = (
+            await self.session.execute(
+                select(ConfigReview.status, func.count(ConfigReview.id)).group_by(ConfigReview.status)
+            )
+        ).all()
+        return {status: int(count) for status, count in rows}
+
+    async def list_switches_missing_baseline(self) -> list[Switch]:
+        """Active switches that have neither a per-switch nor a model baseline."""
+        switches = await self.list_switches(include_inactive=False)
+        out: list[Switch] = []
+        for sw in switches:
+            if await self.get_baseline_for_switch(sw) is None:
+                out.append(sw)
+        return out
+
     # ----- jobs -----
 
     async def create_job(
@@ -561,6 +700,10 @@ class Repository:
                     .where(Backup.success.is_(False))
                     .scalar_subquery()
                     .label("failures_total"),
+                    select(func.count(ConfigReview.id))
+                    .where(ConfigReview.status == "pending")
+                    .scalar_subquery()
+                    .label("pending_reviews"),
                 )
             )
         ).one()
@@ -570,6 +713,7 @@ class Repository:
             "jobs": int(row.jobs),
             "failures_24h": int(row.failures_24h),
             "failures_total": int(row.failures_total),
+            "pending_reviews": int(row.pending_reviews),
         }
 
 

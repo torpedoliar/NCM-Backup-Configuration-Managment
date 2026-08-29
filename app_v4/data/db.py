@@ -38,6 +38,7 @@ async def _run_sqlite_migrations(conn) -> None:
     await conn.execute(text("create index if not exists ix_backups_triggered_by_user_id on backups (triggered_by_user_id)"))
     await _add_column_if_missing(conn, "switches", "is_active", "INTEGER NOT NULL DEFAULT 1")
     await _add_column_if_missing(conn, "switches", "deactivated_at", "DATETIME")
+    await _add_column_if_missing(conn, "switches", "model", "VARCHAR(100)")
     await _add_column_if_missing(conn, "jobs", "day_of_week", "VARCHAR(3)")
     await _add_column_if_missing(conn, "jobs", "day_of_month", "INTEGER")
     await _add_column_if_missing(conn, "jobs", "name", "VARCHAR(100)")

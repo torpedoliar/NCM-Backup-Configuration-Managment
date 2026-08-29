@@ -48,6 +48,8 @@ class ServiceRuntime:
     backup_service: BackupService | None = None
     scheduler_service: SchedulerService | None = None
     retention_service: RetentionService | None = None
+    review_service: object | None = None
+    notify: object | None = None
     started_at: datetime = field(default_factory=utc_now)
 
     async def shutdown(self) -> None:
@@ -64,6 +66,7 @@ class ServiceRuntime:
         backup_service: BackupService | None = None,
         scheduler_service: SchedulerService | None = None,
         retention_service: RetentionService | None = None,
+        review_service=None,
         auth_settings: AuthSettings | None = None,
     ) -> "ServiceRuntime":
         provider: AuthSettingsProvider = lambda: auth_settings or AuthSettings()
@@ -78,6 +81,7 @@ class ServiceRuntime:
             backup_service=backup_service,
             scheduler_service=scheduler_service,
             retention_service=retention_service,
+            review_service=review_service,
         )
 
 
@@ -100,13 +104,26 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
         session_factory,
         runtime_settings_path=runtime_settings_path,
     )
-    backup_service = BackupService(settings, session_factory, crypto, event_hub=event_hub)
+    from app_v4.service.notify import Notifier
+    from app_v4.service.review_service import ReviewService
+
+    notify = Notifier(runtime_settings_path)
+    review_service = ReviewService(settings, session_factory)
+    backup_service = BackupService(
+        settings,
+        session_factory,
+        crypto,
+        event_hub=event_hub,
+        review_service=review_service,
+    )
     scheduler_service = SchedulerService(
         settings,
         session_factory,
         backup_service,
         event_hub=event_hub,
         retention_service=retention_service,
+        review_service=review_service,
+        notify=notify,
     )
     await scheduler_service.start()
     runtime = ServiceRuntime(
@@ -123,5 +140,7 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
         backup_service=backup_service,
         scheduler_service=scheduler_service,
         retention_service=retention_service,
+        review_service=review_service,
+        notify=notify,
     )
     return runtime, engine

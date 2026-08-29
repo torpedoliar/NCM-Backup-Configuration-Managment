@@ -14,6 +14,8 @@ function describe(event: { type: string; payload: Record<string, unknown> }): st
       return `${name} backup started`.trim();
     case 'job_triggered':
       return `Scheduled job triggered (switch ${event.payload.switch_id ?? '?'})`;
+    case 'config_drift':
+      return `${name} config drift detected, review #${event.payload.review_id ?? '?'}`.trim();
     default:
       return event.type;
   }

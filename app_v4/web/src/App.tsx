@@ -15,6 +15,8 @@ const SchedulesPage = lazy(() => import('./pages/SchedulesPage').then((m) => ({ 
 const UsersPage = lazy(() => import('./pages/UsersPage').then((m) => ({ default: m.UsersPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const AuditPage = lazy(() => import('./pages/AuditPage').then((m) => ({ default: m.AuditPage })));
+const ConfigReviewPage = lazy(() => import('./pages/ConfigReviewPage').then((m) => ({ default: m.ConfigReviewPage })));
+const BaselinesPage = lazy(() => import('./pages/BaselinesPage').then((m) => ({ default: m.BaselinesPage })));
 
 function PageFallback() {
   return <div className="marker" style={{ padding: 24 }}>/LOADING</div>;
@@ -35,6 +37,8 @@ export function App() {
               <Route path="/diff" component={DiffPage} />
               <Route path="/decode" component={DecodePage} />
               <Route path="/schedules" component={SchedulesPage} />
+              <Route path="/config-review" component={ConfigReviewPage} />
+              <Route path="/baselines" component={BaselinesPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/settings" component={SettingsPage} />
               <Route path="/settings/:tab" component={SettingsPage} />

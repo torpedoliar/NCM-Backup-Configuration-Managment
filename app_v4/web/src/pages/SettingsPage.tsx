@@ -4,6 +4,7 @@ import { SettingsRetentionSection } from './settings/SettingsRetentionSection';
 import { SettingsAuthSection } from './settings/SettingsAuthSection';
 import { SettingsTimeSection } from './settings/SettingsTimeSection';
 import { SettingsAutostartSection } from './settings/SettingsAutostartSection';
+import { SettingsNotificationsSection } from './settings/SettingsNotificationsSection';
 import { SettingsLogsSection } from './settings/SettingsLogsSection';
 import { SettingsAboutSection } from './settings/SettingsAboutSection';
 import { SettingsApiSection } from './settings/SettingsApiSection';
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'retention', label: 'Retention', section: <SettingsRetentionSection /> },
   { id: 'time', label: 'Time / NTP', section: <SettingsTimeSection /> },
   { id: 'autostart', label: 'Auto-start', section: <SettingsAutostartSection /> },
+  { id: 'notify', label: 'Notifications', section: <SettingsNotificationsSection /> },
   { id: 'auth', label: 'Authentication', section: <SettingsAuthSection /> },
   { id: 'api', label: 'API', section: <SettingsApiSection /> },
   { id: 'logs', label: 'Logs', section: <SettingsLogsSection /> },

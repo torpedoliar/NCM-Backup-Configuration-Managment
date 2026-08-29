@@ -19,6 +19,7 @@ export interface SystemMetrics {
   jobs: number;
   failures_24h: number;
   failures_total: number;
+  pending_reviews: number;
 }
 
 export interface LiveEvent {
@@ -261,4 +262,72 @@ export interface DecodedBackup {
   vlans: DecodeVlan[];
   ports: DecodePort[];
   parse_warnings: string[];
+}
+
+export type ConfigBaselineKind = 'switch' | 'model';
+
+export interface ConfigBaseline {
+  id: number;
+  kind: ConfigBaselineKind;
+  switch_id: number | null;
+  switch_name: string | null;
+  model: string | null;
+  backup_id: number | null;
+  content_hash: string;
+  created_at: string;
+}
+
+export interface BaselineCreateInput {
+  kind: ConfigBaselineKind;
+  switch_id?: number | null;
+  model?: string | null;
+  backup_id?: number | null;
+}
+
+export type ConfigReviewStatus = 'pending' | 'approved' | 'flagged' | 'dismissed';
+
+export interface ConfigReview {
+  id: number;
+  switch_id: number;
+  switch_name: string | null;
+  backup_id: number;
+  baseline_id: number | null;
+  status: ConfigReviewStatus;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+  comment: string | null;
+  diff_summary: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ReviewFilters {
+  status?: ConfigReviewStatus | '';
+  switch_id?: number;
+}
+
+export interface ComplianceSummary {
+  switches_total: number;
+  switches_with_baseline: number;
+  switches_missing_baseline: string[];
+  baselines_stale: string[];
+  attestation_days: number;
+  reviews_pending: number;
+  reviews_approved: number;
+  reviews_flagged: number;
+  reviews_dismissed: number;
+}
+
+export interface NotifySettings {
+  enabled: boolean;
+  webhook_url: string;
+  email_enabled: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_username: string;
+  smtp_password: string;
+  smtp_tls: boolean;
+  email_to: string[];
+  app_public_url: string;
+  review_reminder_hour: number;
+  review_reminder_minute: number;
 }

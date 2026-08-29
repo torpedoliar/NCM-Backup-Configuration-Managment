@@ -30,6 +30,7 @@ class BackupService:
         runner: BackupRunner | None = None,
         diff_service: DiffService | None = None,
         event_hub: EventHub | None = None,
+        review_service=None,
     ):
         self.settings = settings
         self.session_factory = session_factory
@@ -37,6 +38,7 @@ class BackupService:
         self.runner = runner or BackupRunner(settings)
         self.diff_service = diff_service or DiffService(settings)
         self.event_hub = event_hub
+        self.review_service = review_service
         # Manual, scheduled, and catch-up triggers can target the same switch.
         # Serialize only that switch; different switches can still run in parallel.
         self._switch_locks: dict[int, asyncio.Lock] = {}
@@ -185,6 +187,25 @@ class BackupService:
             await session.commit()
             backup_id = backup.id
 
+        if self.review_service is not None:
+            review_id = await self._run_drift_review(
+                switch,
+                backup_id,
+                content_hash,
+                run_result.config_text,
+            )
+            if review_id is not None:
+                await publish(
+                    self.event_hub,
+                    "config_drift",
+                    {
+                        "switch_id": switch_id,
+                        "switch_name": switch_name,
+                        "backup_id": backup_id,
+                        "review_id": review_id,
+                    },
+                )
+
         await publish(self.event_hub, "backup_completed", {"switch_id": switch_id, "switch_name": switch_name, "backup_id": backup_id})
         return {
             "success": True,
@@ -193,6 +214,45 @@ class BackupService:
             "size_kb": len(run_result.config_text.encode("utf-8")) / 1024,
             "backup_id": backup_id,
         }
+
+    async def _run_drift_review(
+        self,
+        switch,
+        backup_id: int,
+        content_hash: str,
+        content_text: str,
+    ) -> int | None:
+        """Compare the new backup against the applicable baseline and log a review.
+
+        Never raises: review failures are logged by ReviewService and the backup
+        outcome is unaffected.
+        """
+        try:
+            async with self.session_factory() as session:
+                repo = Repository(session)
+                baseline = await repo.get_baseline_for_switch(switch)
+                baseline_text = None
+                baseline_id = baseline.id if baseline is not None else None
+                if baseline is not None and baseline.backup_id is not None:
+                    source = await repo.get_backup(baseline.backup_id)
+                    if source is not None and source.file_path:
+                        path = Path(source.file_path)
+                        if path.exists():
+                            baseline_text = path.read_text(encoding="utf-8")
+            outcome = await self.review_service.on_backup_complete(
+                switch=switch,
+                backup_id=backup_id,
+                content_text=content_text,
+                baseline_text=baseline_text,
+                baseline_id=baseline_id,
+            )
+            return outcome.review_id if outcome.drifted else None
+        except Exception:  # noqa: BLE001 - review must never break backups
+            import logging
+            logging.getLogger(__name__).exception(
+                "drift review failed after backup for switch %s", switch.id
+            )
+            return None
 
     async def _record_failed_backup(
         self,

@@ -41,11 +41,30 @@ class TimeSettings:
 
 
 @dataclass(frozen=True)
+class NotifySettings:
+    """Drift notification + review-reminder delivery (webhook / SMTP email)."""
+
+    enabled: bool = False
+    webhook_url: str = ""
+    email_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_tls: bool = True
+    email_to: tuple[str, ...] = ()
+    app_public_url: str = "http://127.0.0.1:8443"
+    review_reminder_hour: int = 9
+    review_reminder_minute: int = 0
+
+
+@dataclass(frozen=True)
 class RuntimeSettings:
     retention: RetentionSettings = field(default_factory=RetentionSettings)
     auth: AuthSettings = field(default_factory=AuthSettings)
     backup_location: BackupLocationSettings = field(default_factory=BackupLocationSettings)
     time: TimeSettings = field(default_factory=TimeSettings)
+    notify: NotifySettings = field(default_factory=NotifySettings)
 
 
 def load_runtime_settings(path: Path) -> RuntimeSettings:
@@ -63,6 +82,13 @@ def load_runtime_settings(path: Path) -> RuntimeSettings:
         }
         if isinstance(time_kwargs.get("ntp_servers"), list):
             time_kwargs["ntp_servers"] = tuple(time_kwargs["ntp_servers"])
+        notify_data = data.get("notify", {})
+        notify_kwargs = {
+            k: v for k, v in notify_data.items()
+            if k in NotifySettings.__dataclass_fields__
+        }
+        if isinstance(notify_kwargs.get("email_to"), list):
+            notify_kwargs["email_to"] = tuple(notify_kwargs["email_to"])
         return RuntimeSettings(
             retention=RetentionSettings(**{
                 k: v for k, v in retention_data.items()
@@ -77,6 +103,7 @@ def load_runtime_settings(path: Path) -> RuntimeSettings:
                 if k in BackupLocationSettings.__dataclass_fields__
             }),
             time=TimeSettings(**time_kwargs),
+            notify=NotifySettings(**notify_kwargs),
         )
     except (json.JSONDecodeError, TypeError, ValueError):
         return RuntimeSettings()
@@ -87,4 +114,7 @@ def save_runtime_settings(path: Path, settings: RuntimeSettings) -> None:
     serializable = asdict(settings)
     if isinstance(serializable.get("time", {}).get("ntp_servers"), tuple):
         serializable["time"]["ntp_servers"] = list(serializable["time"]["ntp_servers"])
+    notify = serializable.get("notify", {})
+    if isinstance(notify.get("email_to"), tuple):
+        notify["email_to"] = list(notify["email_to"])
     path.write_text(json.dumps(serializable, indent=2), encoding="utf-8")

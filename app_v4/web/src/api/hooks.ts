@@ -15,6 +15,13 @@ import type {
   RetentionRunResult,
   SchedulerStatus,
   BackupRecord,
+  ConfigBaseline,
+  BaselineCreateInput,
+  ConfigReview,
+  ConfigReviewStatus,
+  ComplianceSummary,
+  NotifySettings,
+  ReviewFilters,
   CredentialCreateInput,
   CredentialRecord,
   CredentialUpdateInput,
@@ -503,5 +510,91 @@ export function useDecodedBackup(backupId: number | null) {
     queryFn: async () => (await api.get<DecodedBackup>(`/backups/${backupId}/decode`)).data,
     enabled: backupId !== null,
     staleTime: 60 * SECOND,
+  });
+}
+
+export function useBaselines() {
+  return useQuery({
+    queryKey: ['baselines'],
+    queryFn: async () => (await api.get<ConfigBaseline[]>('/baselines')).data,
+    staleTime: 30 * SECOND,
+  });
+}
+
+export function useCreateBaseline() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: BaselineCreateInput) =>
+      (await api.post<ConfigBaseline>('/baselines', input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['baselines'] }),
+  });
+}
+
+export function useDeleteBaseline() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/baselines/${id}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['baselines'] });
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+    },
+  });
+}
+
+export function useReviews(filters: ReviewFilters) {
+  return useQuery({
+    queryKey: ['reviews', filters],
+    queryFn: async () => (await api.get<ConfigReview[]>('/reviews', { params: filters })).data,
+    staleTime: 15 * SECOND,
+  });
+}
+
+export function useReviewStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { id: number; status: ConfigReviewStatus; comment?: string }) =>
+      (await api.post<ConfigReview>(`/reviews/${vars.id}/status`, {
+        status: vars.status,
+        comment: vars.comment,
+      })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+    },
+  });
+}
+
+export async function fetchReviewDiff(id: number): Promise<string> {
+  return (await api.get<string>(`/reviews/${id}/diff`, { responseType: 'text' })).data as unknown as string;
+}
+
+export function useCompliance() {
+  return useQuery({
+    queryKey: ['reviews', 'compliance'],
+    queryFn: async () => (await api.get<ComplianceSummary>('/reviews/compliance')).data,
+    staleTime: 60 * SECOND,
+  });
+}
+
+export function useNotifySettings() {
+  return useQuery({
+    queryKey: ['system', 'notify-settings'],
+    queryFn: async () => (await api.get<NotifySettings>('/system/notify-settings')).data,
+    staleTime: 30 * SECOND,
+  });
+}
+
+export function usePatchNotifySettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Partial<NotifySettings>) =>
+      (await api.patch<NotifySettings>('/system/notify-settings', input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['system', 'notify-settings'] }),
+  });
+}
+
+export function useTestNotify() {
+  return useMutation({
+    mutationFn: async () => (await api.post<{ ok: boolean; channel: string }>('/system/notify/test')).data,
   });
 }
