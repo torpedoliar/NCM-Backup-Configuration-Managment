@@ -45,7 +45,7 @@ export function SettingsNotificationsSection() {
     });
   }
 
-  function setStr(key: 'webhook_url' | 'smtp_host' | 'smtp_username' | 'smtp_password' | 'app_public_url', value: string) {
+  function setStr(key: 'webhook_url' | 'telegram_token' | 'telegram_chat_id' | 'smtp_host' | 'smtp_username' | 'smtp_password' | 'app_public_url', value: string) {
     setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
 
@@ -75,6 +75,16 @@ export function SettingsNotificationsSection() {
             value={draft.webhook_url}
             onChange={(e) => setStr('webhook_url', e.target.value)}
           />
+        </label>
+
+        <h3>Telegram (drift alerts)</h3>
+        <label className="settings-field">
+          <span>Bot token</span>
+          <input type="password" value={draft.telegram_token} onChange={(e) => setStr('telegram_token', e.target.value)} />
+        </label>
+        <label className="settings-field">
+          <span>Chat ID</span>
+          <input type="text" value={draft.telegram_chat_id} onChange={(e) => setStr('telegram_chat_id', e.target.value)} />
         </label>
 
         <h3>Email (review reminders)</h3>

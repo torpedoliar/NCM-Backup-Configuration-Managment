@@ -187,6 +187,8 @@ class BackupService:
             await session.commit()
             backup_id = backup.id
 
+        await self._auto_detect_model(switch, run_result.config_text)
+
         if self.review_service is not None:
             review_id = await self._run_drift_review(
                 switch,
@@ -214,6 +216,26 @@ class BackupService:
             "size_kb": len(run_result.config_text.encode("utf-8")) / 1024,
             "backup_id": backup_id,
         }
+
+    async def _auto_detect_model(self, switch, config_text: str) -> None:
+        """Fill Switch.model from the backup only when it's not already set."""
+        try:
+            if switch.model:
+                return
+            from app_v4.net.model_detect import detect_model
+
+            model = detect_model(config_text, getattr(switch, "protocol", ""))
+            if not model:
+                return
+            async with self.session_factory() as session:
+                repo = Repository(session)
+                await repo.update_switch(switch.id, model=model)
+                await session.commit()
+        except Exception:  # noqa: BLE001 - never break the backup path
+            import logging
+            logging.getLogger(__name__).warning(
+                "model auto-detect failed for switch %s", switch.id, exc_info=True
+            )
 
     async def _run_drift_review(
         self,

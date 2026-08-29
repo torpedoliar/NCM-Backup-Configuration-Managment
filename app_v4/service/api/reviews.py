@@ -280,3 +280,51 @@ async def reviews_compliance(
     if runtime.review_service is None:
         raise problem(503, "Service Unavailable", "Review service is not initialized")
     return await runtime.review_service.compliance_summary()
+
+
+@router.get("/reviews/compliance/report")
+async def compliance_report(
+    format: str = Query("pdf", pattern="^(csv|xlsx|pdf)$"),
+    session: AsyncSession = Depends(get_db),
+    runtime=Depends(get_runtime),
+    _user=Depends(require_role("admin", "operator")),
+) -> Response:
+    """Export the per-switch compliance table as CSV/XLSX/PDF (ISO evidence)."""
+    if runtime.review_service is None:
+        raise problem(503, "Service Unavailable", "Review service is not initialized")
+    from app_v4.service.reporting import (
+        ComplianceRow,
+        render_compliance_csv,
+        render_compliance_pdf,
+        render_compliance_xlsx,
+    )
+
+    data = await runtime.review_service.compliance_rows()
+    rows = [
+        ComplianceRow(
+            switch=item["switch"],
+            ip=item["ip"],
+            model=item["model"],
+            baseline=item["baseline"],
+            last_backup=item["last_backup"],
+            open_reviews=item["open_reviews"],
+            last_review=item["last_review"],
+            review_state=item["review_state"],
+        )
+        for item in data
+    ]
+    stamp = to_aware_utc(datetime.now()).strftime("%Y%m%dT%H%M%SZ")
+    if format == "csv":
+        body = render_compliance_csv(rows)
+        media = "text/csv; charset=utf-8"
+    elif format == "xlsx":
+        body = render_compliance_xlsx(rows)
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        body = render_compliance_pdf(rows)
+        media = "application/pdf"
+    return Response(
+        content=body,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="compliance-{stamp}.{format}"'},
+    )

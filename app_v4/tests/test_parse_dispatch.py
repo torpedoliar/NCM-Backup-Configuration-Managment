@@ -65,3 +65,11 @@ def test_ports_found_adds_no_dispatcher_warning():
     cfg = parse_config((FX / "dell.txt").read_text(encoding="utf-8"))
     assert cfg.ports
     assert not any("parsed no ports" in w for w in cfg.warnings)
+
+
+def test_detect_model_heuristic():
+    from app_v4.net.model_detect import detect_model
+
+    assert detect_model("hostname sw1\nAT-GS950/24PS config\n", "awplus") == "AT-GS950/24PS"
+    assert detect_model("Dell Networking N1548P\n", "dell") == "N1548P"
+    assert detect_model("hostname x\n", "awplus") is None

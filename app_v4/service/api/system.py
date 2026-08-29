@@ -440,6 +440,8 @@ async def patch_time_settings(
 class NotifySettingsResponse(BaseModel):
     enabled: bool
     webhook_url: str
+    telegram_token: str
+    telegram_chat_id: str
     email_enabled: bool
     smtp_host: str
     smtp_port: int
@@ -455,6 +457,8 @@ class NotifySettingsResponse(BaseModel):
 class NotifySettingsPatch(BaseModel):
     enabled: bool | None = None
     webhook_url: str | None = Field(default=None, max_length=500)
+    telegram_token: str | None = Field(default=None, max_length=500)
+    telegram_chat_id: str | None = Field(default=None, max_length=100)
     email_enabled: bool | None = None
     smtp_host: str | None = Field(default=None, max_length=255)
     smtp_port: int | None = Field(default=None, ge=1, le=65535)
@@ -471,6 +475,8 @@ def _build_notify_response(rs) -> NotifySettingsResponse:
     return NotifySettingsResponse(
         enabled=rs.notify.enabled,
         webhook_url=rs.notify.webhook_url,
+        telegram_token=rs.notify.telegram_token,
+        telegram_chat_id=rs.notify.telegram_chat_id,
         email_enabled=rs.notify.email_enabled,
         smtp_host=rs.notify.smtp_host,
         smtp_port=rs.notify.smtp_port,
@@ -510,6 +516,8 @@ async def patch_notify_settings(
         new_notify = NotifySettings(
             enabled=updates.get("enabled", old.enabled),
             webhook_url=updates.get("webhook_url", old.webhook_url),
+            telegram_token=updates.get("telegram_token", old.telegram_token),
+            telegram_chat_id=updates.get("telegram_chat_id", old.telegram_chat_id),
             email_enabled=updates.get("email_enabled", old.email_enabled),
             smtp_host=updates.get("smtp_host", old.smtp_host),
             smtp_port=updates.get("smtp_port", old.smtp_port),

@@ -46,6 +46,8 @@ class NotifySettings:
 
     enabled: bool = False
     webhook_url: str = ""
+    telegram_token: str = ""
+    telegram_chat_id: str = ""
     email_enabled: bool = False
     smtp_host: str = ""
     smtp_port: int = 587

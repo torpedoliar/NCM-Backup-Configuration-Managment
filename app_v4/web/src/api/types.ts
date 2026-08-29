@@ -320,6 +320,8 @@ export interface ComplianceSummary {
 export interface NotifySettings {
   enabled: boolean;
   webhook_url: string;
+  telegram_token: string;
+  telegram_chat_id: string;
   email_enabled: boolean;
   smtp_host: string;
   smtp_port: number;

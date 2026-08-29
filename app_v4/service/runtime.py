@@ -108,7 +108,7 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     from app_v4.service.review_service import ReviewService
 
     notify = Notifier(runtime_settings_path)
-    review_service = ReviewService(settings, session_factory)
+    review_service = ReviewService(settings, session_factory, notifier=notify)
     backup_service = BackupService(
         settings,
         session_factory,

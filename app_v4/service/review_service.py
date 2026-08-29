@@ -38,10 +38,12 @@ class ReviewService:
         self,
         settings: Settings,
         session_factory: async_sessionmaker[AsyncSession],
+        notifier=None,
     ):
         self.settings = settings
         self.session_factory = session_factory
         self._diff = DiffService(settings)
+        self.notifier = notifier
 
     async def on_backup_complete(
         self,
@@ -73,7 +75,16 @@ class ReviewService:
                     diff_summary=json.dumps(summary),
                 )
                 await session.commit()
-                return DriftOutcome(review.id, True)
+            if self.notifier is not None:
+                # Best-effort drift alert (Telegram/webhook); never raises.
+                try:
+                    await self.notifier.telegram(
+                        f"Config drift on {switch.name} (backup #{backup_id}, review #{review.id}): "
+                        f"{json.dumps(summary)}"
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning("telegram drift alert failed", exc_info=True)
+            return DriftOutcome(review.id, True)
         except Exception:  # noqa: BLE001 - review must never break backups
             logger.exception("config review pipeline failed for switch %s", switch.id)
             return DriftOutcome(None, False, "review pipeline error")
@@ -153,6 +164,41 @@ class ReviewService:
                 "reviews_flagged": counts.get("flagged", 0),
                 "reviews_dismissed": counts.get("dismissed", 0),
             }
+
+    async def compliance_rows(self) -> list[dict]:
+        """Per-switch compliance rows for report export (ISO 27001 A.8.9)."""
+        rows: list[dict] = []
+        async with self.session_factory() as session:
+            repo = Repository(session)
+            switches = await repo.list_switches(include_inactive=False)
+            for sw in switches:
+                baseline = await repo.get_baseline_for_switch(sw)
+                baseline_state = "no"
+                if baseline is not None:
+                    baseline_state = (
+                        "stale" if (utc_now() - baseline.created_at).days > 30 else "yes"
+                    )
+                latest = await repo.get_latest_backup(sw.id)
+                reviews = await repo.list_reviews(switch_id=sw.id, limit=1)
+                last_review = reviews[0] if reviews else None
+                pending_count = len(await repo.list_reviews(status="pending", switch_id=sw.id, limit=200))
+                rows.append(
+                    {
+                        "switch": sw.name,
+                        "ip": sw.ip,
+                        "model": sw.model or "",
+                        "baseline": baseline_state,
+                        "last_backup": latest.taken_at.strftime("%Y-%m-%d %H:%M:%S")
+                        if latest and latest.taken_at
+                        else "",
+                        "open_reviews": pending_count,
+                        "last_review": last_review.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                        if last_review and last_review.created_at
+                        else "",
+                        "review_state": last_review.status if last_review else "",
+                    }
+                )
+        return rows
 
     async def send_reminder(self) -> dict[str, str]:
         """Build the review-reminder email body (subject, body) or empty strings.

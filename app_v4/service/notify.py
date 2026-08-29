@@ -49,6 +49,14 @@ class Notifier:
             return NotifyResult(False, "webhook", "webhook disabled or url empty")
         return self._post_json(cfg.webhook_url, payload)
 
+    async def telegram(self, text: str) -> NotifyResult:
+        cfg = self.settings()
+        if not cfg.enabled or not cfg.telegram_token or not cfg.telegram_chat_id:
+            return NotifyResult(False, "telegram", "telegram disabled or token/chat_id empty")
+        url = f"https://api.telegram.org/bot{cfg.telegram_token}/sendMessage"
+        payload = {"chat_id": cfg.telegram_chat_id, "text": text[:4000]}
+        return self._post_json(url, payload)
+
     def _post_json(self, url: str, payload: dict) -> NotifyResult:
         try:
             data = json.dumps(payload).encode("utf-8")
