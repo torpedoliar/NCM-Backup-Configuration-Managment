@@ -452,6 +452,11 @@ class NotifySettingsResponse(BaseModel):
     app_public_url: str
     review_reminder_hour: int
     review_reminder_minute: int
+    email_template: str = ""
+    review_interval_months: int = 6
+    email_backup_failed: bool = True
+    email_backup_success: bool = False
+    email_review_events: bool = True
 
 
 class NotifySettingsPatch(BaseModel):
@@ -469,6 +474,11 @@ class NotifySettingsPatch(BaseModel):
     app_public_url: str | None = Field(default=None, max_length=500)
     review_reminder_hour: int | None = Field(default=None, ge=0, le=23)
     review_reminder_minute: int | None = Field(default=None, ge=0, le=59)
+    email_template: str | None = Field(default=None, max_length=20000)
+    review_interval_months: int | None = Field(default=None, ge=1, le=60)
+    email_backup_failed: bool | None = None
+    email_backup_success: bool | None = None
+    email_review_events: bool | None = None
 
 
 def _build_notify_response(rs) -> NotifySettingsResponse:
@@ -487,6 +497,11 @@ def _build_notify_response(rs) -> NotifySettingsResponse:
         app_public_url=rs.notify.app_public_url,
         review_reminder_hour=rs.notify.review_reminder_hour,
         review_reminder_minute=rs.notify.review_reminder_minute,
+        email_template=rs.notify.email_template,
+        review_interval_months=rs.notify.review_interval_months,
+        email_backup_failed=rs.notify.email_backup_failed,
+        email_backup_success=rs.notify.email_backup_success,
+        email_review_events=rs.notify.email_review_events,
     )
 
 
@@ -528,6 +543,11 @@ async def patch_notify_settings(
             app_public_url=updates.get("app_public_url", old.app_public_url),
             review_reminder_hour=updates.get("review_reminder_hour", old.review_reminder_hour),
             review_reminder_minute=updates.get("review_reminder_minute", old.review_reminder_minute),
+            email_template=updates.get("email_template", old.email_template),
+            review_interval_months=updates.get("review_interval_months", old.review_interval_months),
+            email_backup_failed=updates.get("email_backup_failed", old.email_backup_failed),
+            email_backup_success=updates.get("email_backup_success", old.email_backup_success),
+            email_review_events=updates.get("email_review_events", old.email_review_events),
         )
         save_runtime_settings(target, replace(current, notify=new_notify))
         if runtime.scheduler_service is not None and (
@@ -571,6 +591,48 @@ async def test_notify(
     if not result.ok:
         raise problem(502, "Bad Gateway", f"Notification failed: {result.detail}")
     return {"ok": True, "channel": result.channel}
+
+
+@router.post("/notify/test-reminder")
+async def test_notify_reminder(
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    user: AccessClaims = Depends(require_role("admin")),
+) -> dict:
+    """Send the review-reminder email with the current template and live data.
+
+    Uses the configured HTML template so the user can preview their custom
+    template in a real inbox without waiting for the daily schedule. Sends
+    even when there is nothing pending (sample rows marked as sample).
+    """
+    if runtime.notify is None or runtime.review_service is None:
+        raise problem(503, "Service Unavailable", "Notifier or review service is not initialized")
+    paths = resolve_paths(runtime.settings)
+    rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
+    if not rs.notify.email_enabled:
+        raise problem(422, "Unprocessable Entity", "Email notifications are disabled")
+    runtime.review_service._email_template = rs.notify.email_template
+    content = await runtime.review_service.send_reminder(review_url=runtime.notify.review_url())
+    if not content["subject"]:
+        raise problem(
+            422,
+            "Unprocessable Entity",
+            "Nothing to remind: no pending reviews and no baseline gaps.",
+        )
+    result = await runtime.notify.email(
+        content["subject"],
+        content["body_text"],
+        body_html=content.get("body_html") or None,
+    )
+    await runtime.audit_writer.record(
+        user_id=user.user_id,
+        action="system.notify_test_reminder",
+        ip=request.client.host if request.client else None,
+        detail={"ok": result.ok, "detail": result.detail},
+    )
+    if not result.ok:
+        raise problem(502, "Bad Gateway", f"Notification failed: {result.detail}")
+    return {"ok": True, "channel": result.channel, "subject": content["subject"]}
 
 
 class RetentionRunResponse(BaseModel):

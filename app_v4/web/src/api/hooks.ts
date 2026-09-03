@@ -504,6 +504,14 @@ export function useRevokeApiKey() {
   });
 }
 
+export function useDeleteApiKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/api-keys/${id}?permanent=true`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+  });
+}
+
 export function useDecodedBackup(backupId: number | null) {
   return useQuery({
     queryKey: ['backups', 'decode', backupId],
@@ -537,8 +545,45 @@ export function useDeleteBaseline() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['baselines'] });
       qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['reviews', 'compliance'] });
     },
   });
+}
+
+export interface RefreshBaselineResult {
+  baseline: ConfigBaseline;
+  drifted: boolean;
+  review_id: number | null;
+}
+
+export function useRefreshBaseline() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (await api.post<RefreshBaselineResult>(`/baselines/${id}/refresh`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['baselines'] });
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['reviews', 'compliance'] });
+      qc.invalidateQueries({ queryKey: ['audit'] });
+    },
+  });
+}
+
+export async function downloadComplianceReport(format: 'csv' | 'xlsx' | 'pdf'): Promise<void> {
+  const response = await api.get('/reviews/compliance/report', {
+    params: { format },
+    responseType: 'blob',
+  });
+  const blob = response.data as Blob;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const cd = response.headers['content-disposition'] as string | undefined;
+  const match = cd?.match(/filename="?([^"]+)"?/);
+  a.download = match?.[1] ?? `compliance.${format}`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function useReviews(filters: ReviewFilters) {
@@ -559,6 +604,7 @@ export function useReviewStatus() {
       })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['reviews', 'compliance'] });
       qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
     },
   });
@@ -584,6 +630,17 @@ export function useNotifySettings() {
   });
 }
 
+export function useReviewInterval() {
+  const qc = useQueryClient();
+  const query = useNotifySettings();
+  const save = useMutation({
+    mutationFn: async (months: number) =>
+      (await api.patch<NotifySettings>('/system/notify-settings', { review_interval_months: months })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['system', 'notify-settings'] }),
+  });
+  return { months: query.data?.review_interval_months ?? 6, save, isLoading: query.isLoading };
+}
+
 export function usePatchNotifySettings() {
   const qc = useQueryClient();
   return useMutation({
@@ -596,5 +653,12 @@ export function usePatchNotifySettings() {
 export function useTestNotify() {
   return useMutation({
     mutationFn: async () => (await api.post<{ ok: boolean; channel: string }>('/system/notify/test')).data,
+  });
+}
+
+export function useTestNotifyReminder() {
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<{ ok: boolean; channel: string; subject: string }>('/system/notify/test-reminder')).data,
   });
 }

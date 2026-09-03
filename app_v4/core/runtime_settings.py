@@ -58,6 +58,17 @@ class NotifySettings:
     app_public_url: str = "http://127.0.0.1:8443"
     review_reminder_hour: int = 9
     review_reminder_minute: int = 0
+    # User-editable HTML template for the review-reminder email. Empty = built-in
+    # default. Variables: {{pending_count}}, {{pending_reviews_html}}, {{missing_count}},
+    # {{missing_baselines}}, {{stale_count}}, {{stale_baselines}}, {{reviews_flagged}},
+    # {{total_switches}}, {{baseline_coverage}}, {{review_url}}, {{generated_at}}.
+    email_template: str = ""
+    # ISO 27001 config-management review cycle: re-attest every N months.
+    review_interval_months: int = 6
+    # Event email toggles. notify.enabled gates ALL outbound notification.
+    email_backup_failed: bool = True
+    email_backup_success: bool = False  # opt-in: every successful backup emails
+    email_review_events: bool = True
 
 
 @dataclass(frozen=True)

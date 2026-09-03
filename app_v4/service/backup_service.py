@@ -14,6 +14,7 @@ from app_v4.core.paths import resolve_paths
 from app_v4.data.repository import Repository
 from app_v4.net.runner import BackupRunner
 from app_v4.service.diff_service import DiffService
+from app_v4.service import email_events
 from app_v4.service.events import EventHub, publish
 
 
@@ -31,6 +32,7 @@ class BackupService:
         diff_service: DiffService | None = None,
         event_hub: EventHub | None = None,
         review_service=None,
+        notifier=None,
     ):
         self.settings = settings
         self.session_factory = session_factory
@@ -39,6 +41,7 @@ class BackupService:
         self.diff_service = diff_service or DiffService(settings)
         self.event_hub = event_hub
         self.review_service = review_service
+        self.notifier = notifier
         # Manual, scheduled, and catch-up triggers can target the same switch.
         # Serialize only that switch; different switches can still run in parallel.
         self._switch_locks: dict[int, asyncio.Lock] = {}
@@ -87,6 +90,10 @@ class BackupService:
                         "backup_id": result["backup_id"],
                         "message": message,
                     },
+                )
+                await self._send_backup_email(
+                    success=False, switch_name=switch.name, message=message,
+                    backup_id=result["backup_id"], backup_type=backup_type,
                 )
                 return result
 
@@ -140,6 +147,10 @@ class BackupService:
                 self.event_hub,
                 "backup_failed",
                 {"switch_id": switch_id, "switch_name": switch_name, "backup_id": result["backup_id"], "message": run_result.message},
+            )
+            await self._send_backup_email(
+                success=False, switch_name=switch_name, message=run_result.message,
+                backup_id=result["backup_id"], backup_type=backup_type,
             )
             return result
 
@@ -209,6 +220,11 @@ class BackupService:
                 )
 
         await publish(self.event_hub, "backup_completed", {"switch_id": switch_id, "switch_name": switch_name, "backup_id": backup_id})
+        await self._send_backup_email(
+            success=True, switch_name=switch_name, message=message,
+            backup_id=backup_id, size_kb=len(run_result.config_text.encode("utf-8")) / 1024,
+            changed=changed,
+        )
         return {
             "success": True,
             "message": message,
@@ -311,6 +327,35 @@ class BackupService:
         if "prompt" in text or "incomplete" in text:
             return "INCOMPLETE_OUTPUT"
         return "UNKNOWN"
+
+    async def _send_backup_email(self, success: bool, switch_name: str, message: str, backup_id: int, size_kb: float = 0.0, backup_type: str = "", changed: bool = False) -> None:
+        """Best-effort event email (gagal selalu, sukses hanya jika opt-in aktif)."""
+        if self.notifier is None:
+            return
+        try:
+            from app_v4.core.runtime_settings import load_runtime_settings
+            from app_v4.core.paths import resolve_paths
+
+            paths = resolve_paths(self.settings)
+            rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
+            cfg = rs.notify
+            if not cfg.enabled or not cfg.email_enabled:
+                return
+            if success and not cfg.email_backup_success:
+                return
+            if not success and not cfg.email_backup_failed:
+                return
+            if success:
+                content = email_events.backup_success_email(switch_name, message, backup_id, size_kb, changed)
+            else:
+                content = email_events.backup_failed_email(switch_name, message, backup_id, backup_type)
+            await self.notifier.email(
+                content["subject"], content["body_text"], body_html=content["body_html"]
+            )
+        except Exception:  # noqa: BLE001 - notification must never break backups
+            import logging
+
+            logging.getLogger(__name__).warning("backup event email failed", exc_info=True)
 
     def _save_config_file(self, switch_name: str, config_text: str, changed: bool) -> Path:
         paths = resolve_paths(self.settings)

@@ -94,6 +94,30 @@ a { color: inherit; }
   gap: 14px;
   align-items: end;
 }
+/* Section headers inside settings forms span the full row, not one 220px cell. */
+.settings-form > h3 {
+  grid-column: 1 / -1;
+  margin: 10px 0 0;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+.settings-form > .settings-row {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 14px;
+}
+.settings-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  min-width: 0 !important;
+}
+.settings-checkbox input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--amber);
+}
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -243,6 +267,29 @@ a { color: inherit; }
   font-size: 13px;
   color: var(--amber);
   word-break: break-all;
+}
+.compliance-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.compliance-stats > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+.compliance-num {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--amber);
+}
+.compliance-label {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .vlan-grid {
   display: flex;

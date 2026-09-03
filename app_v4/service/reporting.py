@@ -38,10 +38,11 @@ class ComplianceRow:
     open_reviews: int
     last_review: str
     review_state: str  # pending | approved | flagged | dismissed | ""
+    next_review: str = ""  # YYYY-MM-DD when the reminder-review cycle comes due
 
 
 HEADERS = ["ID", "Switch", "Taken at", "Type", "Status", "Size (KB)", "Message"]
-COMPLIANCE_HEADERS = ["Switch", "IP", "Model", "Baseline", "Last backup", "Open reviews", "Last review", "Review state"]
+COMPLIANCE_HEADERS = ["Switch", "IP", "Model", "Baseline", "Last backup", "Open reviews", "Last review", "Review state", "Next review"]
 
 
 def _row_values(row: BackupReportRow) -> list[str]:
@@ -135,6 +136,7 @@ def _compliance_values(row: ComplianceRow) -> list[str]:
         str(row.open_reviews),
         row.last_review,
         row.review_state,
+        row.next_review,
     ]
 
 

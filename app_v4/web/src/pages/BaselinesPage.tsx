@@ -1,28 +1,65 @@
 import { useState } from 'react';
 import {
+  downloadComplianceReport,
   useBackups,
   useBaselines,
   useCreateBaseline,
   useDeleteBaseline,
+  useRefreshBaseline,
+  useReviewInterval,
   useSwitches,
 } from '../api/hooks';
 import type { ConfigBaselineKind } from '../api/types';
 import { formatTzDateTime } from '../lib/fmt';
 import { humanizeError } from '../lib/errors';
 
+function addMonths(iso: string, months: number): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const target = new Date(d);
+  target.setMonth(target.getMonth() + months);
+  return target.toISOString().slice(0, 10);
+}
+
 export function BaselinesPage() {
-  const { data: baselines = [] } = useBaselines();
+  const { data: baselines = [], isLoading } = useBaselines();
   const { data: switches = [] } = useSwitches();
   const create = useCreateBaseline();
   const remove = useDeleteBaseline();
+  const refresh = useRefreshBaseline();
+  const reviewCycle = useReviewInterval();
 
   const [kind, setKind] = useState<ConfigBaselineKind>('switch');
   const [switchId, setSwitchId] = useState<number | ''>('');
   const [model, setModel] = useState('');
   const [backupId, setBackupId] = useState<number | ''>('');
   const [error, setError] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState<string | null>(null);
 
   const { data: backups = [] } = useBackups(switchId === '' ? undefined : Number(switchId));
+
+  function reviewNow(baselineId: number) {
+    setError(null);
+    setReviewNote(null);
+    refresh.mutate(baselineId, {
+      onSuccess: (res) => {
+        if (res.drifted && res.review_id) {
+          setReviewNote(
+            `Drift terdeteksi pada baseline #${baselineId} — review #${res.review_id} dibuka di halaman Config Review, dan jadwal siklus direset.`,
+          );
+        } else if (res.review_id) {
+          setReviewNote(
+            `Review #${res.review_id} dibuka pada baseline #${baselineId}; jadwal siklus direset.`,
+          );
+        } else {
+          setReviewNote(
+            `Baseline #${baselineId} sesuai dengan backup terbaru (tanpa drift). Siklus direset.`,
+          );
+        }
+      },
+      onError: (err: unknown) => setError(humanizeError(err)),
+    });
+  }
 
   function createBaseline() {
     setError(null);
@@ -62,6 +99,10 @@ export function BaselinesPage() {
 
       <section className="settings-card">
         <h3>Create baseline</h3>
+        <p className="settings-help">
+          Leave "Golden backup" empty to snapshot the latest successful backup — that is the recommended
+          way. A baseline needs a real config as its source, otherwise drift can never be detected.
+        </p>
         <form
           className="settings-form"
           onSubmit={(e) => {
@@ -94,8 +135,12 @@ export function BaselinesPage() {
           )}
           <label className="settings-field">
             <span>Golden backup</span>
-            <select value={backupId} onChange={(e) => setBackupId(e.target.value ? Number(e.target.value) : '')} disabled={kind === 'switch' && switchId === ''}>
-              <option value="">(latest backup)</option>
+            <select
+              value={backupId}
+              onChange={(e) => setBackupId(e.target.value ? Number(e.target.value) : '')}
+              disabled={kind === 'switch' && switchId === ''}
+            >
+              <option value="">(latest successful backup)</option>
               {backups.slice(0, 20).map((b) => (
                 <option key={b.id} value={b.id}>#{b.id} — {formatTzDateTime(b.created_at)}</option>
               ))}
@@ -108,33 +153,92 @@ export function BaselinesPage() {
         </form>
       </section>
 
+      <section className="settings-card">
+        <h3>Review cycle</h3>
+        <p className="settings-help">
+          Seberapa sering setiap baseline harus di-review ulang (re-attestation ISO 27001 A.8.9).
+          Jadwal pertama = tanggal baseline dibuat; tombol Refresh pada baris mengatur ulang jadwal
+          switch itu. Baseline yang jatuh tempo masuk bagian "Reminder review" di email harian.
+        </p>
+        <div className="settings-row">
+          <label className="settings-field">
+            <span>Interval review (bulan)</span>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={reviewCycle.months}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v) && v >= 1 && v <= 60) reviewCycle.save.mutate(v);
+              }}
+              disabled={reviewCycle.isLoading || reviewCycle.save.isPending}
+            />
+          </label>
+        </div>
+      </section>
+
       <div className="table-wrap">
         <table className="data-table">
           <thead>
-            <tr><th>Kind</th><th>Target</th><th>Golden backup</th><th>Created</th><th>Actions</th></tr>
+            <tr><th>Kind</th><th>Target</th><th>Golden backup</th><th>Created</th><th>Reminder review</th><th>Actions</th></tr>
           </thead>
           <tbody>
-            {baselines.map((b) => (
-              <tr key={b.id}>
-                <td>{b.kind === 'switch' ? 'Switch' : 'Model'}</td>
-                <td>{b.kind === 'switch' ? (b.switch_name ?? `#${b.switch_id}`) : b.model}</td>
-                <td>{b.backup_id ? `#${b.backup_id}` : '—'}</td>
-                <td>{formatTzDateTime(b.created_at)}</td>
-                <td className="row-actions">
-                  <button
-                    onClick={() => {
-                      if (window.confirm(`Delete baseline #${b.id}?`)) remove.mutate(b.id);
-                    }}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {baselines.map((b) => {
+              const due = addMonths(b.created_at, reviewCycle.months);
+              const overdue = new Date(due) < new Date();
+              return (
+                <tr key={b.id}>
+                  <td>{b.kind === 'switch' ? 'Switch' : 'Model'}</td>
+                  <td>{b.kind === 'switch' ? (b.switch_name ?? `#${b.switch_id}`) : b.model}</td>
+                  <td>{b.backup_id ? `#${b.backup_id}` : '—'}</td>
+                  <td>{formatTzDateTime(b.created_at)}</td>
+                  <td>
+                    <span className={overdue ? 'key-status revoked' : 'key-status'}>
+                      {overdue ? 'REMINDER' : due}
+                    </span>
+                  </td>
+                  <td className="row-actions">
+                    <button
+                      onClick={() => reviewNow(b.id)}
+                      disabled={refresh.isPending}
+                      title="Bandingkan backup terbaru dengan baseline sekarang; buka review bila drift; reset siklus"
+                    >
+                      Review
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Delete baseline #${b.id}?`)) remove.mutate(b.id);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-        {baselines.length === 0 ? <p className="viewer-empty">No baselines yet. Create one above.</p> : null}
+        {baselines.length === 0 && !isLoading ? (
+          <p className="viewer-empty">No baselines yet. Create one above.</p>
+        ) : null}
+        {remove.isError ? <div role="alert" className="settings-error">{humanizeError(remove.error)}</div> : null}
+        {refresh.isError ? <div role="alert" className="settings-error">{humanizeError(refresh.error)}</div> : null}
+        {reviewNote ? <p className="settings-success" role="status">{reviewNote}</p> : null}
       </div>
+
+      <section className="settings-card">
+        <h3>ISO 27001 A.8.9 compliance evidence</h3>
+        <p className="settings-help">
+          Export the per-switch configuration-management status — baseline coverage, last backup, open
+          reviews — as audit evidence.
+        </p>
+        <div className="row-actions">
+          <button onClick={() => downloadComplianceReport('csv')}>Export CSV</button>
+          <button onClick={() => downloadComplianceReport('xlsx')}>Export Excel</button>
+          <button onClick={() => downloadComplianceReport('pdf')}>Export PDF</button>
+        </div>
+      </section>
     </main>
   );
 }

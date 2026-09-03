@@ -4,7 +4,7 @@ import hashlib
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,22 +85,32 @@ async def list_api_keys(
 
 
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_api_key(
+async def delete_api_key(
     key_id: int,
     request: Request,
+    permanent: bool = Query(default=False),
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
     actor: AccessClaims = Depends(require_role("admin")),
 ) -> Response:
+    """Revoke (default) or permanently delete an API key.
+
+    Revoke keeps the row for audit history; permanent removes the row entirely.
+    """
     repo = Repository(session)
     key = await session.get(ApiKey, key_id)
     if key is None:
         raise problem(404, "Not Found", "API key not found")
-    await repo.revoke_api_key(key_id)
+    if permanent:
+        await repo.delete_api_key(key_id)
+        action = "apikey.deleted"
+    else:
+        await repo.revoke_api_key(key_id)
+        action = "apikey.revoked"
     await session.commit()
     await runtime.audit_writer.record(
         user_id=actor.user_id,
-        action="apikey.revoked",
+        action=action,
         target_type="api_key",
         target_id=str(key_id),
         ip=request.client.host if request.client else None,

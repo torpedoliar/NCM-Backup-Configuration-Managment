@@ -310,6 +310,8 @@ export interface ComplianceSummary {
   switches_with_baseline: number;
   switches_missing_baseline: string[];
   baselines_stale: string[];
+  reminder_due: string[];
+  review_interval_months: number;
   attestation_days: number;
   reviews_pending: number;
   reviews_approved: number;
@@ -332,4 +334,9 @@ export interface NotifySettings {
   app_public_url: string;
   review_reminder_hour: number;
   review_reminder_minute: number;
+  email_template: string;
+  review_interval_months: number;
+  email_backup_failed: boolean;
+  email_backup_success: boolean;
+  email_review_events: boolean;
 }

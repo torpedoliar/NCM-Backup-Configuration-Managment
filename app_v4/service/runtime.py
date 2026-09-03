@@ -115,6 +115,7 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
         crypto,
         event_hub=event_hub,
         review_service=review_service,
+        notifier=notify,
     )
     scheduler_service = SchedulerService(
         settings,

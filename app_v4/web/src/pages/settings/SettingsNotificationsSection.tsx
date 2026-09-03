@@ -1,16 +1,39 @@
 import { useEffect, useState } from 'react';
-import { useNotifySettings, usePatchNotifySettings, useTestNotify } from '../../api/hooks';
+import { useNotifySettings, usePatchNotifySettings, useTestNotify, useTestNotifyReminder } from '../../api/hooks';
 import type { NotifySettings } from '../../api/types';
 import { humanizeError } from '../../lib/errors';
+
+const REMINDER_VARS = [
+  '{{generated_at}}', '{{review_url}}', '{{total_switches}}', '{{baseline_coverage}}',
+  '{{pending_count}}', '{{pending_reviews_html}}', '{{missing_count}}', '{{missing_baselines}}',
+  '{{stale_count}}', '{{stale_baselines}}', '{{reviews_flagged}}',
+  '{{reminder_review_count}}', '{{reminder_reviews_html}}', '{{review_interval_months}}',
+] as const;
+
+const DEFAULT_TEMPLATE_SNIPPET = `<!-- Kosongkan textarea ini untuk memakai template default bawaan. -->
+<!-- Contoh kerangka custom (salin lalu edit): -->
+<h2>Review reminder {{generated_at}}</h2>
+<p>Coverage: {{baseline_coverage}}% dari {{total_switches}} switch.</p>
+<h3>Pending reviews ({{pending_count}})</h3>
+<table border="1" cellpadding="4">
+  <tr><th>ID</th><th>Switch</th><th>Dibuat</th></tr>
+{{pending_reviews_html}}
+</table>
+<p>Switch tanpa baseline ({{missing_count}}): {{missing_baselines}}</p>
+<p>Stale >30 hari ({{stale_count}}): {{stale_baselines}}</p>
+<p><a href="{{review_url}}">Buka review queue</a></p>`;
 
 export function SettingsNotificationsSection() {
   const { data } = useNotifySettings();
   const patch = usePatchNotifySettings();
   const test = useTestNotify();
+  const testReminder = useTestNotifyReminder();
   const [draft, setDraft] = useState<NotifySettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [reminderError, setReminderError] = useState<string | null>(null);
+  const [reminderResult, setReminderResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (data) setDraft({ ...data, email_to: [...data.email_to] });
@@ -42,6 +65,15 @@ export function SettingsNotificationsSection() {
     test.mutate(undefined, {
       onSuccess: (r) => setTestResult(`Test email sent (${r.channel}).`),
       onError: (err: unknown) => setTestError(humanizeError(err)),
+    });
+  }
+
+  function testReminderNow() {
+    setReminderError(null);
+    setReminderResult(null);
+    testReminder.mutate(undefined, {
+      onSuccess: (r) => setReminderResult(`Reminder preview sent (${r.channel}): ${r.subject}`),
+      onError: (err: unknown) => setReminderError(humanizeError(err)),
     });
   }
 
@@ -96,6 +128,31 @@ export function SettingsNotificationsSection() {
           />
           <span>Enable email reminders</span>
         </label>
+        <h3>Event notifications</h3>
+        <label className="settings-field settings-checkbox">
+          <input
+            type="checkbox"
+            checked={draft.email_backup_failed}
+            onChange={(e) => setDraft({ ...draft, email_backup_failed: e.target.checked })}
+          />
+          <span>Email saat backup GAGAL</span>
+        </label>
+        <label className="settings-field settings-checkbox">
+          <input
+            type="checkbox"
+            checked={draft.email_backup_success}
+            onChange={(e) => setDraft({ ...draft, email_backup_success: e.target.checked })}
+          />
+          <span>Email saat backup BERHASIL (opsi tambahan)</span>
+        </label>
+        <label className="settings-field settings-checkbox">
+          <input
+            type="checkbox"
+            checked={draft.email_review_events}
+            onChange={(e) => setDraft({ ...draft, email_review_events: e.target.checked })}
+          />
+          <span>Email event review (pending &amp; keputusan)</span>
+        </label>
         <label className="settings-field">
           <span>SMTP host</span>
           <input type="text" value={draft.smtp_host} onChange={(e) => setStr('smtp_host', e.target.value)} />
@@ -140,6 +197,10 @@ export function SettingsNotificationsSection() {
         </label>
 
         <h3>Review reminder schedule</h3>
+        <p className="settings-help">
+          Jam kirim email reminder harian. Interval bulanan review-nya (mis. tiap 6 bulan) diatur di
+          halaman Baselines → "Review cycle".
+        </p>
         <div className="settings-row">
           <label className="settings-field">
             <span>Hour</span>
@@ -168,6 +229,45 @@ export function SettingsNotificationsSection() {
           {patch.isPending ? 'Saving…' : 'Save'}
         </button>
       </form>
+
+      <article className="settings-card">
+        <h3>Reminder email template (HTML)</h3>
+        <p className="settings-help">
+          Custom isi email review-reminder dengan variable di bawah — semuanya terisi otomatis dari
+          data compliance saat email dikirim. Kosongkan textarea untuk memakai template default
+          bawaan. Nilai teks otomatis di-escape; <code>{"{{pending_reviews_html}}"}</code> adalah
+          blok baris tabel siap pakai.
+        </p>
+        <div className="settings-help">
+          {REMINDER_VARS.map((v) => (
+            <code key={v} style={{ display: 'inline-block', margin: '2px 6px 2px 0' }}>{v}</code>
+          ))}
+        </div>
+        <label className="settings-field" style={{ minWidth: '100%' }}>
+          <span>Template HTML</span>
+          <textarea
+            rows={14}
+            spellCheck={false}
+            placeholder={DEFAULT_TEMPLATE_SNIPPET}
+            value={draft.email_template}
+            onChange={(e) => setDraft({ ...draft, email_template: e.target.value })}
+          />
+        </label>
+        <div className="row-actions">
+          <button
+            type="button"
+            onClick={() => setDraft({ ...draft, email_template: '' })}
+            title="Kosongkan = pakai template default bawaan"
+          >
+            Reset ke default
+          </button>
+          <button type="button" onClick={testReminderNow} disabled={testReminder.isPending}>
+            {testReminder.isPending ? 'Sending…' : 'Kirim preview reminder'}
+          </button>
+        </div>
+        {reminderError && <div role="alert" className="settings-error">{reminderError}</div>}
+        {reminderResult && <p className="settings-success">{reminderResult}</p>}
+      </article>
 
       <article className="settings-card">
         <h3>Send test email</h3>

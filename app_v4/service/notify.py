@@ -74,7 +74,14 @@ class Notifier:
             logger.warning("webhook notify failed: %s", exc)
             return NotifyResult(False, "webhook", str(exc))
 
-    async def email(self, subject: str, body: str, to: tuple[str, ...] | None = None) -> NotifyResult:
+    async def email(
+        self,
+        subject: str,
+        body: str,
+        to: tuple[str, ...] | None = None,
+        body_html: str | None = None,
+    ) -> NotifyResult:
+        """Send email as multipart (text + HTML) when ``body_html`` is given."""
         cfg = self.settings()
         if not cfg.email_enabled or not cfg.smtp_host:
             return NotifyResult(False, "email", "email disabled or smtp host empty")
@@ -87,6 +94,8 @@ class Notifier:
             message["From"] = cfg.smtp_username or "ncm-v4@localhost"
             message["To"] = ", ".join(recipients)
             message.set_content(body)
+            if body_html:
+                message.add_alternative(body_html, subtype="html")
 
             if cfg.smtp_tls:
                 server = smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=15)

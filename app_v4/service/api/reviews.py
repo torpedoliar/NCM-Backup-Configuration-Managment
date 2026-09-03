@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.problem import problem
@@ -118,11 +119,29 @@ async def create_baseline(
         if existing is not None:
             raise problem(409, "Conflict", "A template for this model already exists")
 
-    if payload.backup_id is not None:
-        backup = await repo.get_backup(payload.backup_id)
-        if backup is None:
-            raise problem(422, "Unprocessable Entity", "Referenced backup does not exist")
-        content_hash = backup.content_hash
+    # Resolve the golden-config source. When no backup is picked, fall back to
+    # the latest successful backup of that switch (or, for model templates, of
+    # any switch with that model). A baseline with no source is a zombie: the
+    # drift review pipeline silently skips it, so we refuse to create one.
+    if payload.backup_id is None:
+        source_backup = (
+            await repo.get_latest_backup(payload.switch_id)
+            if payload.kind == "switch"
+            else await repo.get_latest_backup_for_model(payload.model)
+        )
+        if source_backup is None:
+            raise problem(
+                422,
+                "Unprocessable Entity",
+                "No successful backup found to snapshot as the golden config. Run a backup first.",
+            )
+        payload.backup_id = source_backup.id
+    backup = await repo.get_backup(payload.backup_id)
+    if backup is None:
+        raise problem(422, "Unprocessable Entity", "Referenced backup does not exist")
+    if not backup.success:
+        raise problem(422, "Unprocessable Entity", "Referenced backup was not successful")
+    content_hash = backup.content_hash
 
     baseline = await repo.create_baseline(
         kind=payload.kind,
@@ -143,6 +162,98 @@ async def create_baseline(
     )
     fresh = await repo.get_baseline(baseline.id)
     return _baseline_out(fresh)
+
+
+@router.post("/baselines/{baseline_id}/refresh")
+async def refresh_baseline(
+    baseline_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    runtime=Depends(get_runtime),
+    actor=Depends(require_role("admin")),
+) -> dict:
+    """On-demand review of the latest backup against the baseline (re-attestation).
+
+    Reads the old golden config and the latest successful backup from disk,
+    compares them, and when they drift opens a pending review BEFORE re-pointing
+    the baseline at the new config. The baseline cycle clock always resets. The
+    outcome (drift + review id, or no drift) is recorded in the audit log.
+    """
+    repo = Repository(session)
+    baseline = await repo.get_baseline(baseline_id)
+    if baseline is None:
+        raise problem(404, "Not Found", "Baseline not found")
+    target = (
+        await repo.get_latest_backup(baseline.switch_id)
+        if baseline.kind == "switch"
+        else await repo.get_latest_backup_for_model(baseline.model)
+    )
+    if target is None:
+        raise problem(422, "Unprocessable Entity", "No successful backup available to review")
+
+    # Compare the stored golden vs the latest backup (both from disk).
+    old_golden = await repo.get_backup(baseline.backup_id) if baseline.backup_id else None
+    golden_text = None
+    if old_golden is not None and old_golden.file_path:
+        path = Path(old_golden.file_path)
+        if path.exists():
+            golden_text = path.read_text(encoding="utf-8")
+    target_text = None
+    if target.file_path:
+        path = Path(target.file_path)
+        if path.exists():
+            target_text = path.read_text(encoding="utf-8")
+
+    drifted = False
+    review_id: int | None = None
+    review_switch = await repo.get_switch(
+        baseline.switch_id if baseline.kind == "switch" else target.switch_id
+    )
+    if (
+        runtime.review_service is not None
+        and golden_text is not None
+        and target_text is not None
+        and review_switch is not None
+        and target.id != baseline.backup_id
+    ):
+        outcome = await runtime.review_service.on_backup_complete(
+            switch=review_switch,
+            backup_id=target.id,
+            content_text=target_text,
+            baseline_text=golden_text,
+            baseline_id=baseline.id,
+        )
+        drifted = outcome.drifted
+        review_id = outcome.review_id
+
+    # Re-point and reset the cycle clock regardless of drift.
+    baseline.backup_id = target.id
+    baseline.content_hash = target.content_hash
+    baseline.created_at = utc_now()
+    await session.commit()
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="baseline.refreshed",
+        target_type="baseline",
+        target_id=str(baseline_id),
+        ip=request.client.host if request.client else None,
+        detail={
+            "backup_id": target.id,
+            "drifted": drifted,
+            "review_id": review_id,
+        },
+    )
+    fresh = await repo.get_baseline(baseline_id)
+    name_by_id: dict[int, str] = {}
+    if fresh is not None and fresh.switch_id is not None:
+        sw_name = await _switch_name(session, fresh.switch_id)
+        if sw_name is not None:
+            name_by_id[fresh.switch_id] = sw_name
+    return {
+        "baseline": _baseline_out(fresh, name_by_id).model_dump(),
+        "drifted": drifted,
+        "review_id": review_id,
+    }
 
 
 @router.delete("/baselines/{baseline_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -241,6 +352,34 @@ async def update_review_status(
         comment=payload.comment,
     )
     await session.commit()
+    # Best-effort decision email (approved/flagged/dismissed); never breaks the API.
+    try:
+        from app_v4.core.runtime_settings import load_runtime_settings
+        from app_v4.core.paths import resolve_paths
+        from app_v4.service import email_events
+
+        paths = resolve_paths(runtime.settings)
+        cfg = load_runtime_settings(paths.data_dir / "runtime_settings.json").notify
+        if runtime.notify is not None and cfg.enabled and cfg.email_enabled and cfg.email_review_events:
+            reviewer_name = f"user-{actor.user_id}"
+            if getattr(actor, "username", None):
+                reviewer_name = actor.username
+            sw = await repo.get_switch(review.switch_id)
+            content = email_events.review_decision_email(
+                sw.name if sw else f"#{review.switch_id}",
+                review.id,
+                payload.status,
+                payload.comment,
+                reviewer_name,
+                f"{cfg.app_public_url.rstrip('/')}/config-review",
+            )
+            await runtime.notify.email(
+                content["subject"], content["body_text"], body_html=content["body_html"]
+            )
+    except Exception:  # noqa: BLE001 - email must never break the decision flow
+        import logging
+
+        logging.getLogger(__name__).warning("review decision email failed", exc_info=True)
     await runtime.audit_writer.record(
         user_id=actor.user_id,
         action=f"review.{payload.status}",
@@ -310,6 +449,7 @@ async def compliance_report(
             open_reviews=item["open_reviews"],
             last_review=item["last_review"],
             review_state=item["review_state"],
+            next_review=item.get("next_review", ""),
         )
         for item in data
     ]

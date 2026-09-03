@@ -179,6 +179,14 @@ class Repository:
         key.revoked = True
         return True
 
+    async def delete_api_key(self, key_id: int) -> bool:
+        """Permanently remove an API key row."""
+        key = await self.session.get(ApiKey, key_id)
+        if key is None:
+            return False
+        await self.session.delete(key)
+        return True
+
     async def touch_api_key_last_used(self, key_id: int) -> None:
         key = await self.session.get(ApiKey, key_id)
         if key is not None:
@@ -443,6 +451,17 @@ class Repository:
         result = await self.session.execute(
             select(Backup)
             .where(Backup.switch_id == switch_id, Backup.success.is_(True))
+            .order_by(Backup.taken_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_latest_backup_for_model(self, model: str) -> Backup | None:
+        """Newest successful backup of any switch whose model equals ``model``."""
+        result = await self.session.execute(
+            select(Backup)
+            .join(Switch, Backup.switch_id == Switch.id)
+            .where(Backup.success.is_(True), Switch.model == model)
             .order_by(Backup.taken_at.desc())
             .limit(1)
         )

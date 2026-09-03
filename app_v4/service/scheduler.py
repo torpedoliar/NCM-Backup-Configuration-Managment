@@ -362,10 +362,17 @@ class SchedulerService:
             rs = load_runtime_settings(self._runtime_settings_path)
             if not rs.notify.email_enabled:
                 return
+            # The email template is resolved per send, so edits in Settings
+            # apply to the next reminder without a restart.
+            self.review_service._email_template = rs.notify.email_template
             content = await self.review_service.send_reminder(review_url=self.notify.review_url())
             if not content["subject"]:
                 return
-            await self.notify.email(content["subject"], content["body"])
+            await self.notify.email(
+                content["subject"],
+                content["body_text"],
+                body_html=content.get("body_html") or None,
+            )
         except Exception:  # noqa: BLE001
             import logging
             logging.getLogger(__name__).warning(

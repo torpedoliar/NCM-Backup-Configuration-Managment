@@ -14,3 +14,8 @@ def load_theme_qss() -> str:
     """
     qss_path = Path(__file__).resolve().parent / "ops_terminal.qss"
     return qss_path.read_text(encoding="utf-8")
+
+
+def theme_asset(name: str) -> Path:
+    """Path to a bundled theme asset (icon, image) — dev and frozen-aware."""
+    return Path(__file__).resolve().parent / name

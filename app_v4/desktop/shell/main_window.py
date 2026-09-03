@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QVBoxLayout, QWidget
 
 from app_v4.desktop.shell.sidebar import Sidebar
 from app_v4.desktop.shell.spa_view import SpaView
 from app_v4.desktop.shell.topbar import Topbar
-from app_v4.desktop.theme import load_theme_qss
+from app_v4.desktop.theme import load_theme_qss, theme_asset
 
 
 # Maps the sidebar label to the SPA route. Order mirrors Sidebar's button order.
@@ -32,6 +33,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("NCM v4 Ops Terminal")
         self.resize(1280, 800)
         self.setStyleSheet(load_theme_qss())
+        app_icon = theme_asset("ncm.ico")
+        if app_icon.exists():
+            self.setWindowIcon(QIcon(str(app_icon)))
 
         self.spa_view = SpaView(
             service_url=service_url,

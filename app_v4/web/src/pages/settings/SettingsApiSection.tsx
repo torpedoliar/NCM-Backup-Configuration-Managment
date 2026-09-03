@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '../../api/hooks';
+import { useApiKeys, useCreateApiKey, useDeleteApiKey, useRevokeApiKey } from '../../api/hooks';
 import type { ApiKeyCreated, ApiKeyRecord } from '../../api/types';
 import { humanizeError } from '../../lib/errors';
 import { formatTzDateTime } from '../../lib/fmt';
@@ -60,6 +60,7 @@ function EndpointList() {
 function KeyList() {
   const { data: keys } = useApiKeys();
   const revoke = useRevokeApiKey();
+  const remove = useDeleteApiKey();
 
   if (!keys) return <p>Loading…</p>;
   if (keys.length === 0) return <p className="settings-help">No API keys yet — create one above.</p>;
@@ -67,6 +68,16 @@ function KeyList() {
   function handleRevoke(key: ApiKeyRecord) {
     if (window.confirm(`Revoke API key "${key.name}"? Requests using it will be rejected immediately.`)) {
       revoke.mutate(key.id);
+    }
+  }
+
+  function handleDelete(key: ApiKeyRecord) {
+    if (
+      window.confirm(
+        `Permanently delete API key "${key.name}"? The row is removed from the list; the audit log keeps the record. This cannot be undone.`,
+      )
+    ) {
+      remove.mutate(key.id);
     }
   }
 
@@ -84,11 +95,16 @@ function KeyList() {
           <span className={key.revoked ? 'key-status revoked' : 'key-status'}>
             {key.revoked ? 'REVOKED' : 'ACTIVE'}
           </span>
-          {!key.revoked && (
-            <button onClick={() => handleRevoke(key)} disabled={revoke.isPending}>
-              Revoke
+          <div className="row-actions">
+            {!key.revoked && (
+              <button onClick={() => handleRevoke(key)} disabled={revoke.isPending}>
+                Revoke
+              </button>
+            )}
+            <button onClick={() => handleDelete(key)} disabled={remove.isPending}>
+              Delete
             </button>
-          )}
+          </div>
         </div>
       ))}
     </div>

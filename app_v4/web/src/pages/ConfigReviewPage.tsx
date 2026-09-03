@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { fetchReviewDiff, useReviewStatus, useReviews } from '../api/hooks';
+import {
+  downloadComplianceReport,
+  fetchReviewDiff,
+  useCompliance,
+  useReviews,
+  useReviewStatus,
+} from '../api/hooks';
 import type { ConfigReviewStatus, ReviewFilters } from '../api/types';
 import { formatTzDateTime } from '../lib/fmt';
 import { humanizeError } from '../lib/errors';
@@ -21,6 +27,63 @@ function summaryText(summary: Record<string, unknown>): string {
   if (changed?.length) parts.push(`${changed.length} port(s) changed (${changed.slice(0, 5).join(', ')})`);
   if (summary.hostname_changed) parts.push('hostname changed');
   return parts.join(' · ') || 'text diff only';
+}
+
+function CompliancePanel() {
+  const { data } = useCompliance();
+  if (!data) return null;
+  const coverage =
+    data.switches_total > 0
+      ? Math.round((data.switches_with_baseline / data.switches_total) * 100)
+      : 0;
+  return (
+    <section className="settings-card">
+      <h3>Compliance overview (ISO 27001 A.8.9)</h3>
+      <p className="settings-help">
+        Every switch needs a golden-config baseline; every drift from that baseline needs a review.
+        This is the evidence trail for configuration management.
+      </p>
+      <div className="compliance-stats">
+        <div>
+          <span className="compliance-num">{coverage}%</span>
+          <span className="compliance-label">baseline coverage</span>
+        </div>
+        <div>
+          <span className="compliance-num">{data.reviews_pending}</span>
+          <span className="compliance-label">reviews pending</span>
+        </div>
+        <div>
+          <span className="compliance-num">{data.reviews_flagged}</span>
+          <span className="compliance-label">flagged</span>
+        </div>
+        <div>
+          <span className="compliance-num">{data.switches_missing_baseline.length}</span>
+          <span className="compliance-label">switches without baseline</span>
+        </div>
+        <div>
+          <span className="compliance-num">{data.baselines_stale.length}</span>
+          <span className="compliance-label">reminder due (every {data.review_interval_months}mo)</span>
+        </div>
+      </div>
+      {data.switches_missing_baseline.length > 0 ? (
+        <p className="settings-help">
+          Missing baselines: {data.switches_missing_baseline.join(', ')}. Create them on the
+          Baselines page — drift detection is inactive for those switches until a baseline exists.
+        </p>
+      ) : null}
+      {data.baselines_stale.length > 0 ? (
+        <p className="settings-help">
+          Reminder review due: {data.baselines_stale.join(', ')}. Refresh them on the Baselines page
+          to re-attest against the current config and reset the cycle.
+        </p>
+      ) : null}
+      <div className="row-actions">
+        <button onClick={() => downloadComplianceReport('csv')}>Export CSV</button>
+        <button onClick={() => downloadComplianceReport('xlsx')}>Export Excel</button>
+        <button onClick={() => downloadComplianceReport('pdf')}>Export PDF</button>
+      </div>
+    </section>
+  );
 }
 
 export function ConfigReviewPage() {
@@ -52,9 +115,12 @@ export function ConfigReviewPage() {
       <p className="marker">/08 · REVIEW</p>
       <h1 className="headline">Config changes, reviewed.</h1>
       <p className="muted">
-        Every drift from a baseline becomes a logged review (ISO 27001 A.8.9). Approve or flag with a
-        comment — it is recorded as evidence.
+        Workflow: define a golden-config baseline → every backup is compared against it → any drift
+        opens a review here → approve or flag it with a comment. All of it is logged as ISO 27001
+        A.8.9 evidence.
       </p>
+
+      <CompliancePanel />
 
       <section className="filter-bar">
         <label>

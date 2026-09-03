@@ -9,17 +9,19 @@ const createMutate = vi.fn((_name: string, options?: { onSuccess?: (key: typeof 
   options?.onSuccess?.(KEY);
 });
 const revokeMutate = vi.fn();
+const deleteMutate = vi.fn();
 
 vi.mock('../../api/hooks', () => ({
   useApiKeys: () => ({
     data: [
       { id: 1, name: 'lab-automation', prefix: 'ncr_Ab1', created_at: '2026-08-01T10:00:00Z', last_used_at: null, revoked: false },
-      { id: 2, name: 'old-key', prefix: 'ncr_Xy2', created_at: '2026-07-01T10:00:00Z', last_used_at: '2026-07-20T08:00:00Z', revoked: true },
+      { id: 2, name: 'old-key', prefix: 'ncr_Xy2', created_at: '2026-07-01T10:00:00Z', last_used_at: '2026-07-20T08:00:00Z', archived: false, revoked: true },
     ],
     isLoading: false,
   }),
   useCreateApiKey: () => ({ mutate: createMutate, isPending: false }),
   useRevokeApiKey: () => ({ mutate: revokeMutate, isPending: false }),
+  useDeleteApiKey: () => ({ mutate: deleteMutate, isPending: false }),
 }));
 
 describe('SettingsApiSection', () => {

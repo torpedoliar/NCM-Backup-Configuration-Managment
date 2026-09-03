@@ -324,6 +324,10 @@ def main() -> int:
             access_token=access_token,
             refresh_token=refresh_token,
         )
+        from app_v4.desktop.shell.tray import TrayController
+
+        tray = TrayController(window, app, get_stop_backend=backend.stop)
+        tray.show()
         window.show()
         return app.exec()
     finally:

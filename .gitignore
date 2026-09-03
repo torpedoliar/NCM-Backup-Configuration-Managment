@@ -78,3 +78,6 @@ Sample Backup/
 
 # Pre-build data backups (live app.db + master keys) - never commit
 _prebuild_backup_*/
+
+# Local data backup (master keys, DB) - never commit
+_backup-data-*/

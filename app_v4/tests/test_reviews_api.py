@@ -41,8 +41,12 @@ async def test_baseline_crud(test_settings, session_factory):
         admin = await repo.create_user("admin", "hash", "admin")
         cred = await repo.create_credential("test-cred", b"enc_blob")
         sw = await repo.create_switch("sw-test", "10.0.0.1", "ssh", 22, cred.id)
+        golden = await repo.create_backup(
+            switch_id=sw.id, file_path="/tmp/golden.txt", content_hash="h1",
+            size_bytes=10, success=True, message="golden",
+        )
         await session.commit()
-        admin_id, switch_id = admin.id, sw.id
+        admin_id, switch_id, golden_id = admin.id, sw.id, golden.id
 
     client = _make_client(test_settings, session_factory)
     headers = {"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"}
@@ -51,17 +55,30 @@ async def test_baseline_crud(test_settings, session_factory):
     assert resp.status_code == 200
     assert resp.json() == []
 
+    # No successful backup -> baseline creation is refused (zombie guard).
+    resp = client.post("/api/v1/baselines", headers=headers, json={"kind": "model", "model": "NOBACKUP-9000"})
+    assert resp.status_code == 422
+
     resp = client.post("/api/v1/baselines", headers=headers, json={"kind": "switch", "switch_id": switch_id})
     assert resp.status_code == 201
     data = resp.json()
     assert data["kind"] == "switch"
     assert data["switch_id"] == switch_id
-    assert data["backup_id"] is None
+    # Falls back to the switch's latest successful backup.
+    assert data["backup_id"] == golden_id
 
     resp = client.post("/api/v1/baselines", headers=headers, json={"kind": "switch", "switch_id": switch_id})
     assert resp.status_code == 409
 
     resp = client.post("/api/v1/baselines", headers=headers, json={"kind": "model", "model": "AT-8000"})
+    assert resp.status_code == 422  # no backup of any AT-8000 switch yet
+
+    # Explicit golden backup works for model templates.
+    resp = client.post(
+        "/api/v1/baselines",
+        headers=headers,
+        json={"kind": "model", "model": "AT-8000", "backup_id": golden_id},
+    )
     assert resp.status_code == 201
     assert resp.json()["kind"] == "model"
 
@@ -88,6 +105,10 @@ async def test_review_workflow(test_settings, session_factory):
         admin = await repo.create_user("admin2", "hash", "admin")
         cred = await repo.create_credential("cred-review", b"enc")
         sw = await repo.create_switch("sw-review", "10.0.0.2", "ssh", 22, cred.id)
+        await repo.create_backup(
+            switch_id=sw.id, file_path="/tmp/seed.txt", content_hash="seed",
+            size_bytes=10, success=True, message="seed backup",
+        )
         await session.commit()
         admin_id, switch_id = admin.id, sw.id
 
@@ -95,9 +116,11 @@ async def test_review_workflow(test_settings, session_factory):
     client = _make_client(test_settings, session_factory, review_service=rs)
     headers = {"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"}
 
-    resp = client.post("/api/v1/baselines", headers=headers, json={"kind": "switch", "switch_id": switch_id})
+    # The baseline now snapshots the switch's latest successful backup.
+    resp = client.post("/api/v1/baselines", json={"kind": "switch", "switch_id": switch_id}, headers=headers)
     assert resp.status_code == 201
     baseline_id = resp.json()["id"]
+    assert resp.json()["backup_id"] is not None
 
     async with session_factory() as session:
         repo = Repository(session)
@@ -143,6 +166,72 @@ async def test_review_workflow(test_settings, session_factory):
     comp = resp.json()
     assert comp["switches_with_baseline"] >= 1
     assert comp["reviews_approved"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_on_demand_review_drift_and_clean(test_settings, session_factory, tmp_path):
+    """POST /baselines/{id}/refresh compares golden vs latest: drift opens a pending
+    review; a second run (no change) reports no drift; both are audit-logged."""
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin4", "hash", "admin")
+        cred = await repo.create_credential("cred-ond", b"enc")
+        sw = await repo.create_switch("sw-ondemand", "10.0.0.4", "ssh", 22, cred.id)
+        await session.commit()
+        admin_id, switch_id = admin.id, sw.id
+
+    rs = ReviewService(test_settings, session_factory)
+    client = _make_client(test_settings, session_factory, review_service=rs)
+    headers = {"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"}
+
+    golden_text = "hostname sw-ondemand\nvlan 10 name MGMT\n"
+    golden_file = tmp_path / "golden_ondemand.txt"
+    golden_file.write_text(golden_text, encoding="utf-8")
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        golden = await repo.create_backup(
+            switch_id=switch_id, file_path=str(golden_file),
+            content_hash="goldenhash", size_bytes=100, success=True, message="golden",
+        )
+        baseline = await repo.create_baseline(
+            kind="switch", switch_id=switch_id, model=None,
+            backup_id=golden.id, content_hash="goldenhash", created_by=None,
+        )
+        await session.commit()
+        baseline_id, golden_id = baseline.id, golden.id
+
+    # Latest backup drifts from the golden.
+    drifted_file = tmp_path / "latest_ondemand.txt"
+    drifted_file.write_text(golden_text + "vlan 99 name NEW\n", encoding="utf-8")
+    async with session_factory() as session:
+        repo = Repository(session)
+        await repo.create_backup(
+            switch_id=switch_id, file_path=str(drifted_file),
+            content_hash="drifthash", size_bytes=120, success=True, message="drift",
+        )
+        await session.commit()
+
+    resp = client.post(f"/api/v1/baselines/{baseline_id}/refresh", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["drifted"] is True
+    assert body["review_id"] is not None
+    assert body["baseline"]["backup_id"] != golden_id  # re-pointed to the latest
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        review = await repo.get_review(body["review_id"])
+        assert review is not None and review.status == "pending"
+        audits = await repo.list_audit(limit=10)
+        refreshed = [a for a in audits if a.action == "baseline.refreshed"]
+        assert refreshed and json.loads(refreshed[0].detail_json)["drifted"] is True
+
+    # Run again: golden is now the drifted config -> no drift.
+    resp2 = client.post(f"/api/v1/baselines/{baseline_id}/refresh", headers=headers)
+    assert resp2.status_code == 200
+    assert resp2.json()["drifted"] is False
+    assert resp2.json()["review_id"] is None
 
 
 @pytest.mark.asyncio
