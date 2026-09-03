@@ -1,370 +1,207 @@
 <p align="center">
-  <img src="ico.png" alt="NCM Logo" width="120" height="120"/>
+  <img src="Icon%20Aplikasi/Icon%20NCM.png" alt="NCM v4" width="120" height="120"/>
 </p>
 
-<h1 align="center">🔧 NCM - Network Configuration Manager</h1>
+<h1 align="center">NCM v4 — Network Configuration Manager</h1>
 
 <p align="center">
-  <strong>Enterprise-Grade Switch Backup & Configuration Management for Allied Telesis</strong>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/version-4.6.0-blue.svg" alt="Version"/>
-  <img src="https://img.shields.io/badge/python-3.11+-green.svg" alt="Python"/>
-  <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform"/>
-  <img src="https://img.shields.io/badge/license-Proprietary-red.svg" alt="License"/>
-  <img src="https://img.shields.io/badge/encryption-AES--128-orange.svg" alt="Encryption"/>
+  <strong>Automated switch backup, config-drift review & ISO 27001 A.8.9 compliance</strong><br/>
+  Desktop app · Single exe · FastAPI + React · Windows
 </p>
 
 <p align="center">
-  <a href="#-features">Features</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-architecture">Architecture</a> •
-  <a href="#-security">Security</a> •
-  <a href="#-documentation">Documentation</a>
+  <img src="https://img.shields.io/badge/python-3.13-blue" alt="Python"/>
+  <img src="https://img.shields.io/badge/FastAPI-0.110+-009688" alt="FastAPI"/>
+  <img src="https://img.shields.io/badge/React-19-61dafb" alt="React"/>
+  <img src="https://img.shields.io/badge/PySide6-QT6-41cd52" alt="PySide6"/>
+  <img src="https://img.shields.io/badge/tests-418%20%2B%2094-brightgreen" alt="Tests"/>
+  <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="Platform"/>
 </p>
 
 ---
 
-## 🎯 Overview
+## Why NCM v4
 
-**NCM (Network Configuration Manager)** is a production-ready Windows desktop application designed for IT infrastructure teams to efficiently backup, track, and manage configuration changes across Allied Telesis network switches. Built with enterprise security in mind, NCM provides automated backup scheduling, change detection with visual diff comparison, and encrypted credential storage.
+Network teams back up switch configs but rarely *prove* they manage them. NCM v4 closes that gap:
+one Windows exe runs a full backup + review pipeline — scheduled backups over SSH/Telnet/SNMP,
+automatic drift detection against golden baselines, a human review queue, scheduled email
+reminders, and exportable ISO 27001 A.8.9 evidence. Close the window and it keeps working in the
+system tray.
 
-## ✨ Features
+**One exe = server + app.** The desktop shell boots a uvicorn thread serving the REST API and the
+bundled React UI on `http://localhost:8443` — no separate installation, no external database.
 
-<table>
-<tr>
-<td width="50%">
+## Feature Highlights
 
-### 🌐 Multi-Protocol Support
-- **SSH** - Secure encrypted connections
-- **Telnet** - Legacy device compatibility  
-- **WebSmart** - Allied Telesis web interface
-- **WebSmart V2** - RSA-encrypted modern switches
-- Custom port configuration per device
+### Backup & Drift Management
+- **Multi-protocol backup** — SSH (asyncssh), Telnet (telnetlib3), WebSmart SNMP (V1/V2); per-device port & credentials
+- **Golden baselines** — per-switch or per-model templates; the backend snapshots the latest successful backup as the golden source (a baseline without a source is refused, so drift detection can never be silently inactive)
+- **Automatic drift detection** — every backup is compared to its baseline; drift opens a **pending review** with a structured summary (VLANs added/removed/renamed, port changes, hostname) plus a unified diff
+- **On-demand review** — a *Review* button on each baseline re-compares golden vs latest config anytime, without waiting for the monthly cycle; the switch doesn't even need to be online
+- **Full history** — every backup, diff, review decision, and audit event is queryable and exportable
 
-</td>
-<td width="50%">
+### ISO 27001 A.8.9 Compliance
+- **Review cycle** — configurable N-month re-attestation interval (default 6) with calendar-precise due dates
+- **Compliance panel** — baseline coverage %, pending/flagged reviews, switches missing baselines, reminders due
+- **Evidence export** — per-switch compliance report as CSV / Excel / PDF, including a *Next review* column
+- **Reminder emails** — daily digest of pending reviews, missing baselines, and reminders due; stops once baselines are re-attested
 
-### 🔐 Enterprise Security
-- **AES-128 Fernet Encryption** for credentials
-- **PBKDF2-HMAC-SHA256** key derivation
-- 100,000 iterations for maximum security
-- Master passphrase never stored on disk
-- Encrypted SQLite credential storage
+### Notifications
+- **Event emails with informative subjects**:
+  - `[NCM] BACKUP GAGAL — SW-CORE-01 (backup #123)`
+  - `[NCM] BACKUP OK — SW-CORE-01 (backup #124) — config BERUBAH`
+  - `[NCM] REVIEW PENDING #45 — SW-CORE-01 (drift terdeteksi)`
+  - `[NCM] REVIEW APPROVED #45 — SW-CORE-01 — oleh admin`
+- **Toggles** — backup-failure alerts (default on), backup-success alerts (opt-in), review events (pending + decisions)
+- **Custom HTML template** — edit the reminder email body in Settings with `{{variables}}` (live data, XSS-escaped, multipart HTML+text, preview send button)
+- **Telegram & webhook** channels for drift alerts
 
-</td>
-</tr>
-<tr>
-<td>
+### Security
+- **JWT auth** (short-lived access + refresh tokens), role-based access (admin / operator / viewer)
+- **API keys** (SHA-256 hashed, prefix-shown, revoke or permanently delete) for read-only structured network-doc endpoints
+- **Credentials encrypted at rest** — master key protected by Windows **DPAPI**; account lockout, password policy
+- **Full audit log** of every sensitive action (baselines, reviews, API keys, settings, retention)
 
-### ⏰ Automated Scheduling
-- Flexible intervals: 15m, 1h, 6h, 12h, 24h
-- Background service mode support
-- Windows Task Scheduler integration
-- Automatic retry with exponential backoff
+### Desktop Experience
+- **Close-to-tray** — closing the window keeps the backend + scheduler running; tray menu *Keluar* is the only true exit
+- **Native app icon** on exe, window, and tray
+- **Ops-terminal UI** — dark theme, live fleet grid, backup charts, diff viewer
 
-</td>
-<td>
+## Tech Stack
 
-### 📊 Change Management
-- **Visual Diff Viewer** with syntax highlighting
-- Line-by-line comparison with line numbers
-- Unified diff format
-- Configuration change tracking over time
+| Layer | Technology |
+|-------|-----------|
+| Backend API | Python 3.13, **FastAPI**, uvicorn, Pydantic v2 |
+| Database | **SQLite** via SQLAlchemy 2 async (aiosqlite) |
+| Desktop shell | **PySide6 (Qt 6)** — native window + tray, WebView hosting the SPA |
+| Frontend | **React 19 + TypeScript**, Vite, TanStack Query, wouter, recharts |
+| Network access | asyncssh (SSH), telnetlib3 (Telnet), SNMP for WebSmart |
+| Scheduling | **APScheduler** — backups, retention, reminder digests |
+| Security | JWT, argon2, API keys, Windows DPAPI master-key protection |
+| Reporting | reportlab (PDF), openpyxl (XLSX), stdlib csv |
+| Notifications | SMTP multipart (HTML+text), Telegram, webhooks |
+| Packaging | **PyInstaller** → single `ncm-v4-desktop.exe` bundle |
+| Testing | pytest + pytest-asyncio + pytest-qt (418), Vitest + Testing Library (94) |
 
-</td>
-</tr>
-<tr>
-<td>
-
-### 🗂️ Intelligent Retention
-- Configurable 30-day default retention
-- Automatic cleanup of old backups
-- Minimum backup count guarantee
-- Organized folder structure by device/date
-
-</td>
-<td>
-
-### 🖥️ Modern UI/UX
-- **ttkbootstrap** modern theme engine
-- Non-blocking background operations
-- Real-time backup status updates
-- Comprehensive logging with 7-day rotation
-
-</td>
-</tr>
-</table>
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- **Python 3.11+** (required)
-- **Windows 10/11**
-- Network access to Allied Telesis switches
-
-### Installation
-
-```powershell
-# 1️⃣ Clone the repository
-git clone https://github.com/your-org/ncm-backup.git
-cd ncm-backup
-
-# 2️⃣ Create virtual environment (recommended)
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-# 3️⃣ Install dependencies
-pip install -r requirements.txt
-
-# 4️⃣ Launch the application
-python -m app.main
-```
-
-### First Launch
-
-1. 🔑 **Set Master Passphrase** - Create a secure passphrase (minimum 8 characters)
-2. 📱 **Add Switches** - Go to Inventory tab and add your devices
-3. 🔐 **Configure Credentials** - Add encrypted credentials in Credentials tab
-4. ▶️ **Start Backing Up** - Manual backup or configure automated schedules
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        NCM Application                          │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                     UI Layer (tkinter)                   │   │
-│  │  Dashboard │ Inventory │ Credentials │ History │ Diff   │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                    Service Layer                          │   │
-│  │  BackupService │ CryptoService │ ScheduleService │ etc.  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│  ┌─────────────────┐    ┌───────────────────┐                   │
-│  │   Data Layer    │    │   Network Layer   │                   │
-│  │ SQLite + ORM    │    │ SSH/Telnet/HTTP   │                   │
-│  └─────────────────┘    └───────────────────┘                   │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                 ncm-v4-desktop.exe (PyInstaller)             │
+├──────────────────────────────────────────────────────────────┤
+│  PySide6 shell            │  uvicorn thread (localhost:8443) │
+│  window · tray · login    │  FastAPI REST API + WebSocket    │
+│        │                  │        │                          │
+│        └──► SpaView (WebView) ──► React SPA (bundled static) │
+├──────────────────────────────────────────────────────────────┤
+│  ServiceRuntime                                              │
+│  BackupService · ReviewService · SchedulerService            │
+│  RetentionService · Notifier (SMTP/Telegram/webhook)         │
+├──────────────────────────────────────────────────────────────┤
+│  Data layer: SQLite (app.db) + backup files on disk          │
+│  Network layer: asyncssh · telnetlib3 · SNMP                 │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### Project Structure
 
 ```
-📦 ncm-backup/
-├── 📂 app/
-│   ├── 📄 main.py              # Application entry point
-│   ├── 📂 ui/                  # User interface modules
-│   │   ├── app_window.py       # Main window container
-│   │   ├── dashboard_view.py   # Overview dashboard
-│   │   ├── inventory_view.py   # Switch management
-│   │   ├── credentials_view.py # Credential vault
-│   │   ├── history_view.py     # Backup history
-│   │   ├── diff_view.py        # Configuration diff viewer
-│   │   ├── schedules_view.py   # Scheduler management
-│   │   └── settings_view.py    # Application settings
-│   ├── 📂 services/            # Business logic layer
-│   │   ├── backup_service.py   # Core backup execution
-│   │   ├── crypto_service.py   # Encryption/decryption
-│   │   ├── schedule_service.py # APScheduler integration
-│   │   ├── retention_service.py# Cleanup automation
-│   │   ├── diff_service.py     # Configuration comparison
-│   │   └── export_service.py   # Data export utilities
-│   ├── 📂 net/                 # Network communication
-│   │   ├── runner.py           # Protocol abstraction
-│   │   ├── ssh_client.py       # Paramiko SSH client
-│   │   ├── telnet_client.py    # Telnet3 client
-│   │   └── websmart_client.py  # WebSmart HTTP client
-│   ├── 📂 data/                # Data persistence
-│   │   ├── db.py               # SQLite connection
-│   │   ├── models.py           # SQLAlchemy ORM models
-│   │   └── repository.py       # Data access layer
-│   └── 📂 config/              # Configuration
-│       ├── appsettings.yaml    # App settings
-│       └── logging_config.py   # Logging setup
-├── 📂 backups/                 # Backup storage
-├── 📂 logs/                    # Application logs
-├── 📂 Dokumentasi/             # Documentation
-├── 📄 requirements.txt         # Python dependencies
-├── 📄 build.ps1                # Build script
-└── 📄 README.md                # This file
+📦 NCM-Backup-Configuration-Managment/
+├── app_v4/
+│   ├── core/                 # Settings, paths, auth service, runtime settings
+│   ├── data/                 # SQLAlchemy models + repository
+│   ├── net/                  # SSH / Telnet / WebSmart clients, config parsers
+│   ├── service/              # FastAPI app, backup/review/scheduler services
+│   │   └── api/              # REST routers (switches, backups, reviews, ...)
+│   ├── desktop/              # PySide6 shell: main window, tray, setup wizard
+│   └── web/                  # React SPA source (Vite)
+│       └── src/pages/        # Dashboard, Baselines, Config Review, Settings...
+├── installer/v4/             # PyInstaller spec (icon, hidden imports)
+├── app_v4/tests/             # pytest suite (418 tests)
+├── app_v4/web/src/**.test    # Vitest suite (94 tests)
+└── Dokumentasi/              # User guide, API docs
 ```
 
-## 🔒 Security
+## Quick Start
 
-### Encryption Standards
+### Prerequisites
+- **Windows 10/11**
+- Network reachability to your switches (SSH/Telnet/SNMP)
+- For development: Python 3.13, Node.js 20+
 
-| Component | Implementation |
-|-----------|----------------|
-| **Symmetric Encryption** | Fernet (AES-128-CBC) |
-| **Key Derivation** | PBKDF2-HMAC-SHA256 |
-| **Iterations** | 100,000 |
-| **Salt** | 16-byte random per installation |
-| **Credential Storage** | Encrypted JSON in SQLite |
+### Run the exe (end users)
 
-### Security Best Practices
+1. Build or obtain `dist\ncm-v4-desktop\ncm-v4-desktop.exe`
+2. Run it — first launch opens the setup wizard (master passphrase + admin account)
+3. Add switches & credentials, run a backup, then create a baseline from it
 
-- ✅ Master passphrase required at every session start
-- ✅ Credentials encrypted at rest
-- ✅ No plaintext passwords in logs or files
-- ✅ Session keys stored only in memory
-- ✅ Secure connection protocols (SSH preferred)
-
-> ⚠️ **Important**: If you lose your master passphrase, credential recovery is impossible. Store it securely!
-
-## 📖 Usage Guide
-
-### 📱 Managing Switches
-
-1. Navigate to **Inventory** tab
-2. Click **➕ Add Switch**
-3. Fill in: Name, IP Address, Protocol (SSH/Telnet/WebSmart), Port
-4. Assign credentials and save
-
-### 🔐 Credential Management
-
-1. Go to **Credentials** tab
-2. Click **Add Credential**
-3. Enter: Label, Username, Password, Enable Password (optional)
-4. All data is encrypted automatically
-
-### ⏱️ Scheduling Backups
-
-1. Navigate to **Schedules** tab
-2. Click **Add Schedule**
-3. Select switch and interval (15m/1h/6h/12h/24h)
-4. Enable and save
-
-### 📊 Comparing Configurations
-
-1. Go to **Backup History** tab
-2. Select a switch from the dropdown
-3. Choose two backup versions
-4. Click **Show Diff** to view changes
-
-## 🛠️ Building
-
-### Development Build
+### Build from source
 
 ```powershell
-.\build.ps1
+# 1) Frontend bundle
+npm --prefix app_v4/web install
+npm --prefix app_v4/web run build
+
+# 2) Python environment (full requirements — a stripped venv breaks the exe)
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements-v4.txt
+
+# 3) Desktop exe
+pyinstaller installer\v4\ncm-v4-desktop.spec --clean --noconfirm
+# → dist\ncm-v4-desktop\ncm-v4-desktop.exe
 ```
 
-### Production Release
+> ⚠️ **PyInstaller `--clean` wipes `dist\ncm-v4-desktop\data`** (app.db + master keys).
+> Back up that folder first, or credential blobs get orphaned.
+
+### Development mode
 
 ```powershell
-.\build_production.ps1
+# Backend + API docs (http://127.0.0.1:8443/docs)
+python -m uvicorn app_v4.service.main:app --port 8443
+
+# Frontend dev server
+npm --prefix app_v4/web run dev
 ```
 
-Output: `dist\AlliedTelesisBackup.exe` (~38 MB standalone)
-
-## 🧪 Testing
+### Testing
 
 ```powershell
-# Run all tests with pytest
-python -m pytest app/tests/ -v
+# Backend (418 tests)
+.venv\Scripts\python.exe -m pytest app_v4\tests -q
 
-# Run with unittest
-python -m unittest discover app/tests/
+# Frontend (94 tests)
+npm --prefix app_v4/web run test
 ```
 
-## 📋 Database Schema
+## Data & Folders
 
-```mermaid
-erDiagram
-    Credential ||--o{ Switch : "has"
-    Switch ||--o{ Backup : "generates"
-    Switch ||--o{ Job : "scheduled by"
-    
-    Credential {
-        int id PK
-        string label
-        blob username_enc
-        blob password_enc
-        blob enable_enc
-    }
-    
-    Switch {
-        int id PK
-        string name
-        string ip_address
-        string protocol
-        int port
-        int credential_id FK
-    }
-    
-    Backup {
-        int id PK
-        int switch_id FK
-        string file_path
-        string hash_sha256
-        datetime timestamp
-        boolean success
-    }
-    
-    Job {
-        int id PK
-        int switch_id FK
-        string interval
-        boolean enabled
-        datetime last_ran_at
-    }
-```
+| Path (next to exe) | Contents |
+|---|---|
+| `data\app.db` | SQLite — switches, backups, reviews, audit |
+| `data\master.key` / `master.dpapi` | DPAPI-protected master key (**never commit, never share**) |
+| `backups\<switch>\<date>\` | Config snapshots + `.diff` files |
+| `data\runtime_settings.json` | Notification, review-cycle, retention settings |
+| `logs\` | Rotating application logs |
 
-## 🔧 Troubleshooting
+## Documentation
+
+- 📘 [User Guide](Dokumentasi/user_guide.md)
+- 📗 [API Documentation](Dokumentasi/Dokumentasi%20API.md)
+
+## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| **Connection timeout** | Verify IP, port, and firewall rules |
-| **Authentication failed** | Check username/password in Credentials |
-| **Prompt not detected** | Customize in Settings → Prompt Patterns |
-| **WebSmart V2 fails** | Ensure RSA encryption support (pycryptodome) |
-| **Passphrase lost** | Delete `data/master.key` + `data/app.db` (⚠️ loses all data) |
-
-## 📦 Dependencies
-
-| Package | Purpose |
-|---------|---------|
-| `ttkbootstrap` | Modern UI theming |
-| `paramiko` | SSH connections |
-| `telnetlib3` | Telnet support |
-| `apscheduler` | Background scheduling |
-| `sqlalchemy` | ORM database access |
-| `cryptography` | Fernet encryption |
-| `pycryptodome` | RSA for WebSmart V2 |
-| `requests` | HTTP client |
-| `beautifulsoup4` | HTML parsing |
-| `pillow` | Image processing |
-| `pywin32` | Windows service |
-
-## 📚 Documentation
-
-Detailed documentation available in the `Dokumentasi/` folder:
-
-- 📘 [User Guide](Dokumentasi/user_guide.md)
-- 📗 [WebSmart V2 Backup Flow](websmart_v2_backup_flow.md)
-- 📙 [Application Overview](application_overview.md)
-
-## 👥 Support
-
-For internal support, contact the IT Infrastructure team.
+| Exe shows old icon | Windows icon cache — restart Explorer or re-pin the shortcut |
+| Backend didn't start | Check `data\` is writable; antivirus may block bundled exe |
+| Backup failed: AUTH/timeout | Verify credentials & reachability in **Switches** |
+| Reminder email never arrives | Check all gates: *Enable notifications* → *Enable email reminders* → SMTP host/recipients |
+| Forgot master passphrase | Recovery is impossible by design — restore from backup or start fresh |
 
 ---
 
 <p align="center">
-  <strong>NCM - Network Configuration Manager</strong><br>
-  <em>Securing Your Network, One Backup at a Time</em>
-</p>
-
-<p align="center">
-  Made with ❤️ by IT Infrastructure Team
-</p>
-
-<p align="center">
-  <sub>© 2024-2025 | Proprietary - Internal Use Only</sub>
+  <sub>NCM v4 · Proprietary — internal use</sub>
 </p>
