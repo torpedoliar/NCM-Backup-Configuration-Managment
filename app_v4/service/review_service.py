@@ -18,7 +18,7 @@ from app_v4.service.diff_service import DiffService
 
 logger = logging.getLogger(__name__)
 
-REVIEW_STATUSES = ("pending", "approved", "flagged", "dismissed")
+REVIEW_STATUSES = ("pending", "in_review", "approved", "flagged", "dismissed")
 
 
 def _add_months(moment: datetime, months: int) -> datetime:

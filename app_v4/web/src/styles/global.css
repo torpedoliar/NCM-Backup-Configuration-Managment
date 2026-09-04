@@ -291,6 +291,28 @@ a { color: inherit; }
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.review-notes {
+  display: grid;
+  gap: 10px;
+}
+.review-note {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--amber);
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.review-note p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+.review-note-form {
+  display: grid;
+  gap: 8px;
+}
+.review-note-form textarea {
+  width: 100%;
+  resize: vertical;
+}
 .vlan-grid {
   display: flex;
   flex-wrap: wrap;

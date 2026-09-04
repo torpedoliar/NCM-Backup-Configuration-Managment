@@ -235,6 +235,81 @@ async def test_on_demand_review_drift_and_clean(test_settings, session_factory, 
 
 
 @pytest.mark.asyncio
+async def test_review_workflow_in_review_and_notes(test_settings, session_factory):
+    """Full flow: pending -> start (in_review) -> notes thread -> approved."""
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin-flow", "hash", "admin")
+        cred = await repo.create_credential("cred-flow", b"enc")
+        sw = await repo.create_switch("sw-flow", "10.0.0.6", "ssh", 22, cred.id)
+        await repo.create_backup(
+            switch_id=sw.id, file_path="/tmp/flow.txt", content_hash="f1",
+            size_bytes=10, success=True, message="seed",
+        )
+        await session.commit()
+        admin_id, switch_id = admin.id, sw.id
+
+    rs = ReviewService(test_settings, session_factory)
+    client = _make_client(test_settings, session_factory, review_service=rs)
+    headers = {"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"}
+
+    # Seed a pending review directly.
+    async with session_factory() as session:
+        repo = Repository(session)
+        review = await repo.create_review(
+            switch_id=switch_id, backup_id=1, baseline_id=None,
+            raw_diff="-a\n+b", diff_summary="{}",
+        )
+        await session.commit()
+        review_id = review.id
+
+    # Start -> in_review with reviewer captured.
+    resp = client.post(f"/api/v1/reviews/{review_id}/start", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "in_review"
+    assert body["started_by"] == admin_id
+    assert body["started_at"] is not None
+
+    # Double-start -> 409.
+    resp = client.post(f"/api/v1/reviews/{review_id}/start", headers=headers)
+    assert resp.status_code == 409
+
+    # Add notes to the thread.
+    resp = client.post(
+        f"/api/v1/reviews/{review_id}/notes",
+        headers=headers,
+        json={"body": "Port 1/0/12 down — menunggu konfirmasi NOC"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()[0]["body"].startswith("Port 1/0/12")
+    resp = client.post(
+        f"/api/v1/reviews/{review_id}/notes",
+        headers=headers,
+        json={"body": "Dikonfirmasi NOC: aman"},
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+    # Decision after notes; notes survive and are returned with the review.
+    resp = client.post(
+        f"/api/v1/reviews/{review_id}/status",
+        headers=headers,
+        json={"status": "approved", "comment": "ok"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "approved"
+    assert len(body["notes"]) == 2  # thread intact after decision
+
+    # list with include_notes returns the same thread.
+    resp = client.get(f"/api/v1/reviews?include_notes=true", headers=headers)
+    row = next(r for r in resp.json() if r["id"] == review_id)
+    assert len(row["notes"]) == 2
+    assert row["notes"][0]["author_name"] == "admin-flow"
+
+
+@pytest.mark.asyncio
 async def test_notify_settings(test_settings, session_factory):
     """GET/PATCH /system/notify-settings."""
     async with session_factory() as session:

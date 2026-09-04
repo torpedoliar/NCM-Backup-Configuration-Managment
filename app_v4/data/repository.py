@@ -9,7 +9,19 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app_v4.data.models import ApiKey, AuditLog, Backup, ConfigBaseline, ConfigReview, Credential, Job, Session, Switch, User
+from app_v4.data.models import (
+    ApiKey,
+    AuditLog,
+    Backup,
+    ConfigBaseline,
+    ConfigReview,
+    Credential,
+    Job,
+    ReviewNote,
+    Session,
+    Switch,
+    User,
+)
 
 
 NULLABLE_FIELDS = {"day_of_week", "day_of_month"}
@@ -610,6 +622,8 @@ class Repository:
         status: str | None = None,
         reviewed_by: int | None = None,
         comment: str | None = None,
+        started_by: int | None = None,
+        started_at: datetime | None = None,
     ) -> ConfigReview | None:
         review = await self.get_review(review_id)
         if review is None:
@@ -618,6 +632,9 @@ class Repository:
             review.status = status
             review.reviewed_by = reviewed_by
             review.reviewed_at = utc_now()
+        if started_by is not None:
+            review.started_by = started_by
+            review.started_at = started_at or utc_now()
         if comment is not None:
             review.comment = comment
         await self.session.flush()
@@ -630,6 +647,20 @@ class Repository:
             )
         ).all()
         return {status: int(count) for status, count in rows}
+
+    async def list_review_notes(self, review_id: int) -> list[ReviewNote]:
+        result = await self.session.execute(
+            select(ReviewNote)
+            .where(ReviewNote.review_id == review_id)
+            .order_by(ReviewNote.created_at.asc(), ReviewNote.id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def create_review_note(self, review_id: int, author_id: int | None, body: str) -> ReviewNote:
+        note = ReviewNote(review_id=review_id, author_id=author_id, body=body)
+        self.session.add(note)
+        await self.session.flush()
+        return note
 
     async def list_switches_missing_baseline(self) -> list[Switch]:
         """Active switches that have neither a per-switch nor a model baseline."""

@@ -198,31 +198,9 @@ export function SettingsNotificationsSection() {
 
         <h3>Review reminder schedule</h3>
         <p className="settings-help">
-          Jam kirim email reminder harian. Interval bulanan review-nya (mis. tiap 6 bulan) diatur di
-          halaman Baselines → "Review cycle".
+          Jadwal review (interval bulanan + jam kirim email harian) kini diatur di halaman
+          <strong> Baselines → Review cycle</strong>.
         </p>
-        <div className="settings-row">
-          <label className="settings-field">
-            <span>Hour</span>
-            <input
-              type="number"
-              min={0}
-              max={23}
-              value={draft.review_reminder_hour}
-              onChange={(e) => setDraft({ ...draft, review_reminder_hour: Number(e.target.value) })}
-            />
-          </label>
-          <label className="settings-field">
-            <span>Minute</span>
-            <input
-              type="number"
-              min={0}
-              max={59}
-              value={draft.review_reminder_minute}
-              onChange={(e) => setDraft({ ...draft, review_reminder_minute: Number(e.target.value) })}
-            />
-          </label>
-        </div>
 
         {error && <div role="alert" className="settings-error">{error}</div>}
         <button type="submit" disabled={dirtyKeys.length === 0 || patch.isPending}>

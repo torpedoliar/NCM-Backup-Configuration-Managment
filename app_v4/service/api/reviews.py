@@ -44,9 +44,24 @@ class ReviewOut(BaseModel):
     status: str
     reviewed_by: int | None
     reviewed_at: datetime | None
+    started_by: int | None = None
+    started_at: datetime | None = None
     comment: str | None
     diff_summary: dict
     created_at: datetime
+    notes: list["ReviewNoteOut"] = []
+
+
+class ReviewNoteOut(BaseModel):
+    id: int
+    author_id: int | None
+    author_name: str | None = None
+    body: str
+    created_at: datetime
+
+
+class ReviewNoteCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
 
 
 class ReviewStatusUpdate(BaseModel):
@@ -279,10 +294,55 @@ async def delete_baseline(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+async def _review_out(session: AsyncSession, row, include_notes: bool = False) -> ReviewOut:
+    """Shared ReviewOut builder (switch name, summary, optional notes thread)."""
+    import json
+
+    repo = Repository(session)
+    name = await _switch_name(session, row.switch_id)
+    try:
+        summary = json.loads(row.diff_summary or "{}")
+    except ValueError:
+        summary = {}
+    notes: list[ReviewNoteOut] = []
+    if include_notes:
+        author_names: dict[int, str] = {}
+        for note in await repo.list_review_notes(row.id):
+            if note.author_id is not None and note.author_id not in author_names:
+                author = await repo.get_user_by_id(note.author_id)
+                author_names[note.author_id] = author.username if author else f"user-{note.author_id}"
+            notes.append(
+                ReviewNoteOut(
+                    id=note.id,
+                    author_id=note.author_id,
+                    author_name=author_names.get(note.author_id),
+                    body=note.body,
+                    created_at=to_aware_utc(note.created_at),
+                )
+            )
+    return ReviewOut(
+        id=row.id,
+        switch_id=row.switch_id,
+        switch_name=name,
+        backup_id=row.backup_id,
+        baseline_id=row.baseline_id,
+        status=row.status,
+        reviewed_by=row.reviewed_by,
+        reviewed_at=to_aware_utc(row.reviewed_at),
+        started_by=row.started_by,
+        started_at=to_aware_utc(row.started_at),
+        comment=row.comment,
+        diff_summary=summary,
+        created_at=to_aware_utc(row.created_at),
+        notes=notes,
+    )
+
+
 @router.get("/reviews", response_model=list[ReviewOut])
 async def list_reviews(
     status_filter: str | None = Query(default=None, alias="status"),
     switch_id: int | None = None,
+    include_notes: bool = Query(default=False),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_db),
@@ -292,31 +352,7 @@ async def list_reviews(
         raise problem(422, "Unprocessable Entity", f"invalid status: {status_filter}")
     repo = Repository(session)
     rows = await repo.list_reviews(status=status_filter, switch_id=switch_id, limit=limit, offset=offset)
-    out: list[ReviewOut] = []
-    for row in rows:
-        name = await _switch_name(session, row.switch_id)
-        import json
-
-        try:
-            summary = json.loads(row.diff_summary or "{}")
-        except ValueError:
-            summary = {}
-        out.append(
-            ReviewOut(
-                id=row.id,
-                switch_id=row.switch_id,
-                switch_name=name,
-                backup_id=row.backup_id,
-                baseline_id=row.baseline_id,
-                status=row.status,
-                reviewed_by=row.reviewed_by,
-                reviewed_at=to_aware_utc(row.reviewed_at),
-                comment=row.comment,
-                diff_summary=summary,
-                created_at=to_aware_utc(row.created_at),
-            )
-        )
-    return out
+    return [await _review_out(session, row, include_notes=include_notes) for row in rows]
 
 
 @router.get("/reviews/{review_id}/diff")
@@ -330,6 +366,76 @@ async def review_diff(
     if review is None:
         raise problem(404, "Not Found", "Review not found")
     return Response(review.raw_diff, media_type="text/plain; charset=utf-8")
+
+
+@router.post("/reviews/{review_id}/start", response_model=ReviewOut)
+async def start_review(
+    review_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    runtime=Depends(get_runtime),
+    actor=Depends(require_role("admin", "operator")),
+) -> ReviewOut:
+    """Claim a pending review: status -> in_review with reviewer + timestamp."""
+    repo = Repository(session)
+    review = await repo.get_review(review_id)
+    if review is None:
+        raise problem(404, "Not Found", "Review not found")
+    if review.status != "pending":
+        raise problem(409, "Conflict", f"Review is already {review.status}")
+    review = await repo.update_review(
+        review_id, status="in_review", started_by=actor.user_id, started_at=utc_now()
+    )
+    await session.commit()
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="review.started",
+        target_type="review",
+        target_id=str(review_id),
+        ip=request.client.host if request.client else None,
+    )
+    return await _review_out(session, review, include_notes=True)
+
+
+@router.get("/reviews/{review_id}/notes", response_model=list[ReviewNoteOut])
+async def list_review_notes(
+    review_id: int,
+    session: AsyncSession = Depends(get_db),
+    _user=Depends(require_role("admin", "operator")),
+) -> list[ReviewNoteOut]:
+    repo = Repository(session)
+    review = await repo.get_review(review_id)
+    if review is None:
+        raise problem(404, "Not Found", "Review not found")
+    review_out = await _review_out(session, review, include_notes=True)
+    return review_out.notes
+
+
+@router.post("/reviews/{review_id}/notes", response_model=list[ReviewNoteOut])
+async def add_review_note(
+    review_id: int,
+    payload: ReviewNoteCreate,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    runtime=Depends(get_runtime),
+    actor=Depends(require_role("admin", "operator")),
+) -> list[ReviewNoteOut]:
+    """Append a note to the review's decision thread (append-only audit trail)."""
+    repo = Repository(session)
+    review = await repo.get_review(review_id)
+    if review is None:
+        raise problem(404, "Not Found", "Review not found")
+    await repo.create_review_note(review_id, actor.user_id, payload.body.strip())
+    await session.commit()
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="review.note_added",
+        target_type="review",
+        target_id=str(review_id),
+        ip=request.client.host if request.client else None,
+    )
+    review_out = await _review_out(session, review, include_notes=True)
+    return review_out.notes
 
 
 @router.post("/reviews/{review_id}/status", response_model=ReviewOut)
@@ -388,26 +494,7 @@ async def update_review_status(
         ip=request.client.host if request.client else None,
         detail={"comment": payload.comment},
     )
-    name = await _switch_name(session, review.switch_id)
-    import json
-
-    try:
-        summary = json.loads(review.diff_summary or "{}")
-    except ValueError:
-        summary = {}
-    return ReviewOut(
-        id=review.id,
-        switch_id=review.switch_id,
-        switch_name=name,
-        backup_id=review.backup_id,
-        baseline_id=review.baseline_id,
-        status=review.status,
-        reviewed_by=review.reviewed_by,
-        reviewed_at=to_aware_utc(review.reviewed_at),
-        comment=review.comment,
-        diff_summary=summary,
-        created_at=to_aware_utc(review.created_at),
-    )
+    return await _review_out(session, review, include_notes=True)
 
 
 @router.get("/reviews/compliance")

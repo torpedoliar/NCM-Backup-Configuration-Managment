@@ -169,7 +169,7 @@ class ConfigReview(Base):
     """A logged config-change review (evidence for ISO 27001 A.8.9).
 
     Created when a backup's content differs from the applicable baseline.
-    status: pending | approved | flagged | dismissed — reviewed manually.
+    status: pending | in_review | approved | flagged | dismissed — reviewed manually.
     """
 
     __tablename__ = "config_reviews"
@@ -181,7 +181,23 @@ class ConfigReview(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
     reviewed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    started_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_diff: Mapped[str] = mapped_column(Text, nullable=False, default="")
     diff_summary: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False, index=True)
+
+
+class ReviewNote(Base):
+    """One note in a review's decision thread (append-only, ISO audit trail)."""
+
+    __tablename__ = "config_review_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    review_id: Mapped[int] = mapped_column(
+        ForeignKey("config_reviews.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    author_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)

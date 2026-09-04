@@ -5,6 +5,8 @@ import {
   useBaselines,
   useCreateBaseline,
   useDeleteBaseline,
+  useNotifySettings,
+  usePatchNotifySettings,
   useRefreshBaseline,
   useReviewInterval,
   useSwitches,
@@ -28,6 +30,14 @@ export function BaselinesPage() {
   const remove = useDeleteBaseline();
   const refresh = useRefreshBaseline();
   const reviewCycle = useReviewInterval();
+  const { data: notifySettings } = useNotifySettings();
+  const patchNotify = usePatchNotifySettings();
+  const [emailHour, setEmailHour] = useState<number | null>(null);
+  const [emailMinute, setEmailMinute] = useState<number | null>(null);
+
+  // Local drafts fall back to the loaded settings once available.
+  const hour = emailHour ?? notifySettings?.review_reminder_hour ?? 9;
+  const minute = emailMinute ?? notifySettings?.review_reminder_minute ?? 0;
 
   const [kind, setKind] = useState<ConfigBaselineKind>('switch');
   const [switchId, setSwitchId] = useState<number | ''>('');
@@ -173,6 +183,30 @@ export function BaselinesPage() {
                 if (Number.isFinite(v) && v >= 1 && v <= 60) reviewCycle.save.mutate(v);
               }}
               disabled={reviewCycle.isLoading || reviewCycle.save.isPending}
+            />
+          </label>
+          <label className="settings-field">
+            <span>Jam email reminder</span>
+            <input
+              type="number"
+              min={0}
+              max={23}
+              value={hour}
+              onChange={(e) => setEmailHour(Number(e.target.value))}
+              onBlur={() => patchNotify.mutate({ review_reminder_hour: hour })}
+              disabled={!notifySettings || patchNotify.isPending}
+            />
+          </label>
+          <label className="settings-field">
+            <span>Menit</span>
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={minute}
+              onChange={(e) => setEmailMinute(Number(e.target.value))}
+              onBlur={() => patchNotify.mutate({ review_reminder_minute: minute })}
+              disabled={!notifySettings || patchNotify.isPending}
             />
           </label>
         </div>

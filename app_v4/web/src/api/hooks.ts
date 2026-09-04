@@ -20,6 +20,7 @@ import type {
   ConfigReview,
   ConfigReviewStatus,
   ComplianceSummary,
+  ReviewNote,
   NotifySettings,
   ReviewFilters,
   CredentialCreateInput,
@@ -607,6 +608,24 @@ export function useReviewStatus() {
       qc.invalidateQueries({ queryKey: ['reviews', 'compliance'] });
       qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
     },
+  });
+}
+
+export function useStartReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (await api.post<ConfigReview>(`/reviews/${id}/start`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reviews'] }),
+  });
+}
+
+export function useAddReviewNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { id: number; body: string }) =>
+      (await api.post<ReviewNote[]>(`/reviews/${vars.id}/notes`, { body: vars.body })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reviews'] }),
   });
 }
 

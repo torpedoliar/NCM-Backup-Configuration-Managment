@@ -52,6 +52,8 @@ async def _run_sqlite_migrations(conn) -> None:
     await _add_column_if_missing(conn, "users", "failed_login_count", "INTEGER NOT NULL DEFAULT 0")
     await _add_column_if_missing(conn, "users", "last_failed_login_at", "DATETIME")
     await _add_column_if_missing(conn, "users", "locked_until", "DATETIME")
+    await _add_column_if_missing(conn, "config_reviews", "started_by", "INTEGER")
+    await _add_column_if_missing(conn, "config_reviews", "started_at", "DATETIME")
 
 
 async def _add_column_if_missing(conn, table_name: str, column_name: str, column_sql: str) -> None:

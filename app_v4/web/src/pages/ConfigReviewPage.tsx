@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import {
   downloadComplianceReport,
   fetchReviewDiff,
+  useAddReviewNote,
   useCompliance,
   useReviews,
   useReviewStatus,
+  useStartReview,
 } from '../api/hooks';
 import type { ConfigReviewStatus, ReviewFilters } from '../api/types';
 import { formatTzDateTime } from '../lib/fmt';
@@ -12,6 +14,7 @@ import { humanizeError } from '../lib/errors';
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'PENDING',
+  in_review: 'IN REVIEW',
   approved: 'APPROVED',
   flagged: 'FLAGGED',
   dismissed: 'DISMISSED',
@@ -87,12 +90,18 @@ function CompliancePanel() {
 }
 
 export function ConfigReviewPage() {
-  const [filters, setFilters] = useState<ReviewFilters>({});
+  const [filters, setFilters] = useState<ReviewFilters>({ include_notes: true });
   const { data: reviews = [] } = useReviews(filters);
   const update = useReviewStatus();
+  const start = useStartReview();
+  const addNote = useAddReviewNote();
   const [selected, setSelected] = useState<number | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const selectedReview = reviews.find((r) => r.id === selected) ?? null;
 
   useEffect(() => {
     if (selected === null) return;
@@ -105,9 +114,25 @@ export function ConfigReviewPage() {
     return () => { cancelled = true; };
   }, [selected]);
 
-  function act(reviewId: number, status: ConfigReviewStatus) {
-    const comment = window.prompt(`Comment for ${status} review #${reviewId}?`, '') ?? undefined;
-    update.mutate({ id: reviewId, status, comment });
+  function decide(reviewId: number, status: ConfigReviewStatus) {
+    const comment = window.prompt(`Keputusan ${status} untuk review #${reviewId}? (opsional, catatan bisa ditambah di thread)`, '') ?? undefined;
+    setActionError(null);
+    update.mutate({ id: reviewId, status, comment }, {
+      onError: (err: unknown) => setActionError(humanizeError(err)),
+    });
+  }
+
+  function submitNote(reviewId: number) {
+    const body = noteDraft.trim();
+    if (!body) return;
+    setActionError(null);
+    addNote.mutate(
+      { id: reviewId, body },
+      {
+        onSuccess: () => setNoteDraft(''),
+        onError: (err: unknown) => setActionError(humanizeError(err)),
+      },
+    );
   }
 
   return (
@@ -131,6 +156,7 @@ export function ConfigReviewPage() {
           >
             <option value="">All</option>
             <option value="pending">Pending</option>
+            <option value="in_review">In Review</option>
             <option value="approved">Approved</option>
             <option value="flagged">Flagged</option>
             <option value="dismissed">Dismissed</option>
@@ -154,10 +180,18 @@ export function ConfigReviewPage() {
                 <td className="row-actions">
                   <button onClick={() => setSelected(selected === r.id ? null : r.id)}>Diff</button>
                   {r.status === 'pending' ? (
+                    <button
+                      onClick={() => { setActionError(null); start.mutate(r.id, { onError: (err: unknown) => setActionError(humanizeError(err)) }); }}
+                      disabled={start.isPending}
+                      title="Ambil review ini untuk dikerjakan — status menjadi In Review"
+                    >
+                      Mulai Review
+                    </button>
+                  ) : r.status === 'in_review' ? (
                     <>
-                      <button onClick={() => act(r.id, 'approved')}>Approve</button>
-                      <button onClick={() => act(r.id, 'flagged')}>Flag</button>
-                      <button onClick={() => act(r.id, 'dismissed')}>Dismiss</button>
+                      <button onClick={() => decide(r.id, 'approved')}>Approve</button>
+                      <button onClick={() => decide(r.id, 'flagged')}>Flag</button>
+                      <button onClick={() => decide(r.id, 'dismissed')}>Dismiss</button>
                     </>
                   ) : (
                     <span className="marker">{r.comment ? 'has comment' : ''}</span>
@@ -175,12 +209,60 @@ export function ConfigReviewPage() {
           <header className="viewer-box-header">
             <span className="marker">REVIEW #{selected} · DIFF</span>
             <div className="row-actions">
+              {selectedReview?.status === 'pending' ? (
+                <button
+                  onClick={() => start.mutate(selected, { onError: (err: unknown) => setActionError(humanizeError(err)) })}
+                  disabled={start.isPending}
+                >
+                  Mulai Review
+                </button>
+              ) : null}
               <button onClick={() => setSelected(null)}>Close</button>
             </div>
           </header>
+
+          {selectedReview?.status === 'in_review' && selectedReview.started_at ? (
+            <p className="settings-help">
+              Sedang direview (dimulai {formatTzDateTime(selectedReview.started_at)}). Tambahkan
+              catatan di thread di bawah, lalu beri keputusan.
+            </p>
+          ) : null}
+
           {diffError ? <p role="alert" className="viewer-empty">{diffError}</p> : null}
           {selected !== null && diff === null && !diffError ? <p className="viewer-empty">Loading…</p> : null}
           {diff !== null ? <pre className="viewer-pre">{diff}</pre> : null}
+
+          <h3>Notes ({selectedReview?.notes.length ?? 0})</h3>
+          <div className="review-notes">
+            {(selectedReview?.notes ?? []).map((n) => (
+              <div className="review-note" key={n.id}>
+                <span className="marker">
+                  {n.author_name ?? `user-${n.author_id ?? '?'}`} · {formatTzDateTime(n.created_at)}
+                </span>
+                <p>{n.body}</p>
+              </div>
+            ))}
+            {(selectedReview?.notes.length ?? 0) === 0 ? (
+              <p className="viewer-empty">Belum ada catatan.</p>
+            ) : null}
+          </div>
+          <div className="review-note-form">
+            <textarea
+              rows={2}
+              placeholder="Tambah catatan review (mis. temuan, konfirmasi tim, alasan keputusan)…"
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => selected !== null && submitNote(selected)}
+              disabled={addNote.isPending || !noteDraft.trim()}
+            >
+              {addNote.isPending ? 'Saving…' : 'Tambah catatan'}
+            </button>
+          </div>
+
+          {actionError ? <div role="alert" className="settings-error">{actionError}</div> : null}
         </section>
       ) : null}
 

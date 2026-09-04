@@ -284,7 +284,15 @@ export interface BaselineCreateInput {
   backup_id?: number | null;
 }
 
-export type ConfigReviewStatus = 'pending' | 'approved' | 'flagged' | 'dismissed';
+export type ConfigReviewStatus = 'pending' | 'in_review' | 'approved' | 'flagged' | 'dismissed';
+
+export interface ReviewNote {
+  id: number;
+  author_id: number | null;
+  author_name: string | null;
+  body: string;
+  created_at: string;
+}
 
 export interface ConfigReview {
   id: number;
@@ -295,14 +303,18 @@ export interface ConfigReview {
   status: ConfigReviewStatus;
   reviewed_by: number | null;
   reviewed_at: string | null;
+  started_by: number | null;
+  started_at: string | null;
   comment: string | null;
   diff_summary: Record<string, unknown>;
   created_at: string;
+  notes: ReviewNote[];
 }
 
 export interface ReviewFilters {
   status?: ConfigReviewStatus | '';
   switch_id?: number;
+  include_notes?: boolean;
 }
 
 export interface ComplianceSummary {
