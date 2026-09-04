@@ -33,6 +33,7 @@ router = APIRouter(tags=["backups"])
 class BackupOut(BaseModel):
     id: int
     switch_id: int
+    switch_seq: int | None = None
     file_path: str
     content_hash: str
     size_bytes: int
@@ -48,12 +49,14 @@ class BackupRunResponse(BaseModel):
     file_path: str
     size_kb: float
     backup_id: int
+    switch_seq: int | None = None
 
 
 def _to_out(backup) -> BackupOut:
     return BackupOut(
         id=backup.id,
         switch_id=backup.switch_id,
+        switch_seq=getattr(backup, "switch_seq", None),
         file_path=backup.file_path,
         content_hash=backup.content_hash,
         size_bytes=backup.size_bytes,
@@ -89,6 +92,11 @@ async def _run_backup(runtime: ServiceRuntime, switch_id: int, user_id: int, req
             "success": result.get("success"),
         },
     )
+    # Annotate with the per-switch sequence for display.
+    result = dict(result)
+    async with runtime.session_factory() as session:
+        backup_row = await Repository(session).get_backup(result.get("backup_id"))
+        result["switch_seq"] = getattr(backup_row, "switch_seq", None) if backup_row else None
     return BackupRunResponse(**result)
 
 

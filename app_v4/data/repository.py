@@ -378,8 +378,14 @@ class Repository:
         job_id: int | None = None,
         triggered_by_user_id: int | None = None,
     ) -> Backup:
+        # Per-switch sequential number: this switch's next value (max + 1).
+        seq_result = await self.session.execute(
+            select(func.max(Backup.switch_seq)).where(Backup.switch_id == switch_id)
+        )
+        next_seq = (seq_result.scalar_one() or 0) + 1
         backup = Backup(
             switch_id=switch_id,
+            switch_seq=next_seq,
             file_path=file_path,
             content_hash=content_hash,
             size_bytes=size_bytes,

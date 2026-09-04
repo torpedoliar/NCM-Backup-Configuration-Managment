@@ -60,6 +60,9 @@ class Backup(Base):
     backup_type: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
     job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id"), nullable=True, index=True)
     triggered_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    # Per-switch sequential number (1, 2, 3... within each switch), independent
+    # of the global id sequence; assigned in create_backup.
+    switch_seq: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
 
     switch: Mapped[Switch] = relationship(back_populates="backups")
     job: Mapped[Optional["Job"]] = relationship(foreign_keys=[job_id])

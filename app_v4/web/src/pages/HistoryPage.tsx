@@ -157,13 +157,17 @@ export function HistoryPage() {
       <div className="table-wrap">
       <table className="data-table">
         <thead>
-          <tr><th>Time</th><th>Switch</th><th>Type</th><th>State</th><th>Size</th><th>Message</th><th>Actions</th></tr>
+          <tr><th>No</th><th>Time</th><th>Switch</th><th>Type</th><th>State</th><th>Size</th><th>Message</th><th>Actions</th></tr>
         </thead>
         <tbody>
           {pageRows.map((b) => {
             const switchName = switches.find((s) => s.id === b.switch_id)?.name ?? b.switch_id;
             return (
               <tr key={b.id}>
+                <td title={`Nomor urut backup switch ini · nomor global job #${b.id}`}>
+                  <strong>{b.switch_seq ?? '—'}</strong>
+                  <span className="marker"> · g#{b.id}</span>
+                </td>
                 <td>{formatTzDateTime(b.created_at)}</td>
                 <td>{switchName}</td>
                 <td><span className={`badge type-${b.backup_type}`}>{b.backup_type}</span></td>
@@ -175,7 +179,7 @@ export function HistoryPage() {
                   <button onClick={() => downloadBackup(b.id)}>Download</button>
                   {isAdmin && (
                     <button onClick={() => {
-                      if (window.confirm(`Delete backup #${b.id}? Backup file will be removed.`)) {
+                      if (window.confirm(`Delete backup ${b.switch_seq ?? '#' + b.id}? Backup file will be removed.`)) {
                         remove.mutate(b.id);
                       }
                     }}>Delete</button>
@@ -196,7 +200,7 @@ export function HistoryPage() {
 
       <section className="viewer-box" aria-label="Backup config viewer">
         <header className="viewer-box-header">
-          <span className="marker">VIEW CONFIG{viewing !== null ? ` · BACKUP #${viewing}` : ''}</span>
+          <span className="marker">VIEW CONFIG{viewing !== null ? ` · SWITCH-BACKUP ${pageRows.find((b) => b.id === viewing)?.switch_seq ?? '?'}` : ''}{viewing !== null ? ` (global #${viewing})` : ''}</span>
           {viewing !== null && (
             <div className="row-actions">
               <button onClick={copy} disabled={viewText === null}>

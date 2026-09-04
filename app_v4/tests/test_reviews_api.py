@@ -235,6 +235,24 @@ async def test_on_demand_review_drift_and_clean(test_settings, session_factory, 
 
 
 @pytest.mark.asyncio
+async def test_backup_switch_seq_per_switch(test_settings, session_factory):
+    """Each switch gets its own 1,2,3... sequence independent of global ids."""
+    from app_v4.data.repository import Repository
+
+    async with session_factory() as session:
+        repo = Repository(session)
+        cred = await repo.create_credential("c-seq", b"enc")
+        sw1 = await repo.create_switch("sw-seq-1", "10.0.0.21", "ssh", 22, cred.id)
+        sw2 = await repo.create_switch("sw-seq-2", "10.0.0.22", "ssh", 22, cred.id)
+        b1 = await repo.create_backup(sw1.id, "/tmp/a1", "h1", 10, True)
+        b2 = await repo.create_backup(sw1.id, "/tmp/a2", "h2", 10, True)
+        other = await repo.create_backup(sw2.id, "/tmp/b1", "h3", 10, True)
+        await session.commit()
+        assert (b1.switch_seq, b2.switch_seq) == (1, 2)
+        assert other.switch_seq == 1
+
+
+@pytest.mark.asyncio
 async def test_review_workflow_in_review_and_notes(test_settings, session_factory):
     """Full flow: pending -> start (in_review) -> notes thread -> approved."""
     async with session_factory() as session:

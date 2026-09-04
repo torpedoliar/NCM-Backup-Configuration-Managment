@@ -54,6 +54,27 @@ async def _run_sqlite_migrations(conn) -> None:
     await _add_column_if_missing(conn, "users", "locked_until", "DATETIME")
     await _add_column_if_missing(conn, "config_reviews", "started_by", "INTEGER")
     await _add_column_if_missing(conn, "config_reviews", "started_at", "DATETIME")
+    await _add_column_if_missing(conn, "backups", "switch_seq", "INTEGER")
+    # Backfill per-switch sequence for backups created before the column existed:
+    # oldest backup of a switch = 1, ordered by taken_at then id. Only for
+    # tables that actually have the taken_at column (legacy minimal schemas
+    # in tests may not).
+    rows = await conn.execute(text("pragma table_info(backups)"))
+    backup_cols = {row[1] for row in rows}
+    if {"taken_at", "switch_seq"} <= backup_cols:
+        await conn.execute(
+            text(
+                "update backups set switch_seq = ("
+                " select count(*) from backups b2"
+                " where b2.switch_id = backups.switch_id"
+                " and (b2.taken_at < backups.taken_at"
+                "      or (b2.taken_at = backups.taken_at and b2.id <= backups.id))"
+                ") where switch_seq is null"
+            )
+        )
+        await conn.execute(
+            text("create index if not exists ix_backups_switch_seq on backups (switch_id, switch_seq)")
+        )
 
 
 async def _add_column_if_missing(conn, table_name: str, column_name: str, column_sql: str) -> None:
