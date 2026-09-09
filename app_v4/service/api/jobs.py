@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app_v4.core.auth_service import AccessClaims
 from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
-from app_v4.service.deps import get_db, get_runtime, require_role
+from app_v4.service.deps import audit_identity, get_db, get_runtime, require_key_or_jwt, require_role, require_role_or_key
 from app_v4.service.events import publish
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
@@ -94,7 +94,7 @@ async def _resync_scheduler(runtime: ServiceRuntime) -> None:
 @router.get("", response_model=list[JobOut])
 async def list_jobs(
     session: AsyncSession = Depends(get_db),
-    _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> list[JobOut]:
     repo = Repository(session)
     return [_to_out(j) for j in await repo.list_jobs()]
@@ -106,8 +106,9 @@ async def create_job(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="schedules:write")),
 ) -> JobOut:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     switch = await repo.get_switch(payload.switch_id)
     if switch is None:
@@ -126,11 +127,11 @@ async def create_job(
     job = await repo.get_job(job.id)
     await runtime.audit_writer.record(
         action="schedule.created",
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         target_type="job",
         target_id=str(job.id),
         ip=request.client.host if request.client else None,
-        detail=payload.model_dump(),
+        detail={**payload.model_dump(), **audit_extra},
     )
     await _resync_scheduler(runtime)
     return _to_out(job)
@@ -142,8 +143,9 @@ async def run_job_now(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    user: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="schedules:write")),
 ) -> dict:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     job = await repo.get_job(job_id)
     if job is None:
@@ -154,10 +156,11 @@ async def run_job_now(
     # in the Backup table by execute_backup.
     await runtime.audit_writer.record(
         action="schedule.run_now",
-        user_id=user.user_id,
+        user_id=audit_user_id,
         target_type="job",
         target_id=str(job_id),
         ip=request.client.host if request.client else None,
+        detail=audit_extra,
     )
     started_at = utc_now()
     await publish(
@@ -169,7 +172,7 @@ async def run_job_now(
         switch_id=job.switch_id,
         backup_type="manual_schedule",
         job_id=job_id,
-        triggered_by_user_id=user.user_id,
+        triggered_by_user_id=audit_user_id,
     )
     await Repository(session).update_job(job_id, last_ran_at=started_at)
     await session.commit()
@@ -183,8 +186,9 @@ async def update_job(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="schedules:write")),
 ) -> JobOut:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     changes = payload.model_dump(exclude_unset=True)
     job = await repo.update_job(job_id, **changes)
@@ -193,11 +197,11 @@ async def update_job(
     await session.commit()
     await runtime.audit_writer.record(
         action="schedule.updated",
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         target_type="job",
         target_id=str(job_id),
         ip=request.client.host if request.client else None,
-        detail=changes,
+        detail={**changes, **audit_extra},
     )
     await _resync_scheduler(runtime)
     return _to_out(job)
@@ -209,8 +213,9 @@ async def delete_job(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="schedules:write")),
 ) -> Response:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     deleted = await repo.delete_job(job_id)
     if not deleted:
@@ -218,10 +223,11 @@ async def delete_job(
     await session.commit()
     await runtime.audit_writer.record(
         action="schedule.deleted",
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         target_type="job",
         target_id=str(job_id),
         ip=request.client.host if request.client else None,
+        detail=audit_extra,
     )
     await _resync_scheduler(runtime)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

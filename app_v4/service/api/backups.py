@@ -12,7 +12,7 @@ from app_v4.core.auth_service import AccessClaims
 from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
 from app_v4.net.config_parsers import detect_dialect, parse_config
-from app_v4.service.deps import get_db, get_runtime, require_key_or_jwt, require_role
+from app_v4.service.deps import audit_identity, get_db, get_runtime, require_key_or_jwt, require_role, require_role_or_key
 from app_v4.service.diff_service import DiffService
 from app_v4.service.problem import problem
 from app_v4.service.reporting import (
@@ -105,9 +105,10 @@ async def trigger_backup_spec_alias(
     switch_id: int,
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
-    user: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="backup:write")),
 ) -> BackupRunResponse:
-    return await _run_backup(runtime, switch_id, user.user_id, request)
+    audit_user_id, _audit_extra = audit_identity(_auth)
+    return await _run_backup(runtime, switch_id, audit_user_id, request)
 
 
 @router.post("/switches/{switch_id}/backups", response_model=BackupRunResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -115,9 +116,10 @@ async def trigger_backup(
     switch_id: int,
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
-    user: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="backup:write")),
 ) -> BackupRunResponse:
-    return await _run_backup(runtime, switch_id, user.user_id, request)
+    audit_user_id, _audit_extra = audit_identity(_auth)
+    return await _run_backup(runtime, switch_id, audit_user_id, request)
 
 
 @router.get("/backups", response_model=list[BackupOut])
@@ -132,7 +134,7 @@ async def list_backups(
     to_ts: datetime | None = None,
     q: str | None = None,
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> list[BackupOut]:
     repo = Repository(session)
     total = await repo.count_backups(
@@ -162,7 +164,7 @@ async def list_backups(
 @router.get("/backups/latest-per-switch", response_model=list[BackupOut])
 async def latest_backup_per_switch(
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> list[BackupOut]:
     """Newest successful backup for every switch (server-side grouping).
 
@@ -183,7 +185,7 @@ async def export_backups_report(
     q: str | None = None,
     limit: int = Query(default=5000, ge=1, le=20000),
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> Response:
     repo = Repository(session)
     rows = await repo.list_backups(
@@ -239,7 +241,7 @@ async def diff_backups(
     b: int,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> Response:
     repo = Repository(session)
     left = await repo.get_backup(a)
@@ -294,7 +296,7 @@ async def diff_backups_side_by_side(
     b: int,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> SideBySideResponse:
     repo = Repository(session)
     left = await repo.get_backup(a)
@@ -328,7 +330,7 @@ async def diff_backups_side_by_side(
 async def get_backup(
     backup_id: int,
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> BackupOut:
     repo = Repository(session)
     backup = await repo.get_backup(backup_id)
@@ -342,7 +344,7 @@ async def get_backup_content(
     backup_id: int,
     download: bool = False,
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> Response:
     repo = Repository(session)
     backup = await repo.get_backup(backup_id)
@@ -393,7 +395,7 @@ class DecodedBackupOut(BaseModel):
 async def decode_backup(
     backup_id: int,
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> DecodedBackupOut:
     repo = Repository(session)
     backup = await repo.get_backup(backup_id)
@@ -470,7 +472,7 @@ async def delete_backup(
 async def get_backup_diff(
     backup_id: int,
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> Response:
     repo = Repository(session)
     backup = await repo.get_backup(backup_id)

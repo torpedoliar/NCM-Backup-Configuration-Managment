@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims
 from app_v4.data.repository import Repository
-from app_v4.service.deps import get_db, get_runtime, require_role
+from app_v4.service.deps import audit_identity, get_db, get_runtime, require_key_or_jwt, require_role, require_role_or_key
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
 
@@ -74,8 +74,9 @@ async def create_credential(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin")),
+    _auth = Depends(require_role_or_key("admin", scope="credentials:write")),
 ) -> CredentialOut:
+    audit_user_id, audit_extra = audit_identity(_auth)
     crypto = _require_crypto(runtime)
     repo = Repository(session)
     if await repo.get_credential_by_name(payload.name) is not None:
@@ -85,12 +86,12 @@ async def create_credential(
     await session.commit()
 
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="credential.created",
         target_type="credential",
         target_id=str(cred.id),
         ip=request.client.host if request.client else None,
-        detail={"name": cred.name},
+        detail={"name": cred.name, **audit_extra},
     )
     return _credential_to_out(cred, crypto)
 
@@ -102,8 +103,9 @@ async def update_credential(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin")),
+    _auth = Depends(require_role_or_key("admin", scope="credentials:write")),
 ) -> CredentialOut:
+    audit_user_id, audit_extra = audit_identity(_auth)
     crypto = _require_crypto(runtime)
     repo = Repository(session)
     existing = await repo.get_credential(cred_id)
@@ -132,7 +134,7 @@ async def update_credential(
     await session.commit()
 
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="credential.updated",
         target_type="credential",
         target_id=str(cred_id),
@@ -140,6 +142,7 @@ async def update_credential(
         detail={
             "name_changed": payload.name is not None,
             "secret_changed": secret_changed,
+            **audit_extra,
         },
     )
     return _credential_to_out(updated, crypto)
@@ -151,8 +154,9 @@ async def delete_credential(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin")),
+    _auth = Depends(require_role_or_key("admin", scope="credentials:write")),
 ) -> Response:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     try:
         deleted = await repo.delete_credential(cred_id)
@@ -163,10 +167,11 @@ async def delete_credential(
     await session.commit()
 
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="credential.deleted",
         target_type="credential",
         target_id=str(cred_id),
         ip=request.client.host if request.client else None,
+        detail=audit_extra,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

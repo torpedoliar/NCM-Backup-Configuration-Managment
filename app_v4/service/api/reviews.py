@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
-from app_v4.service.deps import get_db, get_runtime, require_key_or_jwt, require_role
+from app_v4.service.deps import audit_identity, get_db, get_runtime, require_key_or_jwt, require_role, require_role_or_key
 from app_v4.service.problem import problem
 from app_v4.service.review_service import REVIEW_STATUSES, ReviewService
 from app_v4.service.rollback_generator import generate_rollback_script
@@ -98,7 +98,7 @@ async def _switch_name(session: AsyncSession, switch_id: int) -> str | None:
 @router.get("/baselines", response_model=list[BaselineOut])
 async def list_baselines(
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> list[BaselineOut]:
     repo = Repository(session)
     rows = await repo.list_baselines()
@@ -117,8 +117,9 @@ async def create_baseline(
     request: Request,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    actor=Depends(require_role("admin")),
+    _auth = Depends(require_role_or_key("admin", scope="baselines:write")),
 ) -> BaselineOut:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     content_hash = ""
     if payload.kind == "switch":
@@ -171,16 +172,16 @@ async def create_baseline(
         model=payload.model,
         backup_id=payload.backup_id,
         content_hash=content_hash,
-        created_by=actor.user_id,
+        created_by=audit_user_id,
     )
     await session.commit()
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="baseline.created",
         target_type="baseline",
         target_id=str(baseline.id),
         ip=request.client.host if request.client else None,
-        detail={"kind": payload.kind, "switch_id": payload.switch_id, "model": payload.model},
+        detail={"kind": payload.kind, "switch_id": payload.switch_id, "model": payload.model, **audit_extra},
     )
     fresh = await repo.get_baseline(baseline.id)
     return _baseline_out(fresh)
@@ -192,7 +193,7 @@ async def refresh_baseline(
     request: Request,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    actor=Depends(require_role("admin")),
+    _auth = Depends(require_role_or_key("admin", scope="baselines:write")),
 ) -> dict:
     """On-demand review of the latest backup against the baseline (re-attestation).
 
@@ -201,6 +202,7 @@ async def refresh_baseline(
     the baseline at the new config. The baseline cycle clock always resets. The
     outcome (drift + review id, or no drift) is recorded in the audit log.
     """
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     baseline = await repo.get_baseline(baseline_id)
     if baseline is None:
@@ -254,7 +256,7 @@ async def refresh_baseline(
     baseline.created_at = utc_now()
     await session.commit()
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="baseline.refreshed",
         target_type="baseline",
         target_id=str(baseline_id),
@@ -284,19 +286,21 @@ async def delete_baseline(
     request: Request,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    actor=Depends(require_role("admin")),
+    _auth = Depends(require_role_or_key("admin", scope="baselines:write")),
 ) -> Response:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     deleted = await repo.delete_baseline(baseline_id)
     if not deleted:
         raise problem(404, "Not Found", "Baseline not found")
     await session.commit()
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="baseline.deleted",
         target_type="baseline",
         target_id=str(baseline_id),
         ip=request.client.host if request.client else None,
+        detail=audit_extra,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -353,7 +357,7 @@ async def list_reviews(
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> list[ReviewOut]:
     if status_filter is not None and status_filter not in REVIEW_STATUSES:
         raise problem(422, "Unprocessable Entity", f"invalid status: {status_filter}")
@@ -366,7 +370,7 @@ async def list_reviews(
 async def review_diff(
     review_id: int,
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> Response:
     repo = Repository(session)
     review = await repo.get_review(review_id)
@@ -408,7 +412,7 @@ async def start_review(
 async def list_review_notes(
     review_id: int,
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> list[ReviewNoteOut]:
     repo = Repository(session)
     review = await repo.get_review(review_id)
@@ -623,7 +627,7 @@ async def promote_review_to_baseline(
 async def review_rollback_script(
     review_id: int,
     session: AsyncSession = Depends(get_db),
-    _user=Depends(require_role("admin", "operator")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> Response:
     """Generate remediation CLI commands to roll back switch config from Current to Baseline."""
     repo = Repository(session)
@@ -640,7 +644,7 @@ async def review_rollback_script(
 async def reviews_compliance(
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> dict:
     if runtime.review_service is None:
         raise problem(503, "Service Unavailable", "Review service is not initialized")
@@ -652,7 +656,7 @@ async def compliance_report(
     format: str = Query("pdf", pattern="^(csv|xlsx|pdf)$"),
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> Response:
     """Export the per-switch compliance table as CSV/XLSX/PDF (ISO evidence)."""
     if runtime.review_service is None:

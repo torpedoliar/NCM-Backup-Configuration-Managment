@@ -29,7 +29,14 @@ NULLABLE_FIELDS = {"day_of_week", "day_of_month"}
 
 # API-key scopes, normalized + validated in one place. Write scopes join this set
 # in ticket 02; the data model already accepts them.
-KNOWN_SCOPES: frozenset[str] = frozenset({"read"})
+KNOWN_SCOPES: frozenset[str] = frozenset({
+    "read",
+    "switches:write",
+    "credentials:write",
+    "schedules:write",
+    "baselines:write",
+    "backup:write",
+})
 
 
 def _normalize_scopes(scopes: list[str] | None) -> str | None:

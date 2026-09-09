@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims
 from app_v4.data.repository import Repository
-from app_v4.service.deps import get_db, get_runtime, require_key_or_jwt, require_role
+from app_v4.service.deps import audit_identity, get_db, get_runtime, require_key_or_jwt, require_role, require_role_or_key
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
 
@@ -83,7 +83,7 @@ def _validate_protocol(protocol: str) -> None:
 async def list_switches(
     include_inactive: bool = False,
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> list[SwitchOut]:
     repo = Repository(session)
     return [_to_out(s) for s in await repo.list_switches(include_inactive=include_inactive)]
@@ -95,8 +95,9 @@ async def create_switch(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="switches:write")),
 ) -> SwitchOut:
+    audit_user_id, audit_extra = audit_identity(_auth)
     _validate_protocol(payload.protocol)
     repo = Repository(session)
     if await repo.get_switch_by_name(payload.name) is not None:
@@ -117,12 +118,12 @@ async def create_switch(
     fresh = await repo.get_switch(switch.id)
 
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="switch.created",
         target_type="switch",
         target_id=str(switch.id),
         ip=request.client.host if request.client else None,
-        detail={"name": switch.name, "ip": switch.ip, "protocol": switch.protocol},
+        detail={"name": switch.name, "ip": switch.ip, "protocol": switch.protocol, **audit_extra},
     )
     return _to_out(fresh)
 
@@ -131,7 +132,7 @@ async def create_switch(
 async def get_switch(
     switch_id: int,
     session: AsyncSession = Depends(get_db),
-    _auth: str = Depends(require_key_or_jwt("read")),
+    _auth = Depends(require_key_or_jwt("read")),
 ) -> SwitchOut:
     repo = Repository(session)
     switch = await repo.get_switch(switch_id)
@@ -147,8 +148,9 @@ async def update_switch(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="switches:write")),
 ) -> SwitchOut:
+    audit_user_id, audit_extra = audit_identity(_auth)
     if payload.protocol is not None:
         _validate_protocol(payload.protocol)
     repo = Repository(session)
@@ -170,12 +172,12 @@ async def update_switch(
     fresh = await repo.get_switch(switch_id)
 
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="switch.updated",
         target_type="switch",
         target_id=str(switch_id),
         ip=request.client.host if request.client else None,
-        detail=payload.model_dump(exclude_none=True),
+        detail={**payload.model_dump(exclude_none=True), **audit_extra},
     )
     return _to_out(fresh)
 
@@ -186,8 +188,9 @@ async def deactivate_switch(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="switches:write")),
 ) -> Response:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     switch = await repo.deactivate_switch(switch_id)
     if switch is None:
@@ -195,11 +198,12 @@ async def deactivate_switch(
     await session.commit()
 
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="switch.deactivated",
         target_type="switch",
         target_id=str(switch_id),
         ip=request.client.host if request.client else None,
+        detail=audit_extra,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -210,8 +214,9 @@ async def activate_switch(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="switches:write")),
 ) -> Response:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     switch = await repo.activate_switch(switch_id)
     if switch is None:
@@ -219,11 +224,12 @@ async def activate_switch(
     await session.commit()
 
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="switch.activated",
         target_type="switch",
         target_id=str(switch_id),
         ip=request.client.host if request.client else None,
+        detail=audit_extra,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -234,8 +240,9 @@ async def delete_switch(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    actor: AccessClaims = Depends(require_role("admin")),
+    _auth = Depends(require_role_or_key("admin", scope="switches:write")),
 ) -> Response:
+    audit_user_id, audit_extra = audit_identity(_auth)
     repo = Repository(session)
     switch = await repo.get_switch(switch_id)
     if switch is None:
@@ -246,10 +253,11 @@ async def delete_switch(
     await session.commit()
 
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="switch.deleted",
         target_type="switch",
         target_id=str(switch_id),
         ip=request.client.host if request.client else None,
+        detail=audit_extra,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

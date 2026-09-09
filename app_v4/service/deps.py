@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import AsyncIterator, Callable
 
@@ -94,8 +95,10 @@ def require_scoped_key(*scopes: str):
 def require_key_or_jwt(*scopes: str):
     """Combined dependency: valid JWT (any authenticated role) OR scoped API key.
 
-    Replaces `require_role(...)` on read endpoints opened to DataGuard.
+    Replaces `require_role(...)` on endpoints opened to DataGuard.
     No credential at all -> 401; credential present but insufficient -> 403.
+    JWT identity returns the full AccessClaims (role checks preserved for
+    mixed endpoints); key identity returns "key:<name>".
     """
 
     async def dependency(
@@ -103,7 +106,7 @@ def require_key_or_jwt(*scopes: str):
         authorization: str | None = Header(default=None),
         x_api_key: str | None = Header(default=None, alias="X-API-Key"),
         session: AsyncSession = Depends(get_db),
-    ) -> str:
+    ) -> AccessClaims | str:
         runtime: ServiceRuntime = request.app.state.runtime
         presented = x_api_key.strip() if x_api_key else None
         bearer_value: str | None = None
@@ -111,13 +114,12 @@ def require_key_or_jwt(*scopes: str):
             scheme, separator, value = authorization.partition(" ")
             if scheme.lower() == "bearer" and separator and value.strip():
                 bearer_value = value.strip()
-        # JWT path first: any authenticated user keeps pre-existing read access.
+        # JWT path first: return live claims so role checks keep working.
         if bearer_value is not None and presented is None:
             try:
-                claims = runtime.auth_service.verify_access_token(bearer_value)
+                return runtime.auth_service.verify_access_token(bearer_value)
             except TokenError:
                 raise problem(401, "Unauthorized", "Invalid bearer token")
-            return f"user:{claims.username}"
         if presented is not None:
             found = await _lookup_api_key(presented, session)
             if found is None:
@@ -129,6 +131,59 @@ def require_key_or_jwt(*scopes: str):
         raise problem(401, "Unauthorized", "Missing credentials")
 
     return dependency
+
+
+def require_role_or_key(*allowed_roles: str, scope: str):
+    """Combined dependency preserving JWT role checks: JWT callers must hold one
+    of `allowed_roles`; API-key callers must carry `scope`. Returns AccessClaims
+    for JWT, "key:<name>" for keys. 401/403 semantics match require_key_or_jwt.
+    """
+
+    role_dep = require_role(*allowed_roles)
+    key_dep = require_key_or_jwt(scope)
+
+    async def dependency(
+        request: Request,
+        authorization: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        session: AsyncSession = Depends(get_db),
+    ) -> AccessClaims | str:
+        presented = x_api_key.strip() if x_api_key else None
+        if presented is not None:
+            # key_dep is a FastAPI dependency factory: calling it returns the
+            # inner async dependency; invoke it with the already-resolved values.
+            inner = key_dep(
+                request=request, authorization=authorization, x_api_key=x_api_key, session=session
+            )
+            result = inner() if callable(inner) else inner
+            return await result if asyncio.iscoroutine(result) else result
+        creds = (
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials=authorization.partition(" ")[2].strip())
+            if authorization and authorization.partition(" ")[0].lower() == "bearer"
+            else None
+        )
+        # require_user / require_role are sync when called directly (FastAPI
+        # Depends wrappers are only async under the framework): call plainly.
+        # require_role returns the inner `dependency` closure; invoking it with
+        # the user returns the checked claims (or raises 401/403).
+        user = require_user(credentials=creds, runtime=request.app.state.runtime)
+        return role_dep(user=user)
+
+    return dependency
+
+
+def audit_identity(auth: AccessClaims | str) -> tuple[int | None, dict]:
+    """(user_id, extra_detail) for audit_writer from a `require_key_or_jwt` identity.
+
+    JWT path (AccessClaims) -> real user_id; API-key path ("key:<name>") ->
+    user_id None (column is nullable) plus {"key": name} in the audit detail.
+    Never includes secrets.
+    """
+    if isinstance(auth, AccessClaims):
+        return auth.user_id, {}
+    if isinstance(auth, str) and auth.startswith("key:"):
+        return None, {"key": auth[4:]}
+    return None, {}
 
 
 def require_user(
