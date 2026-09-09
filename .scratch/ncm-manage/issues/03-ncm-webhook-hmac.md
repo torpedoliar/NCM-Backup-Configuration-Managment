@@ -5,7 +5,7 @@ Event NCM (`backup_failed`, `backup_ok`, `drift`, `review_opened`, `review_decid
 
 **Blocked by:** 1: NCM scoped API keys + combined auth.
 
-**Status:** ready-for-agent
+**Status:** done (commit 83252cb; subagent lapor: fanout di EventHub.broadcast choke point, WEBHOOK_EVENT_MAP, header X-NCM-Signature sha256=<hex>, secret via PATCH /system notify, device_offline publish di backup_service, test_webhook_dispatcher.py 5 test — suite 435)
 
 - [x] Dispatcher mempublikasikan 6 jenis event ke Notifier.webhook (payload JSON, signature HMAC-SHA256 di header).
 - [x] Test: event → payload + HMAC terverifikasi dengan secret yang sama.
