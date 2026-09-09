@@ -36,6 +36,7 @@ KNOWN_SCOPES: frozenset[str] = frozenset({
     "schedules:write",
     "baselines:write",
     "backup:write",
+    "reviews:write",
 })
 
 

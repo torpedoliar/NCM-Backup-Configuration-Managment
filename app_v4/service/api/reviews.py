@@ -468,16 +468,18 @@ async def update_review_status(
     request: Request,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    actor=Depends(require_role("admin", "operator")),
+    actor=Depends(require_role_or_key("admin", "operator", scope="reviews:write")),
 ) -> ReviewOut:
     repo = Repository(session)
     review = await repo.get_review(review_id)
     if review is None:
         raise problem(404, "Not Found", "Review not found")
+    audit_user_id, audit_extra = audit_identity(actor)
+    reviewer_name = f"key:{audit_extra['key']}" if audit_extra else f"user-{audit_user_id}"
     review = await repo.update_review(
         review_id,
         status=payload.status,
-        reviewed_by=actor.user_id,
+        reviewed_by=audit_user_id,
         comment=payload.comment,
     )
     await session.commit()
@@ -495,9 +497,6 @@ async def update_review_status(
         paths = resolve_paths(runtime.settings)
         cfg = load_runtime_settings(paths.data_dir / "runtime_settings.json").notify
         if runtime.notify is not None and cfg.enabled and cfg.email_enabled and cfg.email_review_events:
-            reviewer_name = f"user-{actor.user_id}"
-            if getattr(actor, "username", None):
-                reviewer_name = actor.username
             sw = await repo.get_switch(review.switch_id)
             content = email_events.review_decision_email(
                 sw.name if sw else f"#{review.switch_id}",
@@ -515,12 +514,12 @@ async def update_review_status(
 
         logging.getLogger(__name__).warning("review decision email failed", exc_info=True)
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action=f"review.{payload.status}",
         target_type="review",
         target_id=str(review_id),
         ip=request.client.host if request.client else None,
-        detail={"comment": payload.comment},
+        detail={"comment": payload.comment, **audit_extra},
     )
     return await _review_out(session, review, include_notes=True)
 
