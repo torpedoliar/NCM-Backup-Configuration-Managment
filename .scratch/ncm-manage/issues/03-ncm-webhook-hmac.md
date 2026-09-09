@@ -7,7 +7,7 @@ Event NCM (`backup_failed`, `backup_ok`, `drift`, `review_opened`, `review_decid
 
 **Status:** ready-for-agent
 
-- [ ] Dispatcher mempublikasikan 6 jenis event ke Notifier.webhook (payload JSON, signature HMAC-SHA256 di header).
-- [ ] Test: event → payload + HMAC terverifikasi dengan secret yang sama.
-- [ ] `webhook_secret` dapat diset/diubah via system API.
-- [ ] Tanpa URL/secret: tidak ada attempt kirim, tidak ada error di log aplikasi.
+- [x] Dispatcher mempublikasikan 6 jenis event ke Notifier.webhook (payload JSON, signature HMAC-SHA256 di header).
+- [x] Test: event → payload + HMAC terverifikasi dengan secret yang sama.
+- [x] `webhook_secret` dapat diset/diubah via system API.
+- [x] Tanpa URL/secret: tidak ada attempt kirim, tidak ada error di log aplikasi.

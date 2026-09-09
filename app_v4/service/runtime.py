@@ -68,13 +68,14 @@ class ServiceRuntime:
         retention_service: RetentionService | None = None,
         review_service=None,
         auth_settings: AuthSettings | None = None,
+        event_hub: EventHub | None = None,
     ) -> "ServiceRuntime":
         provider: AuthSettingsProvider = lambda: auth_settings or AuthSettings()
         return cls(
             settings=settings,
             session_factory=session_factory,
             auth_service=AuthService(jwt_secret=jwt_secret, settings_provider=provider),
-            event_hub=EventHub(),
+            event_hub=event_hub or EventHub(),
             audit_writer=AuditWriter(session_factory),
             auth_settings_provider=provider,
             crypto_service=crypto_service,
@@ -94,7 +95,6 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     crypto = CryptoService(settings=settings, passphrase=envelope.master_passphrase)
     engine, session_factory = create_session_factory(settings)
     await init_db(engine)
-    event_hub = EventHub()
 
     def auth_settings_provider() -> AuthSettings:
         return load_runtime_settings(runtime_settings_path).auth
@@ -108,6 +108,7 @@ async def build_runtime(settings: Settings) -> tuple[ServiceRuntime, object]:
     from app_v4.service.review_service import ReviewService
 
     notify = Notifier(runtime_settings_path)
+    event_hub = EventHub(notifier=notify)
     review_service = ReviewService(settings, session_factory, notifier=notify)
     backup_service = BackupService(
         settings,

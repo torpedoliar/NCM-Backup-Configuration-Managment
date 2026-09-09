@@ -46,6 +46,7 @@ class NotifySettings:
 
     enabled: bool = False
     webhook_url: str = ""
+    webhook_secret: str = ""
     telegram_token: str = ""
     telegram_chat_id: str = ""
     email_enabled: bool = False

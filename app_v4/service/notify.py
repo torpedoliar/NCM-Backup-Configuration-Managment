@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import smtplib
@@ -45,9 +47,11 @@ class Notifier:
 
     async def webhook(self, payload: dict) -> NotifyResult:
         cfg = self.settings()
-        if not cfg.enabled or not cfg.webhook_url:
-            return NotifyResult(False, "webhook", "webhook disabled or url empty")
-        return self._post_json(cfg.webhook_url, payload)
+        if not cfg.enabled or not cfg.webhook_url or not cfg.webhook_secret:
+            return NotifyResult(False, "webhook", "webhook disabled or url/secret empty")
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        signature = hmac.new(cfg.webhook_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        return self._post_json(cfg.webhook_url, body, {"X-NCM-Signature": f"sha256={signature}"})
 
     async def telegram(self, text: str) -> NotifyResult:
         cfg = self.settings()
@@ -55,15 +59,14 @@ class Notifier:
             return NotifyResult(False, "telegram", "telegram disabled or token/chat_id empty")
         url = f"https://api.telegram.org/bot{cfg.telegram_token}/sendMessage"
         payload = {"chat_id": cfg.telegram_chat_id, "text": text[:4000]}
-        return self._post_json(url, payload)
+        return self._post_json(url, json.dumps(payload).encode("utf-8"))
 
-    def _post_json(self, url: str, payload: dict) -> NotifyResult:
+    def _post_json(self, url: str, body: bytes, headers: dict | None = None) -> NotifyResult:
         try:
-            data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
                 url,
-                data=data,
-                headers={"Content-Type": "application/json"},
+                data=body,
+                headers={"Content-Type": "application/json", **(headers or {})},
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=10) as response:

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
 from app_v4.service.deps import audit_identity, get_db, get_runtime, require_key_or_jwt, require_role, require_role_or_key
+from app_v4.service.events import publish
 from app_v4.service.problem import problem
 from app_v4.service.review_service import REVIEW_STATUSES, ReviewService
 from app_v4.service.rollback_generator import generate_rollback_script
@@ -255,6 +256,17 @@ async def refresh_baseline(
     baseline.content_hash = target.content_hash
     baseline.created_at = utc_now()
     await session.commit()
+    if review_id is not None:
+        await publish(
+            runtime.event_hub,
+            "review_opened",
+            {
+                "switch_id": review_switch.id,
+                "switch_name": review_switch.name,
+                "backup_id": target.id,
+                "review_id": review_id,
+            },
+        )
     await runtime.audit_writer.record(
         user_id=audit_user_id,
         action="baseline.refreshed",
@@ -469,6 +481,11 @@ async def update_review_status(
         comment=payload.comment,
     )
     await session.commit()
+    await publish(
+        runtime.event_hub,
+        "review_decided",
+        {"review_id": review_id, "switch_id": review.switch_id, "status": payload.status, "comment": payload.comment},
+    )
     # Best-effort decision email (approved/flagged/dismissed); never breaks the API.
     try:
         from app_v4.core.runtime_settings import load_runtime_settings
@@ -574,6 +591,12 @@ async def promote_review_to_baseline(
         promoted_baseline_id = new_bl.id
 
     await session.commit()
+
+    await publish(
+        runtime.event_hub,
+        "review_decided",
+        {"review_id": review_id, "switch_id": sw.id, "status": "approved", "comment": approval_comment},
+    )
 
     # 4. Audit Trail
     await runtime.audit_writer.record(

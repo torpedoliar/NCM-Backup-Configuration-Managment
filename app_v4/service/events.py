@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import WebSocket
 
 from app_v4.core.utcdatetime import utc_now
+
+logger = logging.getLogger(__name__)
+
+# Internal event name -> webhook event name(s) (ticket 03). Internal names not
+# listed here (backup_started, job_triggered, ...) stay websocket-only.
+WEBHOOK_EVENT_MAP: dict[str, tuple[str, ...]] = {
+    "backup_failed": ("backup_failed",),
+    "backup_completed": ("backup_ok",),
+    "config_drift": ("drift", "review_opened"),
+    "review_opened": ("review_opened",),
+    "review_decided": ("review_decided",),
+    "device_offline": ("device_offline",),
+}
 
 
 @dataclass
@@ -20,8 +34,9 @@ class EventMessage:
 
 
 class EventHub:
-    def __init__(self):
+    def __init__(self, notifier=None):
         self._clients: set[WebSocket] = set()
+        self._notifier = notifier
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -43,6 +58,17 @@ class EventHub:
                 dead.append(websocket)
         for websocket in dead:
             self.disconnect(websocket)
+        await self._webhook(event)
+
+    async def _webhook(self, event: EventMessage) -> None:
+        """Best-effort webhook fanout — must never break the caller."""
+        if self._notifier is None:
+            return
+        for name in WEBHOOK_EVENT_MAP.get(event.type, ()):
+            try:
+                await self._notifier.webhook({"type": name, "payload": event.payload, "ts": event.ts})
+            except Exception:  # noqa: BLE001 - delivery is best-effort
+                logger.warning("webhook fanout failed for %s", name, exc_info=True)
 
 
 async def publish(hub: EventHub | None, event_type: str, payload: dict[str, Any]) -> None:

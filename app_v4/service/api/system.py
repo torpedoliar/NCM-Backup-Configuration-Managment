@@ -440,6 +440,7 @@ async def patch_time_settings(
 class NotifySettingsResponse(BaseModel):
     enabled: bool
     webhook_url: str
+    webhook_secret: str
     telegram_token: str
     telegram_chat_id: str
     email_enabled: bool
@@ -462,6 +463,7 @@ class NotifySettingsResponse(BaseModel):
 class NotifySettingsPatch(BaseModel):
     enabled: bool | None = None
     webhook_url: str | None = Field(default=None, max_length=500)
+    webhook_secret: str | None = Field(default=None, max_length=500)
     telegram_token: str | None = Field(default=None, max_length=500)
     telegram_chat_id: str | None = Field(default=None, max_length=100)
     email_enabled: bool | None = None
@@ -485,6 +487,7 @@ def _build_notify_response(rs) -> NotifySettingsResponse:
     return NotifySettingsResponse(
         enabled=rs.notify.enabled,
         webhook_url=rs.notify.webhook_url,
+        webhook_secret=rs.notify.webhook_secret,
         telegram_token=rs.notify.telegram_token,
         telegram_chat_id=rs.notify.telegram_chat_id,
         email_enabled=rs.notify.email_enabled,
@@ -531,6 +534,7 @@ async def patch_notify_settings(
         new_notify = NotifySettings(
             enabled=updates.get("enabled", old.enabled),
             webhook_url=updates.get("webhook_url", old.webhook_url),
+            webhook_secret=updates.get("webhook_secret", old.webhook_secret),
             telegram_token=updates.get("telegram_token", old.telegram_token),
             telegram_chat_id=updates.get("telegram_chat_id", old.telegram_chat_id),
             email_enabled=updates.get("email_enabled", old.email_enabled),

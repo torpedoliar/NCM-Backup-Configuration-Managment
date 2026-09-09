@@ -91,6 +91,12 @@ class BackupService:
                         "message": message,
                     },
                 )
+                if result.get("error_code") == "CONNECTION_TIMEOUT":
+                    await publish(
+                        self.event_hub,
+                        "device_offline",
+                        {"switch_id": switch_id, "switch_name": switch.name, "backup_id": result["backup_id"]},
+                    )
                 await self._send_backup_email(
                     success=False, switch_name=switch.name, message=message,
                     backup_id=result["backup_id"], backup_type=backup_type,
@@ -148,6 +154,12 @@ class BackupService:
                 "backup_failed",
                 {"switch_id": switch_id, "switch_name": switch_name, "backup_id": result["backup_id"], "message": run_result.message},
             )
+            if result.get("error_code") == "CONNECTION_TIMEOUT":
+                await publish(
+                    self.event_hub,
+                    "device_offline",
+                    {"switch_id": switch_id, "switch_name": switch_name, "backup_id": result["backup_id"]},
+                )
             await self._send_backup_email(
                 success=False, switch_name=switch_name, message=run_result.message,
                 backup_id=result["backup_id"], backup_type=backup_type,
