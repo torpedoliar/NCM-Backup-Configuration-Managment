@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timedelta
 
 from app_v4.core.utcdatetime import utc_now
@@ -25,6 +26,21 @@ from app_v4.data.models import (
 
 
 NULLABLE_FIELDS = {"day_of_week", "day_of_month"}
+
+# API-key scopes, normalized + validated in one place. Write scopes join this set
+# in ticket 02; the data model already accepts them.
+KNOWN_SCOPES: frozenset[str] = frozenset({"read"})
+
+
+def _normalize_scopes(scopes: list[str] | None) -> str | None:
+    """Lowercase/strip/dedupe/sort; None/empty -> NULL. Unknown scope -> ValueError."""
+    if not scopes:
+        return None
+    cleaned = {s.strip().lower() for s in scopes if s and s.strip()}
+    unknown = cleaned - KNOWN_SCOPES
+    if unknown:
+        raise ValueError(f"Unknown API key scope(s): {sorted(unknown)}; known: {sorted(KNOWN_SCOPES)}")
+    return json.dumps(sorted(cleaned)) if cleaned else None
 
 
 class Repository:
@@ -164,11 +180,24 @@ class Repository:
 
     # ----- api keys -----
 
-    async def create_api_key(self, name: str, key_hash: str, prefix: str) -> ApiKey:
-        key = ApiKey(name=name, key_hash=key_hash, prefix=prefix)
+    async def create_api_key(
+        self, name: str, key_hash: str, prefix: str, scopes: list[str] | None = None
+    ) -> ApiKey:
+        key = ApiKey(name=name, key_hash=key_hash, prefix=prefix, scopes=_normalize_scopes(scopes))
         self.session.add(key)
         await self.session.flush()
         return key
+
+    @staticmethod
+    def get_api_key_scopes(key: ApiKey) -> list[str]:
+        """Parsed scope list; NULL/empty/corrupt JSON reads as [] (legacy key)."""
+        if not key.scopes:
+            return []
+        try:
+            parsed = json.loads(key.scopes)
+        except (TypeError, ValueError):
+            return []
+        return parsed if isinstance(parsed, list) else []
 
     async def list_api_keys(self) -> list[ApiKey]:
         result = await self.session.execute(select(ApiKey).order_by(ApiKey.created_at))

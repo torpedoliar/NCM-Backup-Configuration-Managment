@@ -143,6 +143,8 @@ class ApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # JSON array of scope strings (e.g. ["read"]); NULL/empty = legacy key (network-doc only).
+    scopes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
 
 class ConfigBaseline(Base):
