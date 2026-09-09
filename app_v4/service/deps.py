@@ -24,6 +24,23 @@ async def get_db(runtime: ServiceRuntime = Depends(get_runtime)) -> AsyncIterato
         yield session
 
 
+async def _lookup_api_key(
+    presented: str | None,
+    session: AsyncSession,
+) -> tuple[str, list[str]] | None:
+    """Validated (name, scopes) for a presented key, or None when unknown/revoked."""
+    if not presented:
+        return None
+    key_hash = hashlib.sha256(presented.encode("utf-8")).hexdigest()
+    repo = Repository(session)
+    key = await repo.get_api_key_by_hash(key_hash)
+    if key is None:
+        return None
+    await repo.touch_api_key_last_used(key.id)
+    await session.commit()
+    return key.name, Repository.get_api_key_scopes(key)
+
+
 async def require_api_key(
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
@@ -37,15 +54,81 @@ async def require_api_key(
     if not presented:
         raise problem(401, "Unauthorized", "Missing API key")
 
-    key_hash = hashlib.sha256(presented.encode("utf-8")).hexdigest()
-    repo = Repository(session)
-    key = await repo.get_api_key_by_hash(key_hash)
-    if key is None:
+    found = await _lookup_api_key(presented, session)
+    if found is None:
         raise problem(401, "Unauthorized", "Invalid or revoked API key")
+    return found[0]
 
-    await repo.touch_api_key_last_used(key.id)
-    await session.commit()
-    return key.name
+
+def require_scoped_key(*scopes: str):
+    """API-key-only dependency: key must carry at least one of `scopes`.
+
+    Legacy keys (no scopes) get 403 here — network-doc keeps using
+    `require_api_key` so legacy keys keep working there.
+    """
+
+    async def dependency(
+        authorization: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        session: AsyncSession = Depends(get_db),
+    ) -> str:
+        presented = x_api_key.strip() if x_api_key else None
+        if presented is None and authorization:
+            scheme, separator, value = authorization.partition(" ")
+            if scheme.lower() == "bearer" and separator:
+                presented = value.strip()
+        if not presented:
+            raise problem(401, "Unauthorized", "Missing API key")
+
+        found = await _lookup_api_key(presented, session)
+        if found is None:
+            raise problem(401, "Unauthorized", "Invalid or revoked API key")
+        name, key_scopes = found
+        if not set(key_scopes) & set(scopes):
+            raise problem(403, "Forbidden", "API key lacks required scope")
+        return name
+
+    return dependency
+
+
+def require_key_or_jwt(*scopes: str):
+    """Combined dependency: valid JWT (any authenticated role) OR scoped API key.
+
+    Replaces `require_role(...)` on read endpoints opened to DataGuard.
+    No credential at all -> 401; credential present but insufficient -> 403.
+    """
+
+    async def dependency(
+        request: Request,
+        authorization: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        session: AsyncSession = Depends(get_db),
+    ) -> str:
+        runtime: ServiceRuntime = request.app.state.runtime
+        presented = x_api_key.strip() if x_api_key else None
+        bearer_value: str | None = None
+        if authorization:
+            scheme, separator, value = authorization.partition(" ")
+            if scheme.lower() == "bearer" and separator and value.strip():
+                bearer_value = value.strip()
+        # JWT path first: any authenticated user keeps pre-existing read access.
+        if bearer_value is not None and presented is None:
+            try:
+                claims = runtime.auth_service.verify_access_token(bearer_value)
+            except TokenError:
+                raise problem(401, "Unauthorized", "Invalid bearer token")
+            return f"user:{claims.username}"
+        if presented is not None:
+            found = await _lookup_api_key(presented, session)
+            if found is None:
+                raise problem(401, "Unauthorized", "Invalid or revoked API key")
+            name, key_scopes = found
+            if not set(key_scopes) & set(scopes):
+                raise problem(403, "Forbidden", "API key lacks required scope")
+            return f"key:{name}"
+        raise problem(401, "Unauthorized", "Missing credentials")
+
+    return dependency
 
 
 def require_user(

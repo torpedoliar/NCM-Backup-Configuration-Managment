@@ -20,6 +20,7 @@ import type {
   ConfigReview,
   ConfigReviewStatus,
   ComplianceSummary,
+  FleetCycleAttestationResult,
   ReviewNote,
   NotifySettings,
   ReviewFilters,
@@ -631,6 +632,42 @@ export function useAddReviewNote() {
 
 export async function fetchReviewDiff(id: number): Promise<string> {
   return (await api.get<string>(`/reviews/${id}/diff`, { responseType: 'text' })).data as unknown as string;
+}
+
+export async function fetchReviewRollbackScript(id: number): Promise<string> {
+  return (await api.get<string>(`/reviews/${id}/rollback`, { responseType: 'text' })).data as unknown as string;
+}
+
+export function usePromoteReviewToBaseline() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { id: number; reason: string; comment?: string }) =>
+      (await api.post<ConfigReview>(`/reviews/${vars.id}/promote-baseline`, {
+        reason: vars.reason,
+        comment: vars.comment,
+      })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['reviews', 'compliance'] });
+      qc.invalidateQueries({ queryKey: ['baselines'] });
+      qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+    },
+  });
+}
+
+export function useRunFleetReviewCycle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<FleetCycleAttestationResult>('/reviews/run-cycle')).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['reviews', 'compliance'] });
+      qc.invalidateQueries({ queryKey: ['baselines'] });
+      qc.invalidateQueries({ queryKey: ['audit'] });
+      qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+    },
+  });
 }
 
 export function useCompliance() {

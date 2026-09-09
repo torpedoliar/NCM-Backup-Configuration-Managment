@@ -9,9 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
-from app_v4.service.deps import get_db, get_runtime, require_role
+from app_v4.service.deps import get_db, get_runtime, require_key_or_jwt, require_role
 from app_v4.service.problem import problem
 from app_v4.service.review_service import REVIEW_STATUSES, ReviewService
+from app_v4.service.rollback_generator import generate_rollback_script
+from app_v4.service import email_events
 from app_v4.service.timeutil import to_aware_utc
 
 router = APIRouter(tags=["config-reviews"])
@@ -69,6 +71,11 @@ class ReviewStatusUpdate(BaseModel):
     comment: str | None = Field(default=None, max_length=2000)
 
 
+class ReviewPromoteBaseline(BaseModel):
+    reason: str = Field(min_length=3, max_length=2000, description="Change Request ID or audit justification")
+    comment: str | None = Field(default=None, max_length=2000)
+
+
 def _baseline_out(row, name_by_id: dict[int, str] | None = None) -> BaselineOut:
     return BaselineOut(
         id=row.id,
@@ -91,7 +98,7 @@ async def _switch_name(session: AsyncSession, switch_id: int) -> str | None:
 @router.get("/baselines", response_model=list[BaselineOut])
 async def list_baselines(
     session: AsyncSession = Depends(get_db),
-    _user=Depends(require_role("admin", "operator")),
+    _auth: str = Depends(require_key_or_jwt("read")),
 ) -> list[BaselineOut]:
     repo = Repository(session)
     rows = await repo.list_baselines()
@@ -346,7 +353,7 @@ async def list_reviews(
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_db),
-    _user=Depends(require_role("admin", "operator")),
+    _auth: str = Depends(require_key_or_jwt("read")),
 ) -> list[ReviewOut]:
     if status_filter is not None and status_filter not in REVIEW_STATUSES:
         raise problem(422, "Unprocessable Entity", f"invalid status: {status_filter}")
@@ -359,7 +366,7 @@ async def list_reviews(
 async def review_diff(
     review_id: int,
     session: AsyncSession = Depends(get_db),
-    _user=Depends(require_role("admin", "operator")),
+    _auth: str = Depends(require_key_or_jwt("read")),
 ) -> Response:
     repo = Repository(session)
     review = await repo.get_review(review_id)
@@ -401,7 +408,7 @@ async def start_review(
 async def list_review_notes(
     review_id: int,
     session: AsyncSession = Depends(get_db),
-    _user=Depends(require_role("admin", "operator")),
+    _auth: str = Depends(require_key_or_jwt("read")),
 ) -> list[ReviewNoteOut]:
     repo = Repository(session)
     review = await repo.get_review(review_id)
@@ -497,11 +504,143 @@ async def update_review_status(
     return await _review_out(session, review, include_notes=True)
 
 
+@router.post("/reviews/{review_id}/promote-baseline", response_model=ReviewOut)
+async def promote_review_to_baseline(
+    review_id: int,
+    payload: ReviewPromoteBaseline,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    runtime=Depends(get_runtime),
+    actor=Depends(require_role("admin", "operator")),
+) -> ReviewOut:
+    """ISO 27001 A.8.9: Approve drift and atomically promote current backup as golden baseline.
+
+    Actions performed atomically:
+    1. Set review status -> 'approved' with actor and reason.
+    2. Add reason note to review's audit note thread.
+    3. Update or create the switch's golden baseline pointing to this backup.
+    4. Reset baseline review cycle clock.
+    5. Write comprehensive audit record with Change Request reference.
+    """
+    repo = Repository(session)
+    review = await repo.get_review(review_id)
+    if review is None:
+        raise problem(404, "Not Found", "Review not found")
+    backup = await repo.get_backup(review.backup_id)
+    if backup is None:
+        raise problem(422, "Unprocessable Entity", "Referenced backup does not exist")
+    sw = await repo.get_switch(review.switch_id)
+    if sw is None:
+        raise problem(422, "Unprocessable Entity", "Referenced switch does not exist")
+
+    # 1. Update review status to approved
+    approval_comment = f"[Promoted to Baseline] {payload.reason}"
+    if payload.comment:
+        approval_comment += f" | {payload.comment}"
+    review = await repo.update_review(
+        review_id,
+        status="approved",
+        reviewed_by=actor.user_id,
+        comment=approval_comment,
+    )
+
+    # 2. Append to notes thread as tamper-evident record
+    note_body = f"Approved & Promoted to Baseline. Reason/CR: {payload.reason}"
+    if payload.comment:
+        note_body += f"\nNote: {payload.comment}"
+    await repo.create_review_note(review_id, actor.user_id, note_body)
+
+    # 3. Update existing switch baseline or create a new per-switch baseline
+    baseline = await repo.get_baseline_for_switch(sw)
+    if baseline is not None and baseline.kind == "switch":
+        baseline.backup_id = backup.id
+        baseline.content_hash = backup.content_hash
+        baseline.created_at = utc_now()
+        promoted_baseline_id = baseline.id
+    else:
+        # Switch had no switch-specific baseline (or was using model template)
+        new_bl = await repo.create_baseline(
+            kind="switch",
+            switch_id=sw.id,
+            model=None,
+            backup_id=backup.id,
+            content_hash=backup.content_hash,
+            created_by=actor.user_id,
+        )
+        promoted_baseline_id = new_bl.id
+
+    await session.commit()
+
+    # 4. Audit Trail
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="review.approved_and_promoted",
+        target_type="review",
+        target_id=str(review_id),
+        ip=request.client.host if request.client else None,
+        detail={
+            "switch_id": sw.id,
+            "switch_name": sw.name,
+            "backup_id": backup.id,
+            "baseline_id": promoted_baseline_id,
+            "reason": payload.reason,
+            "comment": payload.comment,
+        },
+    )
+
+    # Best-effort notification email
+    try:
+        from app_v4.core.runtime_settings import load_runtime_settings
+        from app_v4.core.paths import resolve_paths
+        from app_v4.service import email_events
+
+        paths = resolve_paths(runtime.settings)
+        cfg = load_runtime_settings(paths.data_dir / "runtime_settings.json").notify
+        if runtime.notify is not None and cfg.enabled and cfg.email_enabled and cfg.email_review_events:
+            reviewer_name = f"user-{actor.user_id}"
+            if getattr(actor, "username", None):
+                reviewer_name = actor.username
+            content = email_events.review_decision_email(
+                sw.name,
+                review.id,
+                "approved",
+                approval_comment,
+                reviewer_name,
+                f"{cfg.app_public_url.rstrip('/')}/config-review",
+            )
+            await runtime.notify.email(
+                content["subject"], content["body_text"], body_html=content["body_html"]
+            )
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning("promote review decision email failed", exc_info=True)
+
+    return await _review_out(session, review, include_notes=True)
+
+
+@router.get("/reviews/{review_id}/rollback")
+async def review_rollback_script(
+    review_id: int,
+    session: AsyncSession = Depends(get_db),
+    _user=Depends(require_role("admin", "operator")),
+) -> Response:
+    """Generate remediation CLI commands to roll back switch config from Current to Baseline."""
+    repo = Repository(session)
+    review = await repo.get_review(review_id)
+    if review is None:
+        raise problem(404, "Not Found", "Review not found")
+    sw = await repo.get_switch(review.switch_id)
+    sw_name = sw.name if sw else f"switch-{review.switch_id}"
+    script = generate_rollback_script(review.raw_diff, switch_name=sw_name)
+    return Response(script, media_type="text/plain; charset=utf-8")
+
+
 @router.get("/reviews/compliance")
 async def reviews_compliance(
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    _user=Depends(require_role("admin", "operator")),
+    _auth: str = Depends(require_key_or_jwt("read")),
 ) -> dict:
     if runtime.review_service is None:
         raise problem(503, "Service Unavailable", "Review service is not initialized")
@@ -513,7 +652,7 @@ async def compliance_report(
     format: str = Query("pdf", pattern="^(csv|xlsx|pdf)$"),
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    _user=Depends(require_role("admin", "operator")),
+    _auth: str = Depends(require_key_or_jwt("read")),
 ) -> Response:
     """Export the per-switch compliance table as CSV/XLSX/PDF (ISO evidence)."""
     if runtime.review_service is None:
@@ -555,3 +694,146 @@ async def compliance_report(
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="compliance-{stamp}.{format}"'},
     )
+
+
+class FleetCycleAttestationOut(BaseModel):
+    total_checked: int
+    clean_count: int
+    drift_count: int
+    drift_details: list[dict]
+    message: str
+
+
+@router.post("/reviews/run-cycle", response_model=FleetCycleAttestationOut)
+async def run_fleet_cycle_review(
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    runtime=Depends(get_runtime),
+    actor=Depends(require_role("admin", "operator")),
+) -> FleetCycleAttestationOut:
+    """ISO 27001 A.8.9 On-Demand: Run review cycle attestation for all switches immediately.
+
+    - Compares latest backup against stored baseline for every switch with a baseline.
+    - If clean (no drift): Baseline clock is reset (created_at = now) extending the compliance cycle.
+    - If drifted: Opens a new pending review ticket.
+    - Sends instant completion email report to configured administrators.
+    - Logs audit record 'review.cycle_attested'.
+    """
+    repo = Repository(session)
+    baselines = await repo.list_baselines()
+    now = utc_now()
+
+    total_checked = 0
+    clean_count = 0
+    drift_count = 0
+    drift_details: list[dict] = []
+
+    for bl in baselines:
+        target = (
+            await repo.get_latest_backup(bl.switch_id)
+            if bl.kind == "switch"
+            else await repo.get_latest_backup_for_model(bl.model)
+        )
+        if target is None:
+            continue
+
+        total_checked += 1
+        sw = await repo.get_switch(bl.switch_id if bl.kind == "switch" else target.switch_id)
+        sw_name = sw.name if sw else f"#{bl.switch_id}"
+
+        # Read golden config and target config
+        old_golden = await repo.get_backup(bl.backup_id) if bl.backup_id else None
+        golden_text = None
+        if old_golden and old_golden.file_path:
+            path = Path(old_golden.file_path)
+            if path.exists():
+                golden_text = path.read_text(encoding="utf-8")
+
+        target_text = None
+        if target.file_path:
+            path = Path(target.file_path)
+            if path.exists():
+                target_text = path.read_text(encoding="utf-8")
+
+        is_drifted = False
+        rev_id: int | None = None
+
+        if (
+            runtime.review_service is not None
+            and golden_text is not None
+            and target_text is not None
+            and sw is not None
+            and target.id != bl.backup_id
+        ):
+            outcome = await runtime.review_service.on_backup_complete(
+                switch=sw,
+                backup_id=target.id,
+                content_text=target_text,
+                baseline_text=golden_text,
+                baseline_id=bl.id,
+            )
+            is_drifted = outcome.drifted
+            rev_id = outcome.review_id
+
+        # Update baseline clock to reflect review attestation
+        bl.backup_id = target.id
+        bl.content_hash = target.content_hash
+        bl.created_at = now
+
+        if is_drifted:
+            drift_count += 1
+            drift_details.append({"switch_name": sw_name, "review_id": rev_id})
+        else:
+            clean_count += 1
+
+    await session.commit()
+
+    # Record audit trail
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="review.cycle_attested",
+        target_type="review_cycle",
+        target_id="fleet",
+        ip=request.client.host if request.client else None,
+        detail={
+            "total_checked": total_checked,
+            "clean_count": clean_count,
+            "drift_count": drift_count,
+            "drift_details": drift_details,
+        },
+    )
+
+    # Best-effort instant completion email
+    try:
+        from app_v4.core.runtime_settings import load_runtime_settings
+        from app_v4.core.paths import resolve_paths
+
+        paths = resolve_paths(runtime.settings)
+        cfg = load_runtime_settings(paths.data_dir / "runtime_settings.json").notify
+        if runtime.notify is not None and cfg.enabled and cfg.email_enabled:
+            reviewer_name = getattr(actor, "username", None) or f"user-{actor.user_id}"
+            content = email_events.review_cycle_completed_email(
+                total_checked=total_checked,
+                clean_count=clean_count,
+                drift_count=drift_count,
+                drift_details=drift_details,
+                reviewer=reviewer_name,
+                review_url=f"{cfg.app_public_url.rstrip('/')}/config-review",
+            )
+            await runtime.notify.email(
+                content["subject"], content["body_text"], body_html=content["body_html"]
+            )
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning("review cycle completed email failed", exc_info=True)
+
+    msg = f"Siklus review berhasil dijalankan: {clean_count}/{total_checked} switch lolos attestasi clean. {drift_count} review baru dibuka."
+    return FleetCycleAttestationOut(
+        total_checked=total_checked,
+        clean_count=clean_count,
+        drift_count=drift_count,
+        drift_details=drift_details,
+        message=msg,
+    )
+

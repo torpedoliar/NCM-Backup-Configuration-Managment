@@ -112,3 +112,60 @@ def review_decision_email(
             f"<p><a href='{html.escape(review_url)}'>Buka halaman Config Review</a></p>"
         ),
     }
+
+
+def review_cycle_completed_email(
+    total_checked: int,
+    clean_count: int,
+    drift_count: int,
+    drift_details: list[dict],
+    reviewer: str,
+    review_url: str,
+) -> dict:
+    """Subject: [NCM] AUDIT REVIEW SELESAI — Siklus Review Konfigurasi (ISO 27001 A.8.9)."""
+    lines = [
+        f"Siklus review berkala kepatuhan ISO 27001 A.8.9 telah selesai dijalankan.",
+        f"Dijalankan oleh: {reviewer}",
+        f"Waktu selesai: {_fmt_dt(utc_now())}",
+        f"",
+        f"HASIL PEMERIKSAAN FLEET:",
+        f"- Total switch diperiksa: {total_checked}",
+        f"- Switch lolos (identik dengan baseline, siklus direset): {clean_count}",
+        f"- Switch dengan drift (tiket review baru dibuka): {drift_count}",
+    ]
+    if drift_details:
+        lines.append("")
+        lines.append("DETAIL DRIFT BARU:")
+        for d in drift_details:
+            lines.append(f"  - {d['switch_name']}: Review #{d.get('review_id', '?')}")
+
+    lines.append("")
+    lines.append(f"Buka antrean review: {review_url}")
+
+    drift_rows = "".join(
+        f"<tr><td>{html.escape(d['switch_name'])}</td><td>#{d.get('review_id', '?')}</td></tr>"
+        for d in drift_details
+    ) or "<tr><td colspan='2'>Tidak ada drift yang terdeteksi. Semua baseline clean!</td></tr>"
+
+    html_content = (
+        f"<h2 style='color:#1e8449'>Audit Review Konfigurasi Selesai (ISO 27001 A.8.9)</h2>"
+        f"<p>Siklus review berkala telah selesai dijalankan oleh <b>{html.escape(reviewer)}</b> pada {_fmt_dt(utc_now())}.</p>"
+        f"<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse;'>"
+        f"<tr><th>Total Switch Dicek</th><td>{total_checked}</td></tr>"
+        f"<tr><th>Lolos Attestasi (Clean)</th><td><b>{clean_count}</b> switch (siklus direset)</td></tr>"
+        f"<tr><th>Drift Terdeteksi</th><td><b style='color:#c0392b'>{drift_count}</b> review baru</td></tr>"
+        f"</table>"
+        f"<h3>Detail Perangkat dengan Drift</h3>"
+        f"<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse;'>"
+        f"<thead><tr><th>Switch</th><th>Review ID</th></tr></thead>"
+        f"<tbody>{drift_rows}</tbody>"
+        f"</table>"
+        f"<p style='margin-top:16px;'><a href='{html.escape(review_url)}'>Buka Halaman Config Review</a></p>"
+    )
+
+    return {
+        "subject": f"[NCM] AUDIT REVIEW SELESAI — Siklus Review Konfigurasi (ISO 27001 A.8.9) — {clean_count}/{total_checked} clean",
+        "body_text": "\n".join(lines),
+        "body_html": html_content,
+    }
+

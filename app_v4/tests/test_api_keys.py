@@ -73,7 +73,9 @@ async def test_create_lists_and_revoke(test_settings, session_factory):
     for action in ("apikey.created", "apikey.revoked"):
         audit = actions[action]
         assert audit.target_id == str(key_id)
-        assert json.loads(audit.detail_json) == {"name": "netdoc"}
+        detail = json.loads(audit.detail_json)
+        assert detail["name"] == "netdoc"
+        assert detail.get("scopes", []) == []
         assert body["key"] not in audit.detail_json
         assert stored.key_hash not in audit.detail_json
 

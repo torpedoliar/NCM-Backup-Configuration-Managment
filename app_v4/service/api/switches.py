@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims
 from app_v4.data.repository import Repository
-from app_v4.service.deps import get_db, get_runtime, require_role
+from app_v4.service.deps import get_db, get_runtime, require_key_or_jwt, require_role
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
 
@@ -83,7 +83,7 @@ def _validate_protocol(protocol: str) -> None:
 async def list_switches(
     include_inactive: bool = False,
     session: AsyncSession = Depends(get_db),
-    _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
+    _auth: str = Depends(require_key_or_jwt("read")),
 ) -> list[SwitchOut]:
     repo = Repository(session)
     return [_to_out(s) for s in await repo.list_switches(include_inactive=include_inactive)]
@@ -131,7 +131,7 @@ async def create_switch(
 async def get_switch(
     switch_id: int,
     session: AsyncSession = Depends(get_db),
-    _user: AccessClaims = Depends(require_role("admin", "operator", "viewer")),
+    _auth: str = Depends(require_key_or_jwt("read")),
 ) -> SwitchOut:
     repo = Repository(session)
     switch = await repo.get_switch(switch_id)

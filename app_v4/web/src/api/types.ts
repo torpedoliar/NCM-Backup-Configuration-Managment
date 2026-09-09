@@ -352,3 +352,12 @@ export interface NotifySettings {
   email_backup_success: boolean;
   email_review_events: boolean;
 }
+
+export interface FleetCycleAttestationResult {
+  total_checked: number;
+  clean_count: number;
+  drift_count: number;
+  drift_details: { switch_name: string; review_id: number | null }[];
+  message: string;
+}
+

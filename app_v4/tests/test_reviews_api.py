@@ -360,3 +360,91 @@ async def test_notify_settings(test_settings, session_factory):
     assert resp.status_code == 200
     assert resp.json()["enabled"] is True
     assert resp.json()["review_reminder_hour"] == 10
+
+
+@pytest.mark.asyncio
+async def test_review_promote_to_baseline_and_rollback(test_settings, session_factory):
+    """POST /reviews/{id}/promote-baseline and GET /reviews/{id}/rollback."""
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin-promote", "hash", "admin")
+        cred = await repo.create_credential("c-prom", b"enc")
+        sw = await repo.create_switch("SW-PROMOTE", "10.0.0.99", "ssh", 22, cred.id)
+        b1 = await repo.create_backup(sw.id, "/tmp/p1", "hash-prom1", 100, True)
+        b2 = await repo.create_backup(sw.id, "/tmp/p2", "hash-prom2", 120, True)
+        bl = await repo.create_baseline(
+            "switch",
+            switch_id=sw.id,
+            model=None,
+            backup_id=b1.id,
+            content_hash=b1.content_hash,
+            created_by=admin.id,
+        )
+        diff_text = "--- Baseline\n+++ Current\n@@ -1,2 +1,3 @@\n hostname SW-OLD\n+ vlan 50\n- vlan 40\n"
+        review = await repo.create_review(
+            switch_id=sw.id,
+            backup_id=b2.id,
+            baseline_id=bl.id,
+            raw_diff=diff_text,
+            diff_summary="{}",
+        )
+        await session.commit()
+        review_id = review.id
+        admin_id = admin.id
+
+    client = _make_client(test_settings, session_factory)
+    headers = {"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"}
+
+    # 1. Rollback script generation
+    rb_resp = client.get(f"/api/v1/reviews/{review_id}/rollback", headers=headers)
+    assert rb_resp.status_code == 200
+    rb_text = rb_resp.text
+    assert "REMEDIATION ROLLBACK SCRIPT FOR SW-PROMOTE" in rb_text
+    assert "no vlan 50" in rb_text
+    assert "vlan 40" in rb_text
+
+    # 2. Promote to Baseline
+    promote_resp = client.post(
+        f"/api/v1/reviews/{review_id}/promote-baseline",
+        headers=headers,
+        json={"reason": "CR-2026-999: Approved VLAN change", "comment": "Verified by Audit"},
+    )
+    assert promote_resp.status_code == 200
+    body = promote_resp.json()
+    assert body["status"] == "approved"
+    assert "[Promoted to Baseline] CR-2026-999" in body["comment"]
+    assert any("CR-2026-999" in n["body"] for n in body["notes"])
+
+    # 3. Verify baseline was updated to b2
+    async with session_factory() as session:
+        repo = Repository(session)
+        updated_bl = await repo.get_baseline_for_switch(sw)
+        assert updated_bl is not None
+        assert updated_bl.backup_id == b2.id
+        assert updated_bl.content_hash == b2.content_hash
+
+
+@pytest.mark.asyncio
+async def test_run_fleet_cycle_review(test_settings, session_factory):
+    """POST /reviews/run-cycle."""
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin-cycle", "hash", "admin")
+        cred = await repo.create_credential("c-cyc", b"enc")
+        sw = await repo.create_switch("SW-CYCLE-1", "10.0.0.101", "ssh", 22, cred.id)
+        b = await repo.create_backup(sw.id, "/tmp/c1", "hash-c1", 100, True)
+        bl = await repo.create_baseline("switch", switch_id=sw.id, model=None, backup_id=b.id, content_hash=b.content_hash, created_by=admin.id)
+        await session.commit()
+        admin_id = admin.id
+
+    client = _make_client(test_settings, session_factory)
+    headers = {"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"}
+
+    resp = client.post("/api/v1/reviews/run-cycle", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_checked"] == 1
+    assert data["clean_count"] == 1
+    assert data["drift_count"] == 0
+    assert "lolos attestasi clean" in data["message"]
+

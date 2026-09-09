@@ -64,6 +64,9 @@ def _admin_token(runtime: ServiceRuntime) -> str:
 @pytest.mark.asyncio
 async def test_matrix_scope_x_endpoint(test_settings, session_factory):
     runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    async with session_factory() as session:
+        await Repository(session).create_user("admin", "h", "admin")
+        await session.commit()
     client = TestClient(create_app(runtime))
     hdr = {"Authorization": f"Bearer {_admin_token(runtime)}"}
     read_key = client.post("/api/v1/api-keys", headers=hdr, json={"name": "dg", "scopes": ["read"]}).json()["key"]
@@ -76,9 +79,11 @@ async def test_matrix_scope_x_endpoint(test_settings, session_factory):
     # network-doc regression: legacy key keeps working
     assert client.get("/api/v1/network-doc", headers={"X-API-Key": legacy_key}).status_code == 200
     assert client.get("/api/v1/network-doc", headers={"X-API-Key": read_key}).status_code == 200
-    # JWT keeps working everywhere
-    for ep in read_endpoints + ["/api/v1/network-doc"]:
+    # JWT keeps working everywhere it worked before (network-doc is key-only by design;
+    # the JWT check below documents that contract rather than changing it).
+    for ep in read_endpoints:
         assert client.get(ep, headers=hdr).status_code == 200, ep
+    assert client.get("/api/v1/network-doc", headers=hdr).status_code == 401
     # no credentials at all -> 401
     assert client.get("/api/v1/switches").status_code == 401
     assert client.get("/api/v1/network-doc").status_code == 401

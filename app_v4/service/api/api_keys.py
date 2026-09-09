@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.core.auth_service import AccessClaims
 from app_v4.data.models import ApiKey
-from app_v4.data.repository import Repository
+from app_v4.data.repository import KNOWN_SCOPES, Repository
 from app_v4.service.deps import get_db, get_runtime, require_role
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    scopes: list[str] = Field(default_factory=list)
 
 
 class ApiKeyCreated(BaseModel):
@@ -27,6 +28,7 @@ class ApiKeyCreated(BaseModel):
     name: str
     prefix: str
     key: str
+    scopes: list[str] = Field(default_factory=list)
 
 
 class ApiKeyOut(BaseModel):
@@ -36,6 +38,7 @@ class ApiKeyOut(BaseModel):
     created_at: datetime
     last_used_at: datetime | None
     revoked: bool
+    scopes: list[str] = Field(default_factory=list)
 
 
 @router.post("", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED)
@@ -49,10 +52,18 @@ async def create_api_key(
     repo = Repository(session)
     if await repo.get_api_key_by_name(payload.name) is not None:
         raise problem(409, "Conflict", "API key name already exists")
+    unknown = {s.strip().lower() for s in payload.scopes if s and s.strip()} - KNOWN_SCOPES
+    if unknown:
+        raise problem(422, "Unprocessable Entity", f"Unknown scope(s): {sorted(unknown)}")
     plaintext = "ncr_" + secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
     prefix = plaintext[:8]
-    key = await repo.create_api_key(name=payload.name, key_hash=key_hash, prefix=prefix)
+    try:
+        key = await repo.create_api_key(
+            name=payload.name, key_hash=key_hash, prefix=prefix, scopes=payload.scopes
+        )
+    except ValueError as exc:
+        raise problem(422, "Unprocessable Entity", str(exc))
     await session.commit()
     await runtime.audit_writer.record(
         user_id=actor.user_id,
@@ -60,9 +71,15 @@ async def create_api_key(
         target_type="api_key",
         target_id=str(key.id),
         ip=request.client.host if request.client else None,
-        detail={"name": key.name},
+        detail={"name": key.name, "scopes": Repository.get_api_key_scopes(key)},
     )
-    return ApiKeyCreated(id=key.id, name=key.name, prefix=prefix, key=plaintext)
+    return ApiKeyCreated(
+        id=key.id,
+        name=key.name,
+        prefix=prefix,
+        key=plaintext,
+        scopes=Repository.get_api_key_scopes(key),
+    )
 
 
 @router.get("", response_model=list[ApiKeyOut])
@@ -79,6 +96,7 @@ async def list_api_keys(
             created_at=key.created_at,
             last_used_at=key.last_used_at,
             revoked=key.revoked,
+            scopes=Repository.get_api_key_scopes(key),
         )
         for key in await repo.list_api_keys()
     ]
