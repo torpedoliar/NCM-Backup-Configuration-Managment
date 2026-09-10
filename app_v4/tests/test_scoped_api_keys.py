@@ -222,3 +222,63 @@ async def test_write_matrix_scopes(test_settings, session_factory, crypto_servic
     keyed = [a for a in audits if a.detail_json and '"key":"sw"' in a.detail_json]
     assert keyed, "expected audit rows attributed to key 'sw'"
     assert all(a.user_id is None for a in keyed)
+
+
+@pytest.mark.asyncio
+async def test_system_write_matrix(test_settings, session_factory):
+    """system:write opens PATCH /system/notify-settings; GET stays JWT-only."""
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    async with session_factory() as session:
+        await Repository(session).create_user("admin", "h", "admin")
+        operator = await Repository(session).create_user("op", "h", "operator")
+        await session.commit()
+        operator_id = operator.id
+    client = TestClient(create_app(runtime))
+    hdr = {"Authorization": f"Bearer {_admin_token(runtime)}"}
+    op_hdr = {"Authorization": f"Bearer {runtime.auth_service.issue_access_token(operator_id, 'op', 'operator')}"}
+
+    def mk(name, scopes):
+        r = client.post("/api/v1/api-keys", headers=hdr, json={"name": name, "scopes": scopes})
+        assert r.status_code == 201, (name, r.text)
+        return {"X-API-Key": r.json()["key"]}
+
+    sys_key = mk("sys", ["system:write"])
+    read = mk("reader", ["read"])
+    legacy = mk("legacy", [])
+
+    # key with the scope patches webhook config
+    r = client.patch(
+        "/api/v1/system/notify-settings",
+        headers=sys_key,
+        json={"webhook_url": "https://dg.example/api/ncm/ingest", "webhook_secret": "s3cr3t", "enabled": True},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["webhook_url"] == "https://dg.example/api/ncm/ingest"
+    assert r.json()["webhook_secret"] == "s3cr3t"
+
+    # wrong scope, unknown JWT role coverage, legacy key, no creds
+    assert (
+        client.patch("/api/v1/system/notify-settings", headers=read, json={"webhook_url": "x"}).status_code == 403
+    )
+    assert (
+        client.patch("/api/v1/system/notify-settings", headers=legacy, json={"webhook_url": "x"}).status_code == 403
+    )
+    assert client.patch("/api/v1/system/notify-settings", json={"webhook_url": "x"}).status_code == 401
+    # JWT admin still works; operator JWT stays forbidden on PATCH, allowed on GET
+    assert (
+        client.patch("/api/v1/system/notify-settings", headers=hdr, json={"smtp_host": "smtp.example.com"}).status_code
+        == 200
+    )
+    assert client.patch("/api/v1/system/notify-settings", headers=op_hdr, json={"smtp_host": "x"}).status_code == 403
+    assert client.get("/api/v1/system/notify-settings", headers=op_hdr).status_code == 200
+    # GET /system/notify-settings is JWT-only: a key (any scope) is rejected
+    assert client.get("/api/v1/system/notify-settings", headers=sys_key).status_code == 401
+    # scoped key has no read reach elsewhere (no cross-scope creep)
+    assert client.get("/api/v1/switches", headers=sys_key).status_code == 403
+
+    # key-based write is audited with user_id NULL + key name in detail (no secrets)
+    async with session_factory() as session:
+        audits = await Repository(session).list_audit(limit=50)
+    keyed = [a for a in audits if a.detail_json and '"key":"sys"' in a.detail_json]
+    assert keyed, "expected audit rows attributed to key 'sys'"
+    assert all(a.user_id is None for a in keyed)

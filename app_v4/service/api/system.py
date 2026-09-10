@@ -17,7 +17,7 @@ from app_v4 import __version__
 from app_v4.core.auth_service import AccessClaims
 from app_v4.core.utcdatetime import utc_now
 from app_v4.data.repository import Repository
-from app_v4.service.deps import get_db, get_runtime, require_role
+from app_v4.service.deps import audit_identity, get_db, get_runtime, require_role, require_role_or_key
 from app_v4.service.log_tail import LogLine, tail_log
 from app_v4.service.problem import problem
 from app_v4.service.runtime import ServiceRuntime
@@ -523,8 +523,10 @@ async def patch_notify_settings(
     payload: NotifySettingsPatch,
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
-    user: AccessClaims = Depends(require_role("admin")),
+    _auth = Depends(require_role_or_key("admin", scope="system:write")),
 ) -> NotifySettingsResponse:
+    # webhook_url/webhook_secret can be pushed by DataGuard with a scoped API
+    # key (ticket 08); JWT admins keep full access via the same dependency.
     paths = resolve_paths(runtime.settings)
     target = paths.data_dir / "runtime_settings.json"
     updates = payload.model_dump(exclude_none=True)
@@ -561,11 +563,12 @@ async def patch_notify_settings(
                 new_notify.review_reminder_hour,
                 new_notify.review_reminder_minute,
             )
+    audit_user_id, audit_extra = audit_identity(_auth)
     await runtime.audit_writer.record(
-        user_id=user.user_id,
+        user_id=audit_user_id,
         action="system.notify_settings_updated",
         ip=request.client.host if request.client else None,
-        detail={"changes": updates},
+        detail={"changes": updates, **audit_extra},
     )
     saved = load_runtime_settings(target)
     return _build_notify_response(saved)
