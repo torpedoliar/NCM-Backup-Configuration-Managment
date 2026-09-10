@@ -6,22 +6,9 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
-
-- [ ] network_doc.py memakai `require_key_or_jwt("read")` (JWT viewer+/operator tetap bisa baca).
-- [ ] pytest: key legacy (NULL scope) → 403 di /network-doc; key scope read → 200; JWT viewer → 200.
-- [ ] Runbook DG + docs NCM: langkah migrasi produksi (generate key baru → pasang → revoke lama).
-- [ ] Commit; suite hijau penuh.
-
-**Done:** T15 ✓ T16 ✓ — brief 16 diperbarui dengan status.
-
----
-
-# 16: Tutup celah legacy — `GET /network-doc` ikut pola scope
-
-**Status:** done (commit 094e856)
+**Status:** done (commit 094e856; runbook DG bf8a90c)
 
 - [x] network_doc.py memakai `require_key_or_jwt("read")` (JWT viewer+/operator tetap bisa baca).
-- [x] pytest: key legacy (NULL scope) → 403 di /network-doc; key scope read → 200; JWT viewer → 200.
-- [x] Runbook DG + docs NCM: langkah migrasi produksi (generate key baru → pasang → revoke lama).
+- [x] pytest: key legacy (NULL scope) → 403 di /network-doc; key scope read → 200; JWT viewer → 200. (`test_network_doc_api.py`, matriks `test_scoped_api_keys.py` — suite 442 passed.)
+- [x] Runbook DG + docs NCM: langkah migrasi produksi (generate key baru → pasang → revoke lama). Runbook DG section 8 + catatan tiket 16 di tab API Reference aplikasi.
 - [x] Commit; suite hijau penuh.
