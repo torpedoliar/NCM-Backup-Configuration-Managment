@@ -8,6 +8,7 @@ import { SettingsNotificationsSection } from './settings/SettingsNotificationsSe
 import { SettingsLogsSection } from './settings/SettingsLogsSection';
 import { SettingsAboutSection } from './settings/SettingsAboutSection';
 import { SettingsApiSection } from './settings/SettingsApiSection';
+import { SettingsApiReferenceSection } from './settings/SettingsApiReferenceSection';
 
 const TABS = [
   { id: 'service', label: 'Service', section: <SettingsServiceSection /> },
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'notify', label: 'Notifications', section: <SettingsNotificationsSection /> },
   { id: 'auth', label: 'Authentication', section: <SettingsAuthSection /> },
   { id: 'api', label: 'API', section: <SettingsApiSection /> },
+  { id: 'api-reference', label: 'API Reference', section: <SettingsApiReferenceSection /> },
   { id: 'logs', label: 'Logs', section: <SettingsLogsSection /> },
   { id: 'about', label: 'About', section: <SettingsAboutSection /> },
 ];

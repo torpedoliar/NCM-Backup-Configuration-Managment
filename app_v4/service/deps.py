@@ -64,8 +64,8 @@ async def require_api_key(
 def require_scoped_key(*scopes: str):
     """API-key-only dependency: key must carry at least one of `scopes`.
 
-    Legacy keys (no scopes) get 403 here — network-doc keeps using
-    `require_api_key` so legacy keys keep working there.
+    Legacy keys (no scopes) get 403 here — all read endpoints use the
+    combined `require_key_or_jwt` variant instead.
     """
 
     async def dependency(

@@ -76,14 +76,13 @@ async def test_matrix_scope_x_endpoint(test_settings, session_factory):
     for ep in read_endpoints:
         assert client.get(ep, headers={"X-API-Key": read_key}).status_code == 200, ep
         assert client.get(ep, headers={"X-API-Key": legacy_key}).status_code == 403, ep
-    # network-doc regression: legacy key keeps working
-    assert client.get("/api/v1/network-doc", headers={"X-API-Key": legacy_key}).status_code == 200
+    # network-doc follows the scoped-key pattern (ticket 16): legacy keys get 403.
+    assert client.get("/api/v1/network-doc", headers={"X-API-Key": legacy_key}).status_code == 403
     assert client.get("/api/v1/network-doc", headers={"X-API-Key": read_key}).status_code == 200
-    # JWT keeps working everywhere it worked before (network-doc is key-only by design;
-    # the JWT check below documents that contract rather than changing it).
+    # JWT works everywhere it worked before, network-doc included (require_key_or_jwt).
     for ep in read_endpoints:
         assert client.get(ep, headers=hdr).status_code == 200, ep
-    assert client.get("/api/v1/network-doc", headers=hdr).status_code == 401
+    assert client.get("/api/v1/network-doc", headers=hdr).status_code == 200
     # no credentials at all -> 401
     assert client.get("/api/v1/switches").status_code == 401
     assert client.get("/api/v1/network-doc").status_code == 401

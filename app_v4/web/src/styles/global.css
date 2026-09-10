@@ -240,6 +240,39 @@ a { color: inherit; }
   border-bottom: 1px solid var(--line);
 }
 .key-row:last-child { border-bottom: 0; }
+.api-ref-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.api-ref-table th,
+.api-ref-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.api-ref-table th {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.api-ref-table code { font-size: 11px; }
+.api-method {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+}
+.api-method-get { color: var(--green); }
+.api-method-post { color: var(--bone); }
+.api-method-patch,
+.api-method-put { color: var(--amber); }
+.api-method-delete { color: var(--red); }
+.api-auth { color: var(--muted); font-size: 11px; }
 .key-meta {
   display: block;
   color: var(--muted);

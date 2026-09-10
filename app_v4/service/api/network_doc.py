@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app_v4.data.repository import Repository
 from app_v4.net.config_parsers import ParsedConfig, parse_config
-from app_v4.service.deps import get_db, require_api_key
+from app_v4.service.deps import get_db, require_key_or_jwt
 from app_v4.service.problem import problem
 from app_v4.service.timeutil import to_aware_utc
 
@@ -116,7 +116,7 @@ async def _build_doc(repo: Repository, switch) -> SwitchDoc:
 @router.get("", response_model=list[SwitchDoc])
 async def list_network_doc(
     session: AsyncSession = Depends(get_db),
-    _key: str = Depends(require_api_key),
+    _auth=Depends(require_key_or_jwt("read")),
 ) -> list[SwitchDoc]:
     repo = Repository(session)
     switches = await repo.list_switches(include_inactive=False)
@@ -127,7 +127,7 @@ async def list_network_doc(
 async def get_network_doc(
     switch_id: int,
     session: AsyncSession = Depends(get_db),
-    _key: str = Depends(require_api_key),
+    _auth=Depends(require_key_or_jwt("read")),
 ) -> SwitchDoc:
     repo = Repository(session)
     switch = await repo.get_switch(switch_id)

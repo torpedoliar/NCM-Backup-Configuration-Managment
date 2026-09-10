@@ -16,6 +16,14 @@ def _key_headers() -> dict[str, str]:
     return {"X-API-Key": "netdoc-secret"}
 
 
+def _viewer_token(runtime: ServiceRuntime) -> str:
+    return runtime.auth_service.issue_access_token(2, "viewer", "viewer")
+
+
+def _operator_token(runtime: ServiceRuntime) -> str:
+    return runtime.auth_service.issue_access_token(1, "ops", "operator")
+
+
 async def _seed(session_factory, tmp_path, *, backup_path: Path | None = None, content_hash: str = "hash-office2") -> int:
     path = backup_path or tmp_path / "awplus.txt"
     if backup_path is None:
@@ -26,6 +34,12 @@ async def _seed(session_factory, tmp_path, *, backup_path: Path | None = None, c
             name="netdoc",
             key_hash=hashlib.sha256(b"netdoc-secret").hexdigest(),
             prefix="netd",
+            scopes=["read"],
+        )
+        await repo.create_api_key(
+            name="legacy",
+            key_hash=hashlib.sha256(b"legacy-secret").hexdigest(),
+            prefix="legc",
         )
         cred = await repo.create_credential(name="lab", enc_blob=b"x")
         switch = await repo.create_switch(
@@ -45,12 +59,40 @@ async def _seed(session_factory, tmp_path, *, backup_path: Path | None = None, c
 
 
 @pytest.mark.asyncio
-async def test_network_doc_requires_api_key(test_settings, session_factory, tmp_path):
+async def test_network_doc_requires_credentials(test_settings, session_factory, tmp_path):
     runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
     await _seed(session_factory, tmp_path)
     client = TestClient(create_app(runtime))
 
     assert client.get("/api/v1/network-doc").status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_network_doc_scoped_read_key_ok_legacy_key_403(test_settings, session_factory, tmp_path):
+    """Ticket 16: /network-doc follows the scoped-key pattern (breaking for legacy keys)."""
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    await _seed(session_factory, tmp_path)
+    client = TestClient(create_app(runtime))
+
+    scoped = client.get("/api/v1/network-doc", headers=_key_headers())
+    assert scoped.status_code == 200
+
+    legacy = client.get("/api/v1/network-doc", headers={"X-API-Key": "legacy-secret"})
+    assert legacy.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_network_doc_jwt_viewer_and_operator_ok(test_settings, session_factory, tmp_path):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    await _seed(session_factory, tmp_path)
+    client = TestClient(create_app(runtime))
+
+    viewer = client.get("/api/v1/network-doc", headers={"Authorization": f"Bearer {_viewer_token(runtime)}"})
+    assert viewer.status_code == 200
+    operator = client.get(
+        "/api/v1/network-doc/1", headers={"Authorization": f"Bearer {_operator_token(runtime)}"}
+    )
+    assert operator.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -135,7 +177,7 @@ async def test_network_doc_returns_404_for_missing_switch(test_settings, session
     runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
     async with session_factory() as session:
         repo = Repository(session)
-        await repo.create_api_key("netdoc", hashlib.sha256(b"netdoc-secret").hexdigest(), "netd")
+        await repo.create_api_key("netdoc", hashlib.sha256(b"netdoc-secret").hexdigest(), "netd", scopes=["read"])
         await session.commit()
 
     response = TestClient(create_app(runtime)).get("/api/v1/network-doc/999", headers=_key_headers())
