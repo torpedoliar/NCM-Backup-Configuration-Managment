@@ -493,7 +493,17 @@ export function useApiKeys() {
 export function useCreateApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (name: string) => (await api.post<ApiKeyCreated>('/api-keys', { name })).data,
+    mutationFn: async (payload: { name: string; scopes?: string[] }) =>
+      (await api.post<ApiKeyCreated>('/api-keys', payload)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+  });
+}
+
+export function useUpdateApiKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, scopes }: { id: number; scopes: string[] }) =>
+      (await api.patch<ApiKeyRecord>(`/api-keys/${id}`, { scopes })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
   });
 }

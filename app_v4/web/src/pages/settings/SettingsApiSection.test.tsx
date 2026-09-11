@@ -3,25 +3,27 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsApiSection } from './SettingsApiSection';
 
-const KEY = { id: 1, name: 'lab-automation', prefix: 'ncr_Ab1', key: 'ncr_secret_token_123' };
+const KEY = { id: 1, name: 'lab-automation', prefix: 'ncr_Ab1', key: 'ncr_secret_token_123', scopes: ['read'] };
 
-const createMutate = vi.fn((_name: string, options?: { onSuccess?: (key: typeof KEY) => void }) => {
+const createMutate = vi.fn((_payload: { name: string; scopes: string[] } | string, options?: { onSuccess?: (key: typeof KEY) => void }) => {
   options?.onSuccess?.(KEY);
 });
 const revokeMutate = vi.fn();
 const deleteMutate = vi.fn();
+const updateMutate = vi.fn();
 
 vi.mock('../../api/hooks', () => ({
   useApiKeys: () => ({
     data: [
-      { id: 1, name: 'lab-automation', prefix: 'ncr_Ab1', created_at: '2026-08-01T10:00:00Z', last_used_at: null, revoked: false },
-      { id: 2, name: 'old-key', prefix: 'ncr_Xy2', created_at: '2026-07-01T10:00:00Z', last_used_at: '2026-07-20T08:00:00Z', archived: false, revoked: true },
+      { id: 1, name: 'lab-automation', prefix: 'ncr_Ab1', created_at: '2026-08-01T10:00:00Z', last_used_at: null, revoked: false, scopes: ['read', 'switches:write'] },
+      { id: 2, name: 'old-key', prefix: 'ncr_Xy2', created_at: '2026-07-01T10:00:00Z', last_used_at: '2026-07-20T08:00:00Z', archived: false, revoked: true, scopes: [] },
     ],
     isLoading: false,
   }),
   useCreateApiKey: () => ({ mutate: createMutate, isPending: false }),
   useRevokeApiKey: () => ({ mutate: revokeMutate, isPending: false }),
   useDeleteApiKey: () => ({ mutate: deleteMutate, isPending: false }),
+  useUpdateApiKey: () => ({ mutate: updateMutate, isPending: false }),
 }));
 
 describe('SettingsApiSection', () => {
@@ -36,7 +38,7 @@ describe('SettingsApiSection', () => {
     render(<SettingsApiSection />);
     await user.type(screen.getByLabelText(/key name/i), 'automation');
     await user.click(screen.getByRole('button', { name: /create key/i }));
-    expect(createMutate).toHaveBeenCalledWith('automation', expect.anything());
+    expect(createMutate).toHaveBeenCalledWith(expect.objectContaining({ name: 'automation' }), expect.anything());
     expect(screen.getByText('ncr_secret_token_123')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy();
   });

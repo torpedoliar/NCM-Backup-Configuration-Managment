@@ -281,3 +281,36 @@ async def test_system_write_matrix(test_settings, session_factory):
     keyed = [a for a in audits if a.detail_json and '"key":"sys"' in a.detail_json]
     assert keyed, "expected audit rows attributed to key 'sys'"
     assert all(a.user_id is None for a in keyed)
+
+
+@pytest.mark.asyncio
+async def test_update_api_key_scopes(test_settings, session_factory):
+    runtime = ServiceRuntime.for_tests(test_settings, session_factory, jwt_secret=b"s" * 32)
+    async with session_factory() as session:
+        await Repository(session).create_user("admin", "h", "admin")
+        await session.commit()
+    client = TestClient(create_app(runtime))
+    hdr = {"Authorization": f"Bearer {_admin_token(runtime)}"}
+
+    # Create a legacy key (no scopes)
+    created = client.post("/api/v1/api-keys", headers=hdr, json={"name": "my-key"}).json()
+    key_id = created["id"]
+    plaintext_key = created["key"]
+
+    # Key cannot read switches yet (403)
+    assert client.get("/api/v1/switches", headers={"X-API-Key": plaintext_key}).status_code == 403
+
+    # Update scopes to include "read" and "switches:write"
+    patch_res = client.patch(
+        f"/api/v1/api-keys/{key_id}",
+        headers=hdr,
+        json={"scopes": ["read", "switches:write"]},
+    )
+    assert patch_res.status_code == 200
+    assert sorted(patch_res.json()["scopes"]) == ["read", "switches:write"]
+
+    # Key can now read switches (200)
+    assert client.get("/api/v1/switches", headers={"X-API-Key": plaintext_key}).status_code == 200
+
+    # Invalid scope returns 422
+    assert client.patch(f"/api/v1/api-keys/{key_id}", headers=hdr, json={"scopes": ["invalid_scope"]}).status_code == 422

@@ -23,6 +23,11 @@ class ApiKeyCreate(BaseModel):
     scopes: list[str] = Field(default_factory=list)
 
 
+class ApiKeyUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    scopes: list[str] | None = None
+
+
 class ApiKeyCreated(BaseModel):
     id: int
     name: str
@@ -100,6 +105,53 @@ async def list_api_keys(
         )
         for key in await repo.list_api_keys()
     ]
+
+
+@router.patch("/{key_id}", response_model=ApiKeyOut)
+async def update_api_key(
+    key_id: int,
+    payload: ApiKeyUpdate,
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    session: AsyncSession = Depends(get_db),
+    actor: AccessClaims = Depends(require_role("admin")),
+) -> ApiKeyOut:
+    """Update name and/or scopes of an existing API key."""
+    repo = Repository(session)
+    key = await session.get(ApiKey, key_id)
+    if key is None:
+        raise problem(404, "Not Found", "API key not found")
+    if payload.name is not None and payload.name != key.name:
+        if await repo.get_api_key_by_name(payload.name) is not None:
+            raise problem(409, "Conflict", "API key name already exists")
+    if payload.scopes is not None:
+        unknown = {s.strip().lower() for s in payload.scopes if s and s.strip()} - KNOWN_SCOPES
+        if unknown:
+            raise problem(422, "Unprocessable Entity", f"Unknown scope(s): {sorted(unknown)}")
+    try:
+        updated = await repo.update_api_key(key_id, name=payload.name, scopes=payload.scopes)
+    except ValueError as exc:
+        raise problem(422, "Unprocessable Entity", str(exc))
+    if updated is None:
+        raise problem(404, "Not Found", "API key not found")
+    await session.commit()
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="apikey.updated",
+        target_type="api_key",
+        target_id=str(key_id),
+        ip=request.client.host if request.client else None,
+        detail={"name": updated.name, "scopes": Repository.get_api_key_scopes(updated)},
+    )
+    return ApiKeyOut(
+        id=updated.id,
+        name=updated.name,
+        prefix=updated.prefix,
+        created_at=updated.created_at,
+        last_used_at=updated.last_used_at,
+        revoked=updated.revoked,
+        scopes=Repository.get_api_key_scopes(updated),
+    )
 
 
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)

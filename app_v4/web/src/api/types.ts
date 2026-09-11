@@ -227,6 +227,7 @@ export interface ApiKeyRecord {
   created_at: string;
   last_used_at: string | null;
   revoked: boolean;
+  scopes: string[];
 }
 
 export interface ApiKeyCreated {
@@ -234,6 +235,7 @@ export interface ApiKeyCreated {
   name: string;
   prefix: string;
   key: string;
+  scopes: string[];
 }
 
 export interface DecodeVlan {

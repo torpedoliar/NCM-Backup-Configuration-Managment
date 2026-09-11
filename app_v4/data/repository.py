@@ -229,6 +229,18 @@ class Repository:
         key.revoked = True
         return True
 
+    async def update_api_key(
+        self, key_id: int, name: str | None = None, scopes: list[str] | None = None
+    ) -> ApiKey | None:
+        key = await self.session.get(ApiKey, key_id)
+        if key is None:
+            return None
+        if name is not None:
+            key.name = name
+        if scopes is not None:
+            key.scopes = _normalize_scopes(scopes)
+        return key
+
     async def delete_api_key(self, key_id: int) -> bool:
         """Permanently remove an API key row."""
         key = await self.session.get(ApiKey, key_id)
