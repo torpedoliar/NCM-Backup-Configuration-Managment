@@ -16,6 +16,20 @@ if (-not $SkipWebBuild) {
   if ($LASTEXITCODE -ne 0) { throw "npm build failed" }
 }
 
+$pythonExe = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path $pythonExe)) {
+  $pythonExe = "python"
+}
+
+# Preserve user database and keys across rebuilds
+$dataDir = Join-Path $ProjectRoot "dist\ncm-v4-desktop\data"
+$tempBackup = $null
+if (Test-Path $dataDir) {
+  $tempBackup = Join-Path $ProjectRoot "_temp_data_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+  Write-Host "==> Preserving existing database & keys from dist/ncm-v4-desktop/data..." -ForegroundColor Cyan
+  Copy-Item -Path $dataDir -Destination $tempBackup -Recurse -Force
+}
+
 if ($Clean -and (Test-Path "build")) {
   Write-Host "==> Cleaning build/" -ForegroundColor Cyan
   Remove-Item -Recurse -Force "build"
@@ -25,9 +39,19 @@ if ($Clean -and (Test-Path "dist/ncm-v4-desktop")) {
   Remove-Item -Recurse -Force "dist/ncm-v4-desktop"
 }
 
-Write-Host "==> Running PyInstaller..." -ForegroundColor Cyan
-& python -m PyInstaller "installer/v4/ncm-v4-desktop.spec" --clean --noconfirm
+Write-Host "==> Running PyInstaller with $pythonExe..." -ForegroundColor Cyan
+& $pythonExe -m PyInstaller "installer/v4/ncm-v4-desktop.spec" --clean --noconfirm
 if ($LASTEXITCODE -ne 0) { throw "pyinstaller failed" }
+
+if ($tempBackup -and (Test-Path $tempBackup)) {
+  $targetDataDir = Join-Path $ProjectRoot "dist\ncm-v4-desktop\data"
+  Write-Host "==> Restoring database & keys to dist/ncm-v4-desktop/data..." -ForegroundColor Cyan
+  if (-not (Test-Path $targetDataDir)) {
+    New-Item -ItemType Directory -Path $targetDataDir -Force | Out-Null
+  }
+  Copy-Item -Path "$tempBackup\*" -Destination $targetDataDir -Recurse -Force
+  Remove-Item -Path $tempBackup -Recurse -Force
+}
 
 $exePath = Join-Path $ProjectRoot "dist\ncm-v4-desktop\ncm-v4-desktop.exe"
 if (-not (Test-Path $exePath)) {
