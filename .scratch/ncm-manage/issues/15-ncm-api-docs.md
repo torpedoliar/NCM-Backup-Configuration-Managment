@@ -6,18 +6,10 @@
 
 **Blocked by:** 01-08 (semua done).
 
-**Status:** ready-for-agent
-
-- [ ] Halaman dokumentasi API di aplikasi (web NCM) merinci ≥75 endpoint aktual dengan auth yang benar per endpoint.
-- [ ] Tabel digenerate/diekstrak dari router (bukan hardcoded manual) atau ada test yang menjaga sinkronisasi dengan router.
-- [ ] Bagian auth: scopes + legacy key + contoh curl.
-- [ ] Bagian webhook: WEBHOOK_EVENT_MAP + signature header.
-- [ ] Commit + suite hijau.
-
 **Status:** done (commit 094e856)
 
-- [x] Halaman dokumentasi API di aplikasi (web NCM) merinci ≥75 endpoint aktual dengan auth yang benar per endpoint.
-- [x] Tabel digenerate/diekstrak dari router (bukan hardcoded manual) atau ada test yang menjaga sinkronisasi dengan router.
-- [x] Bagian auth: scopes + legacy key + contoh curl.
-- [x] Bagian webhook: WEBHOOK_EVENT_MAP + signature header.
-- [x] Commit + suite hijau.
+- [x] Halaman dokumentasi API di aplikasi (web NCM) merinci ≥75 endpoint aktual dengan auth yang benar per endpoint. (78 endpoint, 11 modul.)
+- [x] Tabel digenerate/diekstrak dari router (bukan hardcoded manual) atau ada test yang menjaga sinkronisasi dengan router. (`scripts/gen_api_reference.py` + `test_api_reference_sync.py` — 4 test.)
+- [x] Bagian auth: scopes + legacy key + contoh curl. (21 contoh, ≤2 per modul.)
+- [x] Bagian webhook: WEBHOOK_EVENT_MAP + signature header. (`webhookEvents.ts` + sinkron di test.)
+- [x] Commit + suite hijau. (pytest 442, vitest 100, tsc + build bersih.)

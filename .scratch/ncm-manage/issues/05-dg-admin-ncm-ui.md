@@ -5,9 +5,9 @@ Halaman `/admin/ncm` per site dengan 4 area: Switches (CRUD), Backups & Schedule
 
 **Blocked by:** 2: NCM write scopes; 4: DG ncmSettings + lib/ncm.ts.
 
-**Status:** ready-for-agent
+**Status:** done — UI `8fae442` (dep lib `d062a78`); ditandai done duluan lewat `5964ae7`
 
-- [ ] 4 area tampil per site sesuai desain; akses Connection superadmin-only.
-- [ ] Setiap aksi (tambah/edit/hapus switch, update password, ubah jadwal, trigger backup, buat baseline, approve/reject review) end-to-end ke NCM test-server.
-- [ ] Banner offline + disabled aksi saat NCM tidak terjangkau; `lastSeenAt` terisi.
-- [ ] Audit log DG tercatat untuk semua aksi; password tidak pernah muncul di log/UI setelah submit.
+- [x] 4 area tampil per site sesuai desain; akses Connection superadmin-only.
+- [x] Setiap aksi (tambah/edit/hapus switch, update password, ubah jadwal, trigger backup, buat baseline, approve/reject review) end-to-end ke NCM test-server. (actions/ncm.test.ts 239 baris.)
+- [x] Banner offline + disabled aksi saat NCM tidak terjangkau; `lastSeenAt` terisi.
+- [x] Audit log DG tercatat untuk semua aksi; password tidak pernah muncul di log/UI setelah submit.
