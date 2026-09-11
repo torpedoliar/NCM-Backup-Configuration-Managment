@@ -44,10 +44,13 @@ class ReviewOut(BaseModel):
     switch_name: str | None = None
     backup_id: int
     baseline_id: int | None
+    baseline_backup_id: int | None = None
     status: str
     reviewed_by: int | None
+    reviewed_by_name: str | None = None
     reviewed_at: datetime | None
     started_by: int | None = None
+    started_by_name: str | None = None
     started_at: datetime | None = None
     comment: str | None
     diff_summary: dict
@@ -327,6 +330,23 @@ async def _review_out(session: AsyncSession, row, include_notes: bool = False) -
         summary = json.loads(row.diff_summary or "{}")
     except ValueError:
         summary = {}
+
+    reviewed_by_name = None
+    if row.reviewed_by is not None:
+        reviewer = await repo.get_user_by_id(row.reviewed_by)
+        reviewed_by_name = reviewer.username if reviewer else f"user-{row.reviewed_by}"
+
+    started_by_name = None
+    if row.started_by is not None:
+        starter = await repo.get_user_by_id(row.started_by)
+        started_by_name = starter.username if starter else f"user-{row.started_by}"
+
+    baseline_backup_id = None
+    if row.baseline_id is not None:
+        bl = await repo.get_baseline(row.baseline_id)
+        if bl is not None:
+            baseline_backup_id = bl.backup_id
+
     notes: list[ReviewNoteOut] = []
     if include_notes:
         author_names: dict[int, str] = {}
@@ -349,10 +369,13 @@ async def _review_out(session: AsyncSession, row, include_notes: bool = False) -
         switch_name=name,
         backup_id=row.backup_id,
         baseline_id=row.baseline_id,
+        baseline_backup_id=baseline_backup_id,
         status=row.status,
         reviewed_by=row.reviewed_by,
+        reviewed_by_name=reviewed_by_name,
         reviewed_at=to_aware_utc(row.reviewed_at),
         started_by=row.started_by,
+        started_by_name=started_by_name,
         started_at=to_aware_utc(row.started_at),
         comment=row.comment,
         diff_summary=summary,
@@ -417,6 +440,30 @@ async def start_review(
         target_id=str(review_id),
         ip=request.client.host if request.client else None,
     )
+    try:
+        from app_v4.core.runtime_settings import load_runtime_settings
+        from app_v4.core.paths import resolve_paths
+        from app_v4.service import email_events
+
+        paths = resolve_paths(runtime.settings)
+        cfg = load_runtime_settings(paths.data_dir / "runtime_settings.json").notify
+        if runtime.notify is not None and cfg.enabled and cfg.email_enabled and cfg.email_review_events:
+            sw = await repo.get_switch(review.switch_id)
+            starter_name = getattr(actor, "username", None) or f"user-{actor.user_id}"
+            content = email_events.review_decision_email(
+                sw.name if sw else f"#{review.switch_id}",
+                review.id,
+                "in_review",
+                "Review telah dimulai",
+                starter_name,
+                f"{cfg.app_public_url.rstrip('/')}/config-review",
+            )
+            await runtime.notify.email(
+                content["subject"], content["body_text"], body_html=content["body_html"]
+            )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("review started email failed", exc_info=True)
     return await _review_out(session, review, include_notes=True)
 
 
@@ -475,7 +522,7 @@ async def update_review_status(
     if review is None:
         raise problem(404, "Not Found", "Review not found")
     audit_user_id, audit_extra = audit_identity(actor)
-    reviewer_name = f"key:{audit_extra['key']}" if audit_extra else f"user-{audit_user_id}"
+    reviewer_name = getattr(actor, "username", None) or (f"key:{audit_extra['key']}" if audit_extra else f"user-{audit_user_id}")
     review = await repo.update_review(
         review_id,
         status=payload.status,
@@ -862,4 +909,57 @@ async def run_fleet_cycle_review(
         drift_details=drift_details,
         message=msg,
     )
+
+
+class ReviewReminderOut(BaseModel):
+    ok: bool
+    sent: bool
+    message: str
+
+
+@router.post("/reviews/reminder", response_model=ReviewReminderOut)
+async def trigger_review_reminder(
+    request: Request,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    actor=Depends(require_role("admin", "operator")),
+) -> ReviewReminderOut:
+    """Send the ISO 27001 review-reminder email on-demand to configured recipients."""
+    from app_v4.core.runtime_settings import load_runtime_settings
+    from app_v4.core.paths import resolve_paths
+
+    paths = resolve_paths(runtime.settings)
+    cfg = load_runtime_settings(paths.data_dir / "runtime_settings.json").notify
+    if not cfg.enabled or not cfg.email_enabled:
+        raise problem(422, "Unprocessable Entity", "Email notifications are disabled in Settings")
+    if runtime.review_service is None or runtime.notify is None:
+        raise problem(503, "Service Unavailable", "Review or notification service unavailable")
+
+    review_url = f"{cfg.app_public_url.rstrip('/')}/config-review"
+    content = await runtime.review_service.send_reminder(review_url=review_url)
+    if not content["subject"]:
+        return ReviewReminderOut(
+            ok=True,
+            sent=False,
+            message="Tidak ada review pending atau baseline yang membutuhkan reminder saat ini.",
+        )
+
+    res = await runtime.notify.email(
+        content["subject"], content["body_text"], body_html=content["body_html"]
+    )
+    audit_user_id, _ = audit_identity(actor)
+    await runtime.audit_writer.record(
+        user_id=audit_user_id,
+        action="review.reminder_sent",
+        target_type="review_reminder",
+        ip=request.client.host if request.client else None,
+        detail={"ok": res.ok, "detail": res.detail},
+    )
+    if not res.ok:
+        raise problem(502, "Bad Gateway", f"Gagal mengirim email reminder: {res.detail}")
+    return ReviewReminderOut(
+        ok=True,
+        sent=True,
+        message="Email reminder review berhasil dikirim ke alamat terkonfigurasi.",
+    )
+
 

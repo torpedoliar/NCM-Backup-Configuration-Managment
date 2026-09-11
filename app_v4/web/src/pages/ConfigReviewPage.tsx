@@ -10,6 +10,7 @@ import {
   useReviews,
   useReviewStatus,
   useRunFleetReviewCycle,
+  useSendReviewReminder,
   useStartReview,
 } from '../api/hooks';
 import type { ConfigReviewStatus, FleetCycleAttestationResult, ReviewFilters } from '../api/types';
@@ -214,7 +215,17 @@ function summaryText(summary: Record<string, unknown>): string {
   return parts.join(' · ') || 'text diff only';
 }
 
-function CompliancePanel({ onTriggerCycle, isTriggering }: { onTriggerCycle: () => void; isTriggering: boolean }) {
+function CompliancePanel({
+  onTriggerCycle,
+  isTriggering,
+  onSendReminder,
+  isSendingReminder,
+}: {
+  onTriggerCycle: () => void;
+  isTriggering: boolean;
+  onSendReminder: () => void;
+  isSendingReminder: boolean;
+}) {
   const { data } = useCompliance();
   const { data: notifySettings } = useNotifySettings();
   if (!data) return null;
@@ -281,10 +292,19 @@ function CompliancePanel({ onTriggerCycle, isTriggering }: { onTriggerCycle: () 
         </p>
       ) : null}
       <div className="row-actions" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button onClick={() => downloadComplianceReport('csv')}>Export CSV</button>
           <button onClick={() => downloadComplianceReport('xlsx')}>Export Excel</button>
           <button onClick={() => downloadComplianceReport('pdf')}>Export PDF</button>
+          <button
+            type="button"
+            onClick={onSendReminder}
+            disabled={isSendingReminder}
+            title="Kirim email pengingat review pending & gap baseline ke administrator sekarang"
+            style={{ borderColor: 'var(--blue, #3b82f6)', color: '#60a5fa' }}
+          >
+            {isSendingReminder ? 'Mengirim Reminder…' : '✉ Kirim Reminder Email'}
+          </button>
         </div>
         <button
           type="button"
@@ -314,6 +334,7 @@ export function ConfigReviewPage() {
   const addNote = useAddReviewNote();
   const promote = usePromoteReviewToBaseline();
   const runCycle = useRunFleetReviewCycle();
+  const sendReminder = useSendReviewReminder();
 
   const [selected, setSelected] = useState<number | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
@@ -470,6 +491,19 @@ export function ConfigReviewPage() {
     });
   }
 
+  function handleSendReminder() {
+    if (!window.confirm('Kirim email reminder status review pending & gap baseline ke administrator sekarang?')) {
+      return;
+    }
+    setActionError(null);
+    sendReminder.mutate(undefined, {
+      onSuccess: (res) => {
+        alert(res.message);
+      },
+      onError: (err: unknown) => setActionError(humanizeError(err)),
+    });
+  }
+
   return (
     <main>
       <p className="marker">/08 · REVIEW</p>
@@ -480,7 +514,12 @@ export function ConfigReviewPage() {
         logged as ISO 27001 A.8.9 evidence.
       </p>
 
-      <CompliancePanel onTriggerCycle={handleTriggerCycle} isTriggering={runCycle.isPending} />
+      <CompliancePanel
+        onTriggerCycle={handleTriggerCycle}
+        isTriggering={runCycle.isPending}
+        onSendReminder={handleSendReminder}
+        isSendingReminder={sendReminder.isPending}
+      />
 
       <section className="filter-bar">
         <label>
@@ -512,6 +551,7 @@ export function ConfigReviewPage() {
               <th>Switch</th>
               <th>Created</th>
               <th>Status</th>
+              <th>Reviewer</th>
               <th>Summary</th>
               <th>Actions</th>
             </tr>
@@ -530,6 +570,19 @@ export function ConfigReviewPage() {
                   >
                     {STATUS_LABEL[r.status] ?? r.status}
                   </span>
+                </td>
+                <td>
+                  {r.reviewed_by_name ? (
+                    <span style={{ fontWeight: 600, color: 'var(--amber, #f59e0b)' }} title={`Reviewer ID: ${r.reviewed_by}`}>
+                      {r.reviewed_by_name}
+                    </span>
+                  ) : r.started_by_name ? (
+                    <span style={{ color: 'var(--muted, #94a3b8)', fontStyle: 'italic', fontSize: '11px' }} title={`Started by ID: ${r.started_by}`}>
+                      in review: {r.started_by_name}
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--muted, #94a3b8)' }}>-</span>
+                  )}
                 </td>
                 <td title={JSON.stringify(r.diff_summary)}>{summaryText(r.diff_summary)}</td>
                 <td className="row-actions">
@@ -574,8 +627,24 @@ export function ConfigReviewPage() {
 
       {selected !== null ? (
         <section className="viewer-box" aria-label="Review diff viewer">
-          <header className="viewer-box-header">
-            <span className="marker">REVIEW #{selected} · DIFF & INSPECTION</span>
+          <header className="viewer-box-header" style={{ alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span className="marker">REVIEW #{selected} · {selectedReview?.switch_name} · DIFF &amp; INSPECTION</span>
+              <div style={{ fontSize: '12px', color: 'var(--muted, #94a3b8)', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                <span>Golden Baseline: <strong>#{selectedReview?.baseline_backup_id ?? selectedReview?.baseline_id ?? '?'}</strong></span>
+                <span>Detected Backup: <strong>#{selectedReview?.backup_id}</strong></span>
+                {selectedReview?.reviewed_by_name ? (
+                  <span>Reviewer: <strong style={{ color: 'var(--amber)' }}>{selectedReview.reviewed_by_name}</strong> ({formatTzDateTime(selectedReview.reviewed_at)})</span>
+                ) : selectedReview?.started_by_name ? (
+                  <span>In Review by: <strong style={{ color: '#60a5fa' }}>{selectedReview.started_by_name}</strong> ({formatTzDateTime(selectedReview.started_at)})</span>
+                ) : (
+                  <span>Status: <strong style={{ color: 'var(--amber)' }}>{selectedReview?.status.toUpperCase()}</strong></span>
+                )}
+                {selectedReview?.comment ? (
+                  <span>Catatan: <em>{selectedReview.comment}</em></span>
+                ) : null}
+              </div>
+            </div>
             <div className="row-actions">
               {selectedReview?.status === 'pending' ? (
                 <button

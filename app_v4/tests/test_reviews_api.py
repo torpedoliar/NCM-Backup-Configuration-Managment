@@ -318,6 +318,9 @@ async def test_review_workflow_in_review_and_notes(test_settings, session_factor
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "approved"
+    assert body["reviewed_by"] == admin_id
+    assert body["reviewed_by_name"] == "admin-flow"
+    assert body["started_by_name"] == "admin-flow"
     assert len(body["notes"]) == 2  # thread intact after decision
 
     # list with include_notes returns the same thread.
@@ -447,4 +450,22 @@ async def test_run_fleet_cycle_review(test_settings, session_factory):
     assert data["clean_count"] == 1
     assert data["drift_count"] == 0
     assert "lolos attestasi clean" in data["message"]
+
+
+@pytest.mark.asyncio
+async def test_review_reminder_endpoint(test_settings, session_factory):
+    """POST /reviews/reminder."""
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin-rem", "hash", "admin")
+        await session.commit()
+        admin_id = admin.id
+
+    rs = ReviewService(test_settings, session_factory)
+    client = _make_client(test_settings, session_factory, review_service=rs)
+    headers = {"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"}
+
+    # When email is disabled, returns 422
+    resp = client.post("/api/v1/reviews/reminder", headers=headers)
+    assert resp.status_code == 422
 

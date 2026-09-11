@@ -680,6 +680,17 @@ export function useRunFleetReviewCycle() {
   });
 }
 
+export function useSendReviewReminder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<{ ok: boolean; sent: boolean; message: string }>('/reviews/reminder')).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+    },
+  });
+}
+
 export function useCompliance() {
   return useQuery({
     queryKey: ['reviews', 'compliance'],

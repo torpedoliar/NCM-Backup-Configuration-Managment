@@ -302,10 +302,13 @@ export interface ConfigReview {
   switch_name: string | null;
   backup_id: number;
   baseline_id: number | null;
+  baseline_backup_id?: number | null;
   status: ConfigReviewStatus;
   reviewed_by: number | null;
+  reviewed_by_name?: string | null;
   reviewed_at: string | null;
   started_by: number | null;
+  started_by_name?: string | null;
   started_at: string | null;
   comment: string | null;
   diff_summary: Record<string, unknown>;
