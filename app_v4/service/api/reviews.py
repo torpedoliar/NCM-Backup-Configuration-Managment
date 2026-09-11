@@ -29,6 +29,11 @@ class BaselineOut(BaseModel):
     backup_id: int | None
     content_hash: str
     created_at: datetime
+    last_reviewed_by: int | None = None
+    last_reviewed_by_name: str | None = None
+    last_reviewed_at: datetime | None = None
+    last_review_status: str | None = None
+    last_review_id: int | None = None
 
 
 class BaselineCreate(BaseModel):
@@ -73,6 +78,7 @@ class ReviewNoteCreate(BaseModel):
 class ReviewStatusUpdate(BaseModel):
     status: str = Field(pattern="^(approved|flagged|dismissed)$")
     comment: str | None = Field(default=None, max_length=2000)
+    reset_baseline_cycle: bool = True
 
 
 class ReviewPromoteBaseline(BaseModel):
@@ -80,7 +86,12 @@ class ReviewPromoteBaseline(BaseModel):
     comment: str | None = Field(default=None, max_length=2000)
 
 
-def _baseline_out(row, name_by_id: dict[int, str] | None = None) -> BaselineOut:
+def _baseline_out(
+    row,
+    name_by_id: dict[int, str] | None = None,
+    review_info: dict | None = None,
+) -> BaselineOut:
+    rev = review_info or {}
     return BaselineOut(
         id=row.id,
         kind=row.kind,
@@ -90,6 +101,11 @@ def _baseline_out(row, name_by_id: dict[int, str] | None = None) -> BaselineOut:
         backup_id=row.backup_id,
         content_hash=row.content_hash,
         created_at=to_aware_utc(row.created_at),
+        last_reviewed_by=rev.get("reviewed_by"),
+        last_reviewed_by_name=rev.get("reviewed_by_name"),
+        last_reviewed_at=to_aware_utc(rev["reviewed_at"]) if rev.get("reviewed_at") else None,
+        last_review_status=rev.get("status"),
+        last_review_id=rev.get("id"),
     )
 
 
@@ -107,12 +123,45 @@ async def list_baselines(
     repo = Repository(session)
     rows = await repo.list_baselines()
     name_by_id: dict[int, str] = {}
+    review_info_by_switch: dict[int, dict] = {}
+    author_names: dict[int, str] = {}
+
     for row in rows:
-        if row.switch_id is not None and row.switch_id not in name_by_id:
-            sw = await repo.get_switch(row.switch_id)
-            if sw is not None:
-                name_by_id[row.switch_id] = sw.name
-    return [_baseline_out(row, name_by_id) for row in rows]
+        if row.switch_id is not None:
+            if row.switch_id not in name_by_id:
+                sw = await repo.get_switch(row.switch_id)
+                if sw is not None:
+                    name_by_id[row.switch_id] = sw.name
+            if row.switch_id not in review_info_by_switch:
+                latest_rev = await repo.get_latest_review_for_switch(row.switch_id)
+                if latest_rev is not None:
+                    reviewer_name = None
+                    if latest_rev.reviewed_by is not None:
+                        if latest_rev.reviewed_by not in author_names:
+                            u = await repo.get_user_by_id(latest_rev.reviewed_by)
+                            author_names[latest_rev.reviewed_by] = u.username if u else f"user-{latest_rev.reviewed_by}"
+                        reviewer_name = author_names[latest_rev.reviewed_by]
+                    elif latest_rev.started_by is not None:
+                        if latest_rev.started_by not in author_names:
+                            u = await repo.get_user_by_id(latest_rev.started_by)
+                            author_names[latest_rev.started_by] = u.username if u else f"user-{latest_rev.started_by}"
+                        reviewer_name = author_names[latest_rev.started_by]
+
+                    review_info_by_switch[row.switch_id] = {
+                        "id": latest_rev.id,
+                        "status": latest_rev.status,
+                        "reviewed_by": latest_rev.reviewed_by or latest_rev.started_by,
+                        "reviewed_by_name": reviewer_name,
+                        "reviewed_at": latest_rev.reviewed_at or latest_rev.created_at,
+                    }
+    return [
+        _baseline_out(
+            row,
+            name_by_id,
+            review_info_by_switch.get(row.switch_id) if row.switch_id is not None else None,
+        )
+        for row in rows
+    ]
 
 
 @router.post("/baselines", response_model=BaselineOut, status_code=status.HTTP_201_CREATED)
@@ -318,6 +367,117 @@ async def delete_baseline(
         detail=audit_extra,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class PrepareReviewOut(BaseModel):
+    review_id: int
+    is_new: bool
+    is_drift: bool
+    switch_id: int
+    switch_name: str
+    message: str
+
+
+@router.post("/baselines/{baseline_id}/prepare-review", response_model=PrepareReviewOut)
+async def prepare_baseline_review(
+    baseline_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    runtime=Depends(get_runtime),
+    actor=Depends(require_role("admin", "operator")),
+) -> PrepareReviewOut:
+    """Prepare a comparison review between golden baseline and latest backup.
+
+    If an open review (pending/in_review) already exists for the switch, returns it directly.
+    Otherwise, reads golden config and latest backup config, performs unified diff,
+    creates a review record (whether 0 diff or drift), and returns the review_id.
+    """
+    import json
+    from app_v4.service.diff_service import DiffService
+
+    repo = Repository(session)
+    baseline = await repo.get_baseline(baseline_id)
+    if baseline is None:
+        raise problem(404, "Not Found", "Baseline not found")
+
+    target = (
+        await repo.get_latest_backup(baseline.switch_id)
+        if baseline.kind == "switch"
+        else await repo.get_latest_backup_for_model(baseline.model)
+    )
+    if target is None:
+        raise problem(422, "Unprocessable Entity", "Belum ada backup untuk switch/model ini.")
+
+    switch_id = baseline.switch_id if baseline.kind == "switch" else target.switch_id
+    sw = await repo.get_switch(switch_id)
+    if sw is None:
+        raise problem(404, "Not Found", "Switch tidak ditemukan.")
+
+    # 1. Check for existing active review
+    active = await repo.get_active_review_for_switch(switch_id)
+    if active is not None:
+        if active.status == "pending":
+            active.status = "in_review"
+            active.started_by = actor.user_id
+            active.started_at = utc_now()
+            await session.commit()
+        return PrepareReviewOut(
+            review_id=active.id,
+            is_new=False,
+            is_drift=bool(active.raw_diff and active.raw_diff.strip()),
+            switch_id=switch_id,
+            switch_name=sw.name,
+            message="Membuka tiket review aktif yang sudah ada.",
+        )
+
+    # 2. Compare golden backup vs latest backup
+    golden_backup = await repo.get_backup(baseline.backup_id) if baseline.backup_id else None
+    golden_text = ""
+    if golden_backup and golden_backup.file_path:
+        p = Path(golden_backup.file_path)
+        if p.exists():
+            golden_text = p.read_text(encoding="utf-8")
+
+    latest_text = ""
+    if target.file_path:
+        p = Path(target.file_path)
+        if p.exists():
+            latest_text = p.read_text(encoding="utf-8")
+
+    diff_srv = DiffService(runtime.settings)
+    raw_diff = diff_srv.unified_diff(golden_text, latest_text, "Golden Baseline", "Latest Backup")
+    is_drift = bool(raw_diff.strip())
+    summary = ReviewService._structured_summary(golden_text, latest_text) if is_drift else {}
+
+    review = await repo.create_review(
+        switch_id=switch_id,
+        backup_id=target.id,
+        baseline_id=baseline.id,
+        raw_diff=raw_diff if is_drift else "",
+        diff_summary=json.dumps(summary),
+    )
+    review.status = "in_review"
+    review.started_by = actor.user_id
+    review.started_at = utc_now()
+    await session.commit()
+
+    await runtime.audit_writer.record(
+        user_id=actor.user_id,
+        action="review.prepared_from_baseline",
+        target_type="review",
+        target_id=str(review.id),
+        ip=request.client.host if request.client else None,
+        detail={"switch_id": switch_id, "switch_name": sw.name, "is_drift": is_drift},
+    )
+
+    return PrepareReviewOut(
+        review_id=review.id,
+        is_new=True,
+        is_drift=is_drift,
+        switch_id=switch_id,
+        switch_name=sw.name,
+        message="Tiket review baru berhasil disiapkan.",
+    )
 
 
 async def _review_out(session: AsyncSession, row, include_notes: bool = False) -> ReviewOut:
@@ -529,6 +689,12 @@ async def update_review_status(
         reviewed_by=audit_user_id,
         comment=payload.comment,
     )
+    if payload.status == "approved" and payload.reset_baseline_cycle:
+        sw = await repo.get_switch(review.switch_id)
+        if sw is not None:
+            bl = await repo.get_baseline_for_switch(sw)
+            if bl is not None:
+                bl.created_at = utc_now()
     await session.commit()
     await publish(
         runtime.event_hub,

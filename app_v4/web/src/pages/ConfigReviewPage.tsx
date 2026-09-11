@@ -366,6 +366,17 @@ export function ConfigReviewPage() {
   const selectedReview = reviews.find((r) => r.id === selected) ?? null;
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const idParam = params.get('id');
+    if (idParam) {
+      const num = Number(idParam);
+      if (!Number.isNaN(num)) {
+        setSelected(num);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
     if (selected === null) return;
     let cancelled = false;
     setDiff(null);
@@ -387,12 +398,17 @@ export function ConfigReviewPage() {
     return parseUnifiedDiffToSideBySide(diff, hideNoise);
   }, [diff, hideNoise]);
 
+  const isCleanMatch = useMemo(() => {
+    if (diff === null) return false;
+    return !diff.trim() || parsedDiffRows.every((r) => r.type === 'equal');
+  }, [diff, parsedDiffRows]);
+
   const filteredDiffRows = useMemo(() => {
     if (activeCategory === 'all') return parsedDiffRows;
     return parsedDiffRows.filter((r) => r.type !== 'equal' && r.category === activeCategory);
   }, [parsedDiffRows, activeCategory]);
 
-  function decide(reviewId: number, status: ConfigReviewStatus) {
+  function decide(reviewId: number, status: ConfigReviewStatus, defaultComment?: string) {
     if (status === 'flagged') {
       setPromoteReviewId(reviewId);
       setFlagIncidentRef('');
@@ -407,12 +423,17 @@ export function ConfigReviewPage() {
 
     const comment =
       window.prompt(
-        `Keputusan ${status} untuk review #${reviewId}? (opsional, catatan bisa ditambah di thread)`,
-        '',
+        status === 'approved'
+          ? `Konfirmasi Approve untuk review #${reviewId}? Masukkan catatan/justifikasi verifikasi:`
+          : `Keputusan ${status} untuk review #${reviewId}? (opsional, catatan bisa ditambah di thread)`,
+        defaultComment ?? '',
       ) ?? undefined;
+
+    if (comment === undefined) return;
+
     setActionError(null);
     update.mutate(
-      { id: reviewId, status, comment },
+      { id: reviewId, status, comment: comment || defaultComment, reset_baseline_cycle: true },
       {
         onError: (err: unknown) => setActionError(humanizeError(err)),
       },
@@ -608,10 +629,16 @@ export function ConfigReviewPage() {
                         style={{ color: 'var(--amber)', fontWeight: 'bold' }}
                         title="Approve and promote this backup as the new golden baseline"
                       >
-                        Approve & Promote
+                        ★ Promote
                       </button>
-                      <button onClick={() => decide(r.id, 'approved')}>Approve Only</button>
-                      <button onClick={() => decide(r.id, 'flagged')}>Flag & Remediate</button>
+                      <button
+                        onClick={() => decide(r.id, 'approved', 'Approve drift operasional, pertahankan baseline lama')}
+                        style={{ color: '#60a5fa' }}
+                        title="Setujui perubahan ini tetapi pertahankan golden baseline lama"
+                      >
+                        ✓ Keep Old
+                      </button>
+                      <button onClick={() => decide(r.id, 'flagged')}>Flag &amp; Remediate</button>
                       <button onClick={() => decide(r.id, 'dismissed')}>Dismiss</button>
                     </>
                   ) : (
@@ -659,18 +686,62 @@ export function ConfigReviewPage() {
                 </button>
               ) : selectedReview?.status === 'in_review' ? (
                 <>
-                  <button
-                    onClick={() => openPromoteModal(selected)}
-                    style={{ color: 'var(--amber)', fontWeight: 'bold' }}
-                  >
-                    ★ Approve & Promote to Baseline
-                  </button>
-                  <button onClick={() => decide(selected, 'flagged')}>Flag & Remediate</button>
+                  {isCleanMatch ? (
+                    <button
+                      onClick={() => decide(selected, 'approved', 'Konfirmasi sesuai: konfigurasi identik dengan baseline (tanpa drift)')}
+                      className="btn-primary"
+                      style={{ color: '#34d399', borderColor: '#10b981', fontWeight: 'bold' }}
+                    >
+                      ✓ Konfirmasi Sesuai (Attest Clean &amp; Reset Siklus)
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => openPromoteModal(selected)}
+                        style={{ color: 'var(--amber)', fontWeight: 'bold' }}
+                        title="Setujui dan jadikan konfigurasi backup terbaru ini sebagai Golden Baseline baru"
+                      >
+                        ★ Approve &amp; Promote to Baseline
+                      </button>
+                      <button
+                        onClick={() => decide(selected, 'approved', 'Approve drift operasional, pertahankan baseline lama')}
+                        style={{ color: '#60a5fa', borderColor: 'var(--blue, #3b82f6)' }}
+                        title="Setujui perubahan ini tetapi pertahankan golden baseline lama"
+                      >
+                        ✓ Approve &amp; Pertahankan Baseline Lama
+                      </button>
+                      <button onClick={() => decide(selected, 'flagged')}>Flag &amp; Remediate</button>
+                    </>
+                  )}
                 </>
               ) : null}
               <button onClick={() => setSelected(null)}>Close</button>
             </div>
           </header>
+
+          {/* Clean Match Banner when 0 diff */}
+          {isCleanMatch && (
+            <div style={{ padding: '16px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '6px', margin: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h4 style={{ margin: 0, color: '#34d399', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>✓</span> Konfigurasi 100% Identik (Tidak Ada Drift)
+                </h4>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--bone)' }}>
+                  Konfigurasi backup terakhir switch ini sesuai sepenuhnya dengan Golden Baseline. Tidak ada perubahan konfigurasi yang memerlukan remedi.
+                </p>
+              </div>
+              {selectedReview?.status === 'in_review' ? (
+                <button
+                  type="button"
+                  onClick={() => decide(selected, 'approved', 'Konfirmasi sesuai: konfigurasi identik dengan baseline (tanpa drift)')}
+                  className="btn-primary"
+                  style={{ color: '#34d399', borderColor: '#10b981', fontWeight: 'bold' }}
+                >
+                  ✓ Konfirmasi Sesuai (Attest Clean &amp; Reset Siklus)
+                </button>
+              ) : null}
+            </div>
+          )}
 
           {/* Smart Diff Toolbar */}
           <div

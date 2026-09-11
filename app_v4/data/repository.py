@@ -672,6 +672,27 @@ class Repository:
         result = await self.session.get(ConfigReview, review_id)
         return result
 
+    async def get_latest_review_for_switch(self, switch_id: int) -> ConfigReview | None:
+        result = await self.session.execute(
+            select(ConfigReview)
+            .where(ConfigReview.switch_id == switch_id)
+            .order_by(ConfigReview.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_active_review_for_switch(self, switch_id: int) -> ConfigReview | None:
+        result = await self.session.execute(
+            select(ConfigReview)
+            .where(
+                ConfigReview.switch_id == switch_id,
+                ConfigReview.status.in_(["pending", "in_review"]),
+            )
+            .order_by(ConfigReview.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def update_review(
         self,
         review_id: int,

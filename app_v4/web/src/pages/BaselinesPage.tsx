@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation } from 'wouter';
 import {
   downloadComplianceReport,
   useBackups,
@@ -7,7 +8,7 @@ import {
   useDeleteBaseline,
   useNotifySettings,
   usePatchNotifySettings,
-  useRefreshBaseline,
+  usePrepareBaselineReview,
   useReviewInterval,
   useSwitches,
 } from '../api/hooks';
@@ -24,20 +25,33 @@ function addMonths(iso: string, months: number): string {
 }
 
 export function BaselinesPage() {
+  const [, setLocation] = useLocation();
   const { data: baselines = [], isLoading } = useBaselines();
   const { data: switches = [] } = useSwitches();
   const create = useCreateBaseline();
   const remove = useDeleteBaseline();
-  const refresh = useRefreshBaseline();
+  const prepareReview = usePrepareBaselineReview();
   const reviewCycle = useReviewInterval();
   const { data: notifySettings } = useNotifySettings();
   const patchNotify = usePatchNotifySettings();
+
+  const [cycleMonths, setCycleMonths] = useState<number>(6);
   const [emailHour, setEmailHour] = useState<number | null>(null);
   const [emailMinute, setEmailMinute] = useState<number | null>(null);
+  const [cycleSuccess, setCycleSuccess] = useState<string | null>(null);
 
-  // Local drafts fall back to the loaded settings once available.
-  const hour = emailHour ?? notifySettings?.review_reminder_hour ?? 9;
-  const minute = emailMinute ?? notifySettings?.review_reminder_minute ?? 0;
+  useEffect(() => {
+    if (reviewCycle.months) {
+      setCycleMonths(reviewCycle.months);
+    }
+  }, [reviewCycle.months]);
+
+  useEffect(() => {
+    if (notifySettings) {
+      if (emailHour === null) setEmailHour(notifySettings.review_reminder_hour ?? 9);
+      if (emailMinute === null) setEmailMinute(notifySettings.review_reminder_minute ?? 0);
+    }
+  }, [notifySettings, emailHour, emailMinute]);
 
   const [kind, setKind] = useState<ConfigBaselineKind>('switch');
   const [switchId, setSwitchId] = useState<number | ''>('');
@@ -48,24 +62,35 @@ export function BaselinesPage() {
 
   const { data: backups = [] } = useBackups(switchId === '' ? undefined : Number(switchId));
 
-  function reviewNow(baselineId: number) {
+  function handleReviewClick(baselineId: number) {
     setError(null);
     setReviewNote(null);
-    refresh.mutate(baselineId, {
+    prepareReview.mutate(baselineId, {
       onSuccess: (res) => {
-        if (res.drifted && res.review_id) {
-          setReviewNote(
-            `Drift terdeteksi pada baseline #${baselineId} — review #${res.review_id} dibuka di halaman Config Review, dan jadwal siklus direset.`,
-          );
-        } else if (res.review_id) {
-          setReviewNote(
-            `Review #${res.review_id} dibuka pada baseline #${baselineId}; jadwal siklus direset.`,
-          );
-        } else {
-          setReviewNote(
-            `Baseline #${baselineId} sesuai dengan backup terbaru (tanpa drift). Siklus direset.`,
-          );
-        }
+        setLocation(`/config-review?id=${res.review_id}`);
+      },
+      onError: (err: unknown) => setError(humanizeError(err)),
+    });
+  }
+
+  function handleSaveReviewCycle() {
+    setCycleSuccess(null);
+    setError(null);
+    reviewCycle.save.mutate(cycleMonths, {
+      onSuccess: () => {
+        patchNotify.mutate(
+          {
+            review_reminder_hour: emailHour ?? 9,
+            review_reminder_minute: emailMinute ?? 0,
+          },
+          {
+            onSuccess: () => {
+              setCycleSuccess('Pengaturan siklus review dan jam reminder berhasil disimpan.');
+              setTimeout(() => setCycleSuccess(null), 4000);
+            },
+            onError: (err: unknown) => setError(humanizeError(err)),
+          },
+        );
       },
       onError: (err: unknown) => setError(humanizeError(err)),
     });
@@ -167,22 +192,18 @@ export function BaselinesPage() {
         <h3>Review cycle</h3>
         <p className="settings-help">
           Seberapa sering setiap baseline harus di-review ulang (re-attestation ISO 27001 A.8.9).
-          Jadwal pertama = tanggal baseline dibuat; tombol Refresh pada baris mengatur ulang jadwal
-          switch itu. Baseline yang jatuh tempo masuk bagian "Reminder review" di email harian.
+          Jadwal pertama = tanggal baseline dibuat; tombol Review pada baris akan membuka sesi komparasi
+          Golden Baseline vs Backup Terakhir untuk disetujui. Baseline yang jatuh tempo masuk bagian &quot;Reminder review&quot; di email pengingat.
         </p>
-        <div className="settings-row">
+        <div className="settings-row" style={{ flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
           <label className="settings-field">
             <span>Interval review (bulan)</span>
             <input
               type="number"
               min={1}
               max={60}
-              value={reviewCycle.months}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v >= 1 && v <= 60) reviewCycle.save.mutate(v);
-              }}
-              disabled={reviewCycle.isLoading || reviewCycle.save.isPending}
+              value={cycleMonths}
+              onChange={(e) => setCycleMonths(Number(e.target.value))}
             />
           </label>
           <label className="settings-field">
@@ -191,10 +212,8 @@ export function BaselinesPage() {
               type="number"
               min={0}
               max={23}
-              value={hour}
+              value={emailHour ?? 9}
               onChange={(e) => setEmailHour(Number(e.target.value))}
-              onBlur={() => patchNotify.mutate({ review_reminder_hour: hour })}
-              disabled={!notifySettings || patchNotify.isPending}
             />
           </label>
           <label className="settings-field">
@@ -203,19 +222,39 @@ export function BaselinesPage() {
               type="number"
               min={0}
               max={59}
-              value={minute}
+              value={emailMinute ?? 0}
               onChange={(e) => setEmailMinute(Number(e.target.value))}
-              onBlur={() => patchNotify.mutate({ review_reminder_minute: minute })}
-              disabled={!notifySettings || patchNotify.isPending}
             />
           </label>
+          <div>
+            <button
+              type="button"
+              onClick={handleSaveReviewCycle}
+              disabled={reviewCycle.save.isPending || patchNotify.isPending}
+              className="btn-primary"
+              style={{ padding: '8px 16px', fontWeight: 600 }}
+            >
+              {reviewCycle.save.isPending || patchNotify.isPending ? 'Menyimpan…' : 'Simpan Pengaturan Siklus'}
+            </button>
+          </div>
         </div>
+        {cycleSuccess && <p className="settings-success" role="status" style={{ marginTop: '8px' }}>{cycleSuccess}</p>}
       </section>
 
       <div className="table-wrap">
         <table className="data-table">
           <thead>
-            <tr><th>Kind</th><th>Target</th><th>Golden backup</th><th>Created</th><th>Reminder review</th><th>Actions</th></tr>
+            <tr>
+              <th>Kind</th>
+              <th>Target</th>
+              <th>Golden backup</th>
+              <th>Created</th>
+              <th>Reminder review</th>
+              <th>Last Reviewed By</th>
+              <th>Last Review Date</th>
+              <th>Status Terkini</th>
+              <th>Actions</th>
+            </tr>
           </thead>
           <tbody>
             {baselines.map((b) => {
@@ -232,13 +271,46 @@ export function BaselinesPage() {
                       {overdue ? 'REMINDER' : due}
                     </span>
                   </td>
+                  <td>
+                    {b.last_reviewed_by_name ? (
+                      <span style={{ fontWeight: 600, color: 'var(--amber, #f59e0b)' }}>
+                        {b.last_reviewed_by_name}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--muted, #94a3b8)', fontStyle: 'italic' }}>Belum direview</span>
+                    )}
+                  </td>
+                  <td>
+                    {b.last_reviewed_at ? (
+                      formatTzDateTime(b.last_reviewed_at)
+                    ) : (
+                      <span style={{ color: 'var(--muted, #94a3b8)' }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    {b.last_review_status ? (
+                      <span
+                        className={`badge state-${
+                          b.last_review_status === 'flagged'
+                            ? 'fail'
+                            : b.last_review_status === 'approved'
+                            ? 'ok'
+                            : 'warn'
+                        }`}
+                      >
+                        {b.last_review_status.toUpperCase()}
+                      </span>
+                    ) : (
+                      <span className="badge state-neutral">NO REVIEW</span>
+                    )}
+                  </td>
                   <td className="row-actions">
                     <button
-                      onClick={() => reviewNow(b.id)}
-                      disabled={refresh.isPending}
-                      title="Bandingkan backup terbaru dengan baseline sekarang; buka review bila drift; reset siklus"
+                      onClick={() => handleReviewClick(b.id)}
+                      disabled={prepareReview.isPending}
+                      title="Buka sesi komparasi Golden Baseline vs Backup Terakhir di halaman Config Review"
                     >
-                      Review
+                      {prepareReview.isPending ? 'Membuka…' : 'Review'}
                     </button>
                     <button
                       onClick={() => {
@@ -257,7 +329,7 @@ export function BaselinesPage() {
           <p className="viewer-empty">No baselines yet. Create one above.</p>
         ) : null}
         {remove.isError ? <div role="alert" className="settings-error">{humanizeError(remove.error)}</div> : null}
-        {refresh.isError ? <div role="alert" className="settings-error">{humanizeError(refresh.error)}</div> : null}
+        {prepareReview.isError ? <div role="alert" className="settings-error">{humanizeError(prepareReview.error)}</div> : null}
         {reviewNote ? <p className="settings-success" role="status">{reviewNote}</p> : null}
       </div>
 

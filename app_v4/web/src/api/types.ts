@@ -277,6 +277,20 @@ export interface ConfigBaseline {
   backup_id: number | null;
   content_hash: string;
   created_at: string;
+  last_reviewed_by?: number | null;
+  last_reviewed_by_name?: string | null;
+  last_reviewed_at?: string | null;
+  last_review_status?: string | null;
+  last_review_id?: number | null;
+}
+
+export interface PrepareReviewResult {
+  review_id: number;
+  is_new: boolean;
+  is_drift: boolean;
+  switch_id: number;
+  switch_name: string;
+  message: string;
 }
 
 export interface BaselineCreateInput {

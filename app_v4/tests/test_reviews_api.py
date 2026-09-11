@@ -469,3 +469,49 @@ async def test_review_reminder_endpoint(test_settings, session_factory):
     resp = client.post("/api/v1/reviews/reminder", headers=headers)
     assert resp.status_code == 422
 
+
+@pytest.mark.asyncio
+async def test_prepare_baseline_review(test_settings, session_factory):
+    """POST /baselines/{id}/prepare-review prepares comparison review without modifying baseline."""
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin-prep", "hash", "admin")
+        cred = await repo.create_credential("c-prep", b"enc")
+        sw = await repo.create_switch("SW-PREP", "10.0.0.105", "ssh", 22, cred.id)
+        b1 = await repo.create_backup(sw.id, "/tmp/p1", "hash-p1", 100, True)
+        b2 = await repo.create_backup(sw.id, "/tmp/p2", "hash-p2", 100, True)
+        bl = await repo.create_baseline("switch", switch_id=sw.id, model=None, backup_id=b1.id, content_hash=b1.content_hash, created_by=admin.id)
+        await session.commit()
+        admin_id, baseline_id, b1_id = admin.id, bl.id, b1.id
+
+    rs = ReviewService(test_settings, session_factory)
+    client = _make_client(test_settings, session_factory, review_service=rs)
+    headers = {"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"}
+
+    # 1. Prepare review -> returns review_id, baseline is NOT overwritten
+    resp = client.post(f"/api/v1/baselines/{baseline_id}/prepare-review", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_new"] is True
+    review_id = data["review_id"]
+
+    # Verify baseline backup_id is still b1_id (NOT overwritten!)
+    async with session_factory() as session:
+        repo = Repository(session)
+        check_bl = await repo.get_baseline(baseline_id)
+        assert check_bl.backup_id == b1_id
+
+    # 2. Calling prepare-review again returns the SAME active review
+    resp2 = client.post(f"/api/v1/baselines/{baseline_id}/prepare-review", headers=headers)
+    assert resp2.status_code == 200
+    assert resp2.json()["review_id"] == review_id
+    assert resp2.json()["is_new"] is False
+
+    # 3. Check list_baselines returns review info
+    resp_bl = client.get("/api/v1/baselines", headers=headers)
+    assert resp_bl.status_code == 200
+    bl_row = next(r for r in resp_bl.json() if r["id"] == baseline_id)
+    assert bl_row["last_review_id"] == review_id
+    assert bl_row["last_review_status"] == "in_review"
+    assert bl_row["last_reviewed_by_name"] == "admin-prep"
+

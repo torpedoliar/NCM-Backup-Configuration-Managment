@@ -17,6 +17,7 @@ import type {
   BackupRecord,
   ConfigBaseline,
   BaselineCreateInput,
+  PrepareReviewResult,
   ConfigReview,
   ConfigReviewStatus,
   ComplianceSummary,
@@ -609,15 +610,29 @@ export function useReviews(filters: ReviewFilters) {
 export function useReviewStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (vars: { id: number; status: ConfigReviewStatus; comment?: string }) =>
+    mutationFn: async (vars: { id: number; status: ConfigReviewStatus; comment?: string; reset_baseline_cycle?: boolean }) =>
       (await api.post<ConfigReview>(`/reviews/${vars.id}/status`, {
         status: vars.status,
         comment: vars.comment,
+        reset_baseline_cycle: vars.reset_baseline_cycle ?? true,
       })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reviews'] });
       qc.invalidateQueries({ queryKey: ['reviews', 'compliance'] });
+      qc.invalidateQueries({ queryKey: ['baselines'] });
       qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+    },
+  });
+}
+
+export function usePrepareBaselineReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (baselineId: number) =>
+      (await api.post<PrepareReviewResult>(`/baselines/${baselineId}/prepare-review`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['baselines'] });
+      qc.invalidateQueries({ queryKey: ['reviews'] });
     },
   });
 }
