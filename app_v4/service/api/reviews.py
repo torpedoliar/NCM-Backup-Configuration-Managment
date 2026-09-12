@@ -25,6 +25,7 @@ class BaselineOut(BaseModel):
     kind: str
     switch_id: int | None
     switch_name: str | None = None
+    switch_model: str | None = None
     model: str | None
     backup_id: int | None
     content_hash: str
@@ -41,6 +42,7 @@ class BaselineCreate(BaseModel):
     switch_id: int | None = None
     model: str | None = Field(default=None, max_length=100)
     backup_id: int | None = None
+    repoint: bool = False
 
 
 class ReviewOut(BaseModel):
@@ -90,14 +92,18 @@ def _baseline_out(
     row,
     name_by_id: dict[int, str] | None = None,
     review_info: dict | None = None,
+    model_by_id: dict[int, str] | None = None,
 ) -> BaselineOut:
     rev = review_info or {}
+    switch_name = (name_by_id or {}).get(row.switch_id) if row.switch_id is not None else None
+    switch_model = (model_by_id or {}).get(row.switch_id) if row.switch_id is not None else None
     return BaselineOut(
         id=row.id,
         kind=row.kind,
         switch_id=row.switch_id,
-        switch_name=(name_by_id or {}).get(row.switch_id) if row.switch_id is not None else None,
-        model=row.model,
+        switch_name=switch_name,
+        switch_model=switch_model,
+        model=row.model or switch_model,
         backup_id=row.backup_id,
         content_hash=row.content_hash,
         created_at=to_aware_utc(row.created_at),
@@ -123,6 +129,7 @@ async def list_baselines(
     repo = Repository(session)
     rows = await repo.list_baselines()
     name_by_id: dict[int, str] = {}
+    model_by_id: dict[int, str] = {}
     review_info_by_switch: dict[int, dict] = {}
     author_names: dict[int, str] = {}
 
@@ -132,6 +139,8 @@ async def list_baselines(
                 sw = await repo.get_switch(row.switch_id)
                 if sw is not None:
                     name_by_id[row.switch_id] = sw.name
+                    if sw.model:
+                        model_by_id[row.switch_id] = sw.model
             if row.switch_id not in review_info_by_switch:
                 latest_rev = await repo.get_latest_review_for_switch(row.switch_id)
                 if latest_rev is not None:
@@ -159,6 +168,7 @@ async def list_baselines(
             row,
             name_by_id,
             review_info_by_switch.get(row.switch_id) if row.switch_id is not None else None,
+            model_by_id,
         )
         for row in rows
     ]
@@ -178,10 +188,31 @@ async def create_baseline(
     if payload.kind == "switch":
         if payload.switch_id is None:
             raise problem(422, "Unprocessable Entity", "switch_id is required for switch baseline")
-        if await repo.get_switch(payload.switch_id) is None:
+        sw = await repo.get_switch(payload.switch_id)
+        if sw is None:
             raise problem(422, "Unprocessable Entity", "Referenced switch does not exist")
-        existing = await repo.get_baseline_for_switch(await repo.get_switch(payload.switch_id))
+        existing = await repo.get_baseline_for_switch(sw)
         if existing is not None:
+            if payload.repoint and existing.kind == "switch" and payload.backup_id is not None:
+                backup = await repo.get_backup(payload.backup_id)
+                if backup is None:
+                    raise problem(422, "Unprocessable Entity", "Referenced backup does not exist")
+                if not backup.success:
+                    raise problem(422, "Unprocessable Entity", "Referenced backup was not successful")
+                existing.backup_id = backup.id
+                existing.content_hash = backup.content_hash
+                existing.created_at = utc_now()
+                await session.commit()
+                fresh = await repo.get_baseline(existing.id)
+                await runtime.audit_writer.record(
+                    user_id=audit_user_id,
+                    action="baseline.repointed",
+                    target_type="baseline",
+                    target_id=str(existing.id),
+                    ip=request.client.host if request.client else None,
+                    detail={"switch_id": payload.switch_id, "backup_id": backup.id, **audit_extra},
+                )
+                return _baseline_out(fresh, {payload.switch_id: sw.name}, None, {payload.switch_id: sw.model} if sw.model else None)
             raise problem(409, "Conflict", f"Switch already has a {'model template' if existing.kind == 'model' else 'baseline'}")
     else:
         if not payload.model:
