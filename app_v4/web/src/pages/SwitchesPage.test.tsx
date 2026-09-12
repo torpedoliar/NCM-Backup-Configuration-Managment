@@ -19,6 +19,7 @@ vi.mock('../api/hooks', () => ({
   useActivateSwitch: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteSwitch: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateCredential: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSyncFromDataGuard: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 describe('SwitchesPage', () => {

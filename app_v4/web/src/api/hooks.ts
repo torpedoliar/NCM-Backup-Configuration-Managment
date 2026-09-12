@@ -38,6 +38,7 @@ import type {
   SwitchCreateInput,
   SwitchRecord,
   SwitchUpdateInput,
+  SyncDataGuardResult,
   SystemMetrics,
   SystemStatus,
   UserCreateInput,
@@ -154,6 +155,18 @@ export function useActivateSwitch() {
   return useMutation({
     mutationFn: async (id: number) => (await api.post(`/switches/${id}/activate`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['switches'] }),
+  });
+}
+
+export function useSyncFromDataGuard() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload?: { dg_url?: string; api_key?: string }) =>
+      (await api.post<SyncDataGuardResult>('/switches/sync-dataguard', payload || {})).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['switches'] });
+      qc.invalidateQueries({ queryKey: ['audit'] });
+    },
   });
 }
 

@@ -7,6 +7,7 @@ import {
   useActivateSwitch,
   useDeleteSwitch,
   useSwitches,
+  useSyncFromDataGuard,
   useTriggerBackup,
   useUpdateSwitch,
 } from '../api/hooks';
@@ -67,6 +68,20 @@ export function SwitchesPage() {
   const remove = useDeleteSwitch();
   const backup = useTriggerBackup();
   const createCred = useCreateCredential();
+  const syncDg = useSyncFromDataGuard();
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  function handleSyncDataGuard() {
+    setSaveError(null);
+    setSyncMsg(null);
+    syncDg.mutate(undefined, {
+      onSuccess: (res) => {
+        setSyncMsg(res.message);
+        setTimeout(() => setSyncMsg(null), 5000);
+      },
+      onError: (err: unknown) => setSaveError(humanizeError(err)),
+    });
+  }
 
   const visible = useMemo(
     () => (showInactive ? switches : switches.filter((s) => s.is_active)),
@@ -157,10 +172,20 @@ export function SwitchesPage() {
             <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
             Show inactive
           </label>
+          <button
+            type="button"
+            onClick={handleSyncDataGuard}
+            disabled={syncDg.isPending}
+            style={{ borderColor: 'var(--amber)', color: 'var(--amber)', fontWeight: 600 }}
+            title="Ambil data perangkat dari DataGuard dan sinkronkan nama switch berdasarkan IP address"
+          >
+            {syncDg.isPending ? 'Menyinkronkan…' : '🔄 Sync dari DataGuard'}
+          </button>
           <button onClick={startAdd} disabled={draft !== null}>+ Add switch</button>
         </div>
       </header>
 
+      {syncMsg ? <p className="settings-success" role="status" style={{ margin: '8px 0' }}>{syncMsg}</p> : null}
       {saveError ? <div role="alert" className="settings-error" style={{ margin: '8px 0' }}>{saveError}</div> : null}
 
       <section className="filter-bar">

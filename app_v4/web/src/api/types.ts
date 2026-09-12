@@ -47,6 +47,21 @@ export interface SwitchCreateInput {
 
 export type SwitchUpdateInput = Partial<SwitchCreateInput>;
 
+export interface SyncDataGuardResult {
+  success: boolean;
+  updated_count: number;
+  matched_count: number;
+  devices_total: number;
+  updated_switches: Array<{
+    id: string;
+    old_name: string;
+    new_name: string;
+    ip: string;
+    model: string;
+  }>;
+  message: string;
+}
+
 export interface BackupFilters {
   switch_id?: number;
   success?: boolean;

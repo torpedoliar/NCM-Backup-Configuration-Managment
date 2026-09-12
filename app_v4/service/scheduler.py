@@ -150,6 +150,7 @@ class SchedulerService:
                 replace_existing=True,
             )
         self._arm_review_reminder()
+        self._arm_dataguard_sync()
         await self.sync_once()
         # Match legacy: run enabled jobs once on startup so missed schedules
         # while the host/backend was offline still get a backup. Failures
@@ -378,6 +379,82 @@ class SchedulerService:
             logging.getLogger(__name__).warning(
                 "review reminder send failed", exc_info=True
             )
+
+    def _arm_dataguard_sync(self) -> None:
+        """Register the periodic DataGuard device synchronization job."""
+        try:
+            from apscheduler.triggers.interval import IntervalTrigger
+
+            self.scheduler.add_job(
+                self._run_dataguard_sync,
+                IntervalTrigger(minutes=15, timezone=self.timezone),
+                id="dataguard-device-sync",
+                replace_existing=True,
+            )
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).warning("failed to arm dataguard-device-sync job", exc_info=True)
+
+    async def _run_dataguard_sync(self) -> None:
+        """Best-effort: fetch devices from DataGuard and sync switch names/models by matching IP."""
+        try:
+            import logging
+            from app_v4.core.paths import resolve_paths
+            from app_v4.core.runtime_settings import load_runtime_settings
+            from app_v4.core.utcdatetime import utc_now
+            import httpx
+
+            paths = resolve_paths(self.settings)
+            rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
+            webhook_url = rs.notify.webhook_url.strip() if rs.notify.webhook_url else ""
+            if not webhook_url:
+                return
+            idx = webhook_url.find("/api/ncm")
+            dg_url = webhook_url[:idx] if idx != -1 else webhook_url.rstrip("/")
+            if not dg_url:
+                return
+
+            target_url = f"{dg_url.rstrip('/')}/api/ncm/devices"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(target_url)
+                if resp.status_code != 200:
+                    return
+                data = resp.json()
+
+            dg_devices = data.get("devices", [])
+            if not isinstance(dg_devices, list) or not dg_devices:
+                return
+
+            async with self.session_factory() as session:
+                repo = Repository(session)
+                ncm_switches = await repo.list_switches(include_inactive=True)
+                updated = False
+                for dev in dg_devices:
+                    dev_ip = str(dev.get("ip") or "").strip()
+                    dev_name = str(dev.get("name") or "").strip()
+                    dev_model = str(dev.get("model") or "").strip()
+                    if not dev_ip or not dev_name:
+                        continue
+                    for sw in ncm_switches:
+                        if sw.ip.strip() == dev_ip:
+                            name_changed = sw.name != dev_name
+                            model_changed = bool(dev_model and sw.model != dev_model)
+                            if name_changed or model_changed:
+                                if name_changed:
+                                    existing = await repo.get_switch_by_name(dev_name)
+                                    if existing is not None and existing.id != sw.id:
+                                        continue
+                                    sw.name = dev_name
+                                if model_changed:
+                                    sw.model = dev_model
+                                sw.updated_at = utc_now()
+                                updated = True
+                if updated:
+                    await session.commit()
+                    logging.getLogger(__name__).info("Background DataGuard sync: switch names/models updated")
+        except Exception:
+            pass
 
     def reload_timezone(self) -> None:
         self._run_sync_on_scheduler_loop(self._reload_timezone)

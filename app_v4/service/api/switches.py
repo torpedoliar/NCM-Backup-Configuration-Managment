@@ -267,3 +267,143 @@ async def delete_switch(
         detail=audit_extra,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class SyncDataGuardPayload(BaseModel):
+    dg_url: str | None = None
+    api_key: str | None = None
+
+
+class SyncDataGuardResponse(BaseModel):
+    success: bool
+    updated_count: int
+    matched_count: int
+    devices_total: int
+    updated_switches: list[dict[str, str]]
+    message: str
+
+
+@router.post("/sync-dataguard", response_model=SyncDataGuardResponse)
+async def sync_switches_from_dataguard(
+    payload: SyncDataGuardPayload | None = None,
+    request: Request = None,
+    runtime: ServiceRuntime = Depends(get_runtime),
+    session: AsyncSession = Depends(get_db),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="switches:write")),
+) -> SyncDataGuardResponse:
+    """Sync switch names and models from DataGuard devices based on matching IP addresses."""
+    import httpx
+    from app_v4.core.paths import resolve_paths
+    from app_v4.core.runtime_settings import load_runtime_settings
+    from app_v4.core.utcdatetime import utc_now
+
+    audit_user_id, audit_extra = audit_identity(_auth)
+    repo = Repository(session)
+
+    # Determine DG URL
+    dg_url = payload.dg_url if payload and payload.dg_url else None
+    api_key = payload.api_key if payload and payload.api_key else None
+
+    if not dg_url:
+        paths = resolve_paths(runtime.settings)
+        rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
+        webhook_url = rs.notify.webhook_url.strip() if rs.notify.webhook_url else ""
+        if webhook_url:
+            idx = webhook_url.find("/api/ncm")
+            dg_url = webhook_url[:idx] if idx != -1 else webhook_url.rstrip("/")
+
+    if not dg_url:
+        raise problem(
+            422,
+            "Unprocessable Entity",
+            "URL DataGuard belum diketahui. Pastikan Webhook URL NCM sudah terisi di menu Settings.",
+        )
+
+    req_key = request.headers.get("x-api-key") if request else None
+    if not api_key and req_key:
+        api_key = req_key.strip()
+
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["X-API-Key"] = api_key
+
+    target_url = f"{dg_url.rstrip('/')}/api/ncm/devices"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(target_url, headers=headers)
+            if resp.status_code != 200:
+                raise problem(
+                    502,
+                    "Bad Gateway",
+                    f"DataGuard API ({target_url}) merespons {resp.status_code}: {resp.text[:200]}",
+                )
+            data = resp.json()
+    except httpx.RequestError as exc:
+        raise problem(502, "Bad Gateway", f"Gagal menghubungi DataGuard di {target_url}: {str(exc)}")
+
+    dg_devices = data.get("devices", [])
+    if not isinstance(dg_devices, list):
+        raise problem(502, "Bad Gateway", "Format data perangkat dari DataGuard tidak valid.")
+
+    ncm_switches = await repo.list_switches(include_inactive=True)
+    updated_switches: list[dict[str, str]] = []
+    matched_count = 0
+
+    for dev in dg_devices:
+        dev_ip = str(dev.get("ip") or "").strip()
+        dev_name = str(dev.get("name") or "").strip()
+        dev_model = str(dev.get("model") or "").strip()
+        if not dev_ip or not dev_name:
+            continue
+
+        for sw in ncm_switches:
+            if sw.ip.strip() == dev_ip:
+                matched_count += 1
+                name_changed = sw.name != dev_name
+                model_changed = bool(dev_model and sw.model != dev_model)
+
+                if name_changed or model_changed:
+                    old_name = sw.name
+                    existing_named = await repo.get_switch_by_name(dev_name)
+                    if existing_named is not None and existing_named.id != sw.id:
+                        continue
+
+                    if name_changed:
+                        sw.name = dev_name
+                    if model_changed:
+                        sw.model = dev_model
+                    sw.updated_at = utc_now()
+                    updated_switches.append({
+                        "id": str(sw.id),
+                        "old_name": old_name,
+                        "new_name": sw.name,
+                        "ip": sw.ip,
+                        "model": sw.model or "",
+                    })
+
+    if updated_switches:
+        await session.commit()
+
+    await runtime.audit_writer.record(
+        user_id=audit_user_id,
+        action="switch.synced_from_dataguard",
+        target_type="switch",
+        ip=request.client.host if request and request.client else None,
+        detail={
+            "matched_count": matched_count,
+            "updated_count": len(updated_switches),
+            "devices_total": len(dg_devices),
+            **audit_extra,
+        },
+    )
+
+    msg = f"Sinkronisasi selesai: {len(updated_switches)} switch diperbarui dari {matched_count} switch yang cocok dengan DataGuard."
+    return SyncDataGuardResponse(
+        success=True,
+        updated_count=len(updated_switches),
+        matched_count=matched_count,
+        devices_total=len(dg_devices),
+        updated_switches=updated_switches,
+        message=msg,
+    )
+
