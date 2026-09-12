@@ -61,7 +61,7 @@ def _require_crypto(runtime: ServiceRuntime):
 async def list_credentials(
     runtime: ServiceRuntime = Depends(get_runtime),
     session: AsyncSession = Depends(get_db),
-    _user: AccessClaims = Depends(require_role("admin", "operator")),
+    _auth = Depends(require_role_or_key("admin", "operator", scope="read")),
 ) -> list[CredentialOut]:
     crypto = _require_crypto(runtime)
     repo = Repository(session)

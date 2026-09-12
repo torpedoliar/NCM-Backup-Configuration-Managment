@@ -33,6 +33,8 @@ router = APIRouter(tags=["backups"])
 class BackupOut(BaseModel):
     id: int
     switch_id: int
+    switch_name: str | None = None
+    switch_model: str | None = None
     switch_seq: int | None = None
     file_path: str
     content_hash: str
@@ -52,10 +54,13 @@ class BackupRunResponse(BaseModel):
     switch_seq: int | None = None
 
 
-def _to_out(backup) -> BackupOut:
+def _to_out(backup, switch=None) -> BackupOut:
+    sw = switch or getattr(backup, "switch", None)
     return BackupOut(
         id=backup.id,
         switch_id=backup.switch_id,
+        switch_name=sw.name if sw else None,
+        switch_model=sw.model if sw else None,
         switch_seq=getattr(backup, "switch_seq", None),
         file_path=backup.file_path,
         content_hash=backup.content_hash,

@@ -34,6 +34,7 @@ class SwitchOut(BaseModel):
     credential_id: int
     is_active: bool
     deactivated_at: datetime | None = None
+    model: str | None = None
 
 
 class SwitchCreate(BaseModel):
@@ -43,6 +44,7 @@ class SwitchCreate(BaseModel):
     port: int = Field(ge=1, le=65535)
     credential_id: int
     notes: str | None = None
+    model: str | None = Field(default=None, max_length=100)
 
 
 class SwitchUpdate(BaseModel):
@@ -52,6 +54,7 @@ class SwitchUpdate(BaseModel):
     port: int | None = Field(default=None, ge=1, le=65535)
     credential_id: int | None = None
     notes: str | None = None
+    model: str | None = Field(default=None, max_length=100)
 
 
 def _to_out(switch) -> SwitchOut:
@@ -67,6 +70,7 @@ def _to_out(switch) -> SwitchOut:
         credential_id=switch.credential_id,
         is_active=switch.is_active,
         deactivated_at=switch.deactivated_at,
+        model=switch.model,
     )
 
 
@@ -112,6 +116,7 @@ async def create_switch(
         port=payload.port,
         credential_id=payload.credential_id,
         notes=payload.notes,
+        model=payload.model,
     )
     await session.commit()
 
@@ -165,6 +170,7 @@ async def update_switch(
         port=payload.port,
         credential_id=payload.credential_id,
         notes=payload.notes,
+        model=payload.model,
     )
     if updated is None:
         raise problem(404, "Not Found", "Switch not found")

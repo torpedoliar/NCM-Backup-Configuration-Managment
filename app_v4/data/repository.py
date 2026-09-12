@@ -264,6 +264,7 @@ class Repository:
         port: int,
         credential_id: int,
         notes: str | None = None,
+        model: str | None = None,
     ) -> Switch:
         switch = Switch(
             name=name,
@@ -272,6 +273,7 @@ class Repository:
             port=port,
             credential_id=credential_id,
             notes=notes,
+            model=model,
         )
         self.session.add(switch)
         await self.session.flush()
@@ -450,7 +452,10 @@ class Repository:
         return backup
 
     async def get_backup(self, backup_id: int) -> Backup | None:
-        return await self.session.get(Backup, backup_id)
+        result = await self.session.execute(
+            select(Backup).options(selectinload(Backup.switch)).where(Backup.id == backup_id)
+        )
+        return result.scalar_one_or_none()
 
     def _backup_filters(
         self,
@@ -489,6 +494,7 @@ class Repository:
     ) -> list[Backup]:
         stmt = (
             select(Backup)
+            .options(selectinload(Backup.switch))
             .where(*self._backup_filters(switch_id, success, backup_type, from_ts, to_ts, q))
             .order_by(Backup.taken_at.desc())
         )
@@ -552,6 +558,7 @@ class Repository:
         sub = base.group_by(Backup.switch_id).subquery()
         stmt = (
             select(Backup)
+            .options(selectinload(Backup.switch))
             .join(
                 sub,
                 (Backup.switch_id == sub.c.switch_id)
