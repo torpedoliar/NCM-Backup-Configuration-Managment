@@ -415,7 +415,7 @@ async def prepare_baseline_review(
     request: Request,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    actor=Depends(require_role("admin", "operator")),
+    actor=Depends(require_role_or_key("admin", "operator", scope="reviews:write")),
 ) -> PrepareReviewOut:
     """Prepare a comparison review between golden baseline and latest backup.
 
@@ -426,6 +426,7 @@ async def prepare_baseline_review(
     import json
     from app_v4.service.diff_service import DiffService
 
+    audit_user_id, audit_extra = audit_identity(actor)
     repo = Repository(session)
     baseline = await repo.get_baseline(baseline_id)
     if baseline is None:
@@ -449,7 +450,7 @@ async def prepare_baseline_review(
     if active is not None:
         if active.status == "pending":
             active.status = "in_review"
-            active.started_by = actor.user_id
+            active.started_by = audit_user_id
             active.started_at = utc_now()
             await session.commit()
         return PrepareReviewOut(
@@ -488,17 +489,17 @@ async def prepare_baseline_review(
         diff_summary=json.dumps(summary),
     )
     review.status = "in_review"
-    review.started_by = actor.user_id
+    review.started_by = audit_user_id
     review.started_at = utc_now()
     await session.commit()
 
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="review.prepared_from_baseline",
         target_type="review",
         target_id=str(review.id),
         ip=request.client.host if request.client else None,
-        detail={"switch_id": switch_id, "switch_name": sw.name, "is_drift": is_drift},
+        detail={"switch_id": switch_id, "switch_name": sw.name, "is_drift": is_drift, **audit_extra},
     )
 
     return PrepareReviewOut(
@@ -611,9 +612,11 @@ async def start_review(
     request: Request,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    actor=Depends(require_role("admin", "operator")),
+    actor=Depends(require_role_or_key("admin", "operator", scope="reviews:write")),
 ) -> ReviewOut:
     """Claim a pending review: status -> in_review with reviewer + timestamp."""
+    audit_user_id, audit_extra = audit_identity(actor)
+    starter_name = getattr(actor, "username", None) or (f"key:{audit_extra['key']}" if audit_extra else f"user-{audit_user_id}")
     repo = Repository(session)
     review = await repo.get_review(review_id)
     if review is None:
@@ -621,15 +624,16 @@ async def start_review(
     if review.status != "pending":
         raise problem(409, "Conflict", f"Review is already {review.status}")
     review = await repo.update_review(
-        review_id, status="in_review", started_by=actor.user_id, started_at=utc_now()
+        review_id, status="in_review", started_by=audit_user_id, started_at=utc_now()
     )
     await session.commit()
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="review.started",
         target_type="review",
         target_id=str(review_id),
         ip=request.client.host if request.client else None,
+        detail=audit_extra,
     )
     try:
         from app_v4.core.runtime_settings import load_runtime_settings
@@ -640,7 +644,6 @@ async def start_review(
         cfg = load_runtime_settings(paths.data_dir / "runtime_settings.json").notify
         if runtime.notify is not None and cfg.enabled and cfg.email_enabled and cfg.email_review_events:
             sw = await repo.get_switch(review.switch_id)
-            starter_name = getattr(actor, "username", None) or f"user-{actor.user_id}"
             content = email_events.review_decision_email(
                 sw.name if sw else f"#{review.switch_id}",
                 review.id,
@@ -679,21 +682,23 @@ async def add_review_note(
     request: Request,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    actor=Depends(require_role("admin", "operator")),
+    actor=Depends(require_role_or_key("admin", "operator", scope="reviews:write")),
 ) -> list[ReviewNoteOut]:
     """Append a note to the review's decision thread (append-only audit trail)."""
+    audit_user_id, audit_extra = audit_identity(actor)
     repo = Repository(session)
     review = await repo.get_review(review_id)
     if review is None:
         raise problem(404, "Not Found", "Review not found")
-    await repo.create_review_note(review_id, actor.user_id, payload.body.strip())
+    await repo.create_review_note(review_id, audit_user_id, payload.body.strip())
     await session.commit()
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="review.note_added",
         target_type="review",
         target_id=str(review_id),
         ip=request.client.host if request.client else None,
+        detail=audit_extra,
     )
     review_out = await _review_out(session, review, include_notes=True)
     return review_out.notes
@@ -775,7 +780,7 @@ async def promote_review_to_baseline(
     request: Request,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    actor=Depends(require_role("admin", "operator")),
+    actor=Depends(require_role_or_key("admin", "operator", scope="baselines:write")),
 ) -> ReviewOut:
     """ISO 27001 A.8.9: Approve drift and atomically promote current backup as golden baseline.
 
@@ -786,6 +791,8 @@ async def promote_review_to_baseline(
     4. Reset baseline review cycle clock.
     5. Write comprehensive audit record with Change Request reference.
     """
+    audit_user_id, audit_extra = audit_identity(actor)
+    reviewer_name = getattr(actor, "username", None) or (f"key:{audit_extra['key']}" if audit_extra else f"user-{audit_user_id}")
     repo = Repository(session)
     review = await repo.get_review(review_id)
     if review is None:
@@ -804,7 +811,7 @@ async def promote_review_to_baseline(
     review = await repo.update_review(
         review_id,
         status="approved",
-        reviewed_by=actor.user_id,
+        reviewed_by=audit_user_id,
         comment=approval_comment,
     )
 
@@ -812,7 +819,7 @@ async def promote_review_to_baseline(
     note_body = f"Approved & Promoted to Baseline. Reason/CR: {payload.reason}"
     if payload.comment:
         note_body += f"\nNote: {payload.comment}"
-    await repo.create_review_note(review_id, actor.user_id, note_body)
+    await repo.create_review_note(review_id, audit_user_id, note_body)
 
     # 3. Update existing switch baseline or create a new per-switch baseline
     baseline = await repo.get_baseline_for_switch(sw)
@@ -829,7 +836,7 @@ async def promote_review_to_baseline(
             model=None,
             backup_id=backup.id,
             content_hash=backup.content_hash,
-            created_by=actor.user_id,
+            created_by=audit_user_id,
         )
         promoted_baseline_id = new_bl.id
 
@@ -843,7 +850,7 @@ async def promote_review_to_baseline(
 
     # 4. Audit Trail
     await runtime.audit_writer.record(
-        user_id=actor.user_id,
+        user_id=audit_user_id,
         action="review.approved_and_promoted",
         target_type="review",
         target_id=str(review_id),
@@ -855,6 +862,7 @@ async def promote_review_to_baseline(
             "baseline_id": promoted_baseline_id,
             "reason": payload.reason,
             "comment": payload.comment,
+            **audit_extra,
         },
     )
 
@@ -979,7 +987,7 @@ async def run_fleet_cycle_review(
     request: Request,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
-    actor=Depends(require_role("admin", "operator")),
+    actor=Depends(require_role_or_key("admin", "operator", scope="reviews:write")),
 ) -> FleetCycleAttestationOut:
     """ISO 27001 A.8.9 On-Demand: Run review cycle attestation for all switches immediately.
 
@@ -989,6 +997,7 @@ async def run_fleet_cycle_review(
     - Sends instant completion email report to configured administrators.
     - Logs audit record 'review.cycle_attested'.
     """
+    audit_user_id, audit_extra = audit_identity(actor)
     repo = Repository(session)
     baselines = await repo.list_baselines()
     now = utc_now()
@@ -1118,7 +1127,7 @@ class ReviewReminderOut(BaseModel):
 async def trigger_review_reminder(
     request: Request,
     runtime: ServiceRuntime = Depends(get_runtime),
-    actor=Depends(require_role("admin", "operator")),
+    actor=Depends(require_role_or_key("admin", "operator", scope="read")),
 ) -> ReviewReminderOut:
     """Send the ISO 27001 review-reminder email on-demand to configured recipients."""
     from app_v4.core.runtime_settings import load_runtime_settings

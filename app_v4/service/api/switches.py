@@ -304,38 +304,53 @@ async def sync_switches_from_dataguard(
     dg_url = payload.dg_url if payload and payload.dg_url else None
     api_key = payload.api_key if payload and payload.api_key else None
 
+    paths = resolve_paths(runtime.settings)
+    rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
+
     if not dg_url:
-        paths = resolve_paths(runtime.settings)
-        rs = load_runtime_settings(paths.data_dir / "runtime_settings.json")
         webhook_url = rs.notify.webhook_url.strip() if rs.notify.webhook_url else ""
         if webhook_url:
             idx = webhook_url.find("/api/ncm")
             dg_url = webhook_url[:idx] if idx != -1 else webhook_url.rstrip("/")
 
     if not dg_url:
+        import os
+        dg_url = os.environ.get("DATAGUARD_URL", "").strip() or None
+
+    if not dg_url:
         raise problem(
             422,
             "Unprocessable Entity",
-            "URL DataGuard belum diketahui. Pastikan Webhook URL NCM sudah terisi di menu Settings.",
+            "URL DataGuard belum diketahui. Atur Webhook NCM di DataGuard Settings atau masukkan URL DataGuard.",
         )
 
     req_key = request.headers.get("x-api-key") if request else None
     if not api_key and req_key:
         api_key = req_key.strip()
 
+    secret = rs.notify.webhook_secret.strip() if rs.notify.webhook_secret else ""
     headers: dict[str, str] = {}
     if api_key:
         headers["X-API-Key"] = api_key
+    elif secret:
+        headers["X-NCM-Secret"] = secret
+        headers["X-API-Key"] = secret
 
     target_url = f"{dg_url.rstrip('/')}/api/ncm/devices"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             resp = await client.get(target_url, headers=headers)
             if resp.status_code != 200:
+                err_text = resp.text[:200]
+                try:
+                    err_json = resp.json()
+                    err_text = err_json.get("error") or err_json.get("message") or err_text
+                except Exception:
+                    pass
                 raise problem(
                     502,
                     "Bad Gateway",
-                    f"DataGuard API ({target_url}) merespons {resp.status_code}: {resp.text[:200]}",
+                    f"DataGuard API ({target_url}) merespons {resp.status_code}: {err_text}",
                 )
             data = resp.json()
     except httpx.RequestError as exc:
