@@ -54,6 +54,8 @@ async def _run_sqlite_migrations(conn) -> None:
     await _add_column_if_missing(conn, "users", "locked_until", "DATETIME")
     await _add_column_if_missing(conn, "config_reviews", "started_by", "INTEGER")
     await _add_column_if_missing(conn, "config_reviews", "started_at", "DATETIME")
+    await _add_column_if_missing(conn, "config_reviews", "reviewed_by_name", "VARCHAR(128)")
+    await _add_column_if_missing(conn, "config_reviews", "started_by_name", "VARCHAR(128)")
     await _add_column_if_missing(conn, "api_keys", "scopes", "TEXT")
     await _add_column_if_missing(conn, "backups", "switch_seq", "INTEGER")
     # Backfill per-switch sequence for backups created before the column existed:

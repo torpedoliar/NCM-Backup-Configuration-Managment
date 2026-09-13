@@ -187,6 +187,7 @@ export function humanizeError(error: unknown): string {
 
   // Status-code fallback when there is no usable detail
   if (typeof status === 'number') {
+    if (status === 500 && STATUS_FALLBACK[500]) return STATUS_FALLBACK[500];
     if (detail && !looksLikeBoilerplate(detail)) return detail;
     if (STATUS_FALLBACK[status]) return STATUS_FALLBACK[status];
   }

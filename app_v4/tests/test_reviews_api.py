@@ -331,6 +331,35 @@ async def test_review_workflow_in_review_and_notes(test_settings, session_factor
 
 
 @pytest.mark.asyncio
+async def test_delete_review(test_settings, session_factory):
+    """DELETE /reviews/{id} deletes review and associated notes."""
+    async with session_factory() as session:
+        repo = Repository(session)
+        admin = await repo.create_user("admin-del", "hash", "admin")
+        cred = await repo.create_credential("cred-del", b"enc")
+        sw = await repo.create_switch("sw-del", "10.0.0.88", "ssh", 22, cred.id)
+        b = await repo.create_backup(sw.id, "/tmp/del.txt", "h-del", 10, True)
+        rev = await repo.create_review(sw.id, b.id, None, "diff", "{}")
+        await repo.create_review_note(rev.id, admin.id, "some note")
+        await session.commit()
+        admin_id, review_id = admin.id, rev.id
+
+    client = _make_client(test_settings, session_factory)
+    headers = {"Authorization": f"Bearer {_token(test_settings, admin_id, 'admin')}"}
+
+    resp = client.delete(f"/api/v1/reviews/{review_id}", headers=headers)
+    assert resp.status_code == 204
+
+    # Now review is gone -> 404
+    resp2 = client.get(f"/api/v1/reviews/{review_id}/diff", headers=headers)
+    assert resp2.status_code == 404
+
+    # Deleting again -> 404
+    resp3 = client.delete(f"/api/v1/reviews/{review_id}", headers=headers)
+    assert resp3.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_notify_settings(test_settings, session_factory):
     """GET/PATCH /system/notify-settings."""
     async with session_factory() as session:
@@ -514,4 +543,24 @@ async def test_prepare_baseline_review(test_settings, session_factory):
     assert bl_row["last_review_id"] == review_id
     assert bl_row["last_review_status"] == "in_review"
     assert bl_row["last_reviewed_by_name"] == "admin-prep"
+
+    # 4. Approve review with explicit reviewer_name (e.g. from DataGuard session)
+    resp_appr = client.post(
+        f"/api/v1/reviews/{review_id}/status",
+        headers=headers,
+        json={"status": "approved", "comment": "Approved from DataGuard", "reviewer_name": "dg-operator-john"},
+    )
+    assert resp_appr.status_code == 200
+    appr_body = resp_appr.json()
+    assert appr_body["status"] == "approved"
+    assert appr_body["reviewed_by_name"] == "dg-operator-john"
+    assert appr_body["reviewed_at"] is not None
+
+    # 5. Check list_baselines reflects approved status and reviewer name
+    resp_bl2 = client.get("/api/v1/baselines", headers=headers)
+    assert resp_bl2.status_code == 200
+    bl_row2 = next(r for r in resp_bl2.json() if r["id"] == baseline_id)
+    assert bl_row2["last_review_status"] == "approved"
+    assert bl_row2["last_reviewed_by_name"] == "dg-operator-john"
+    assert bl_row2["last_reviewed_at"] is not None
 

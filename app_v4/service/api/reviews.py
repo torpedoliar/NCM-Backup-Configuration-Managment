@@ -77,15 +77,21 @@ class ReviewNoteCreate(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
 
 
+class ReviewStartPayload(BaseModel):
+    starter_name: str | None = Field(default=None, max_length=128)
+
+
 class ReviewStatusUpdate(BaseModel):
     status: str = Field(pattern="^(approved|flagged|dismissed)$")
     comment: str | None = Field(default=None, max_length=2000)
     reset_baseline_cycle: bool = True
+    reviewer_name: str | None = Field(default=None, max_length=128)
 
 
 class ReviewPromoteBaseline(BaseModel):
     reason: str = Field(min_length=3, max_length=2000, description="Change Request ID or audit justification")
     comment: str | None = Field(default=None, max_length=2000)
+    reviewer_name: str | None = Field(default=None, max_length=128)
 
 
 def _baseline_out(
@@ -144,24 +150,27 @@ async def list_baselines(
             if row.switch_id not in review_info_by_switch:
                 latest_rev = await repo.get_latest_review_for_switch(row.switch_id)
                 if latest_rev is not None:
-                    reviewer_name = None
-                    if latest_rev.reviewed_by is not None:
+                    reviewer_name = getattr(latest_rev, "reviewed_by_name", None)
+                    if not reviewer_name and latest_rev.reviewed_by is not None:
                         if latest_rev.reviewed_by not in author_names:
                             u = await repo.get_user_by_id(latest_rev.reviewed_by)
                             author_names[latest_rev.reviewed_by] = u.username if u else f"user-{latest_rev.reviewed_by}"
                         reviewer_name = author_names[latest_rev.reviewed_by]
-                    elif latest_rev.started_by is not None:
-                        if latest_rev.started_by not in author_names:
-                            u = await repo.get_user_by_id(latest_rev.started_by)
-                            author_names[latest_rev.started_by] = u.username if u else f"user-{latest_rev.started_by}"
-                        reviewer_name = author_names[latest_rev.started_by]
+
+                    if not reviewer_name and latest_rev.status == "in_review":
+                        reviewer_name = getattr(latest_rev, "started_by_name", None)
+                        if not reviewer_name and latest_rev.started_by is not None:
+                            if latest_rev.started_by not in author_names:
+                                u = await repo.get_user_by_id(latest_rev.started_by)
+                                author_names[latest_rev.started_by] = u.username if u else f"user-{latest_rev.started_by}"
+                            reviewer_name = author_names[latest_rev.started_by]
 
                     review_info_by_switch[row.switch_id] = {
                         "id": latest_rev.id,
                         "status": latest_rev.status,
-                        "reviewed_by": latest_rev.reviewed_by or latest_rev.started_by,
+                        "reviewed_by": latest_rev.reviewed_by or (latest_rev.started_by if latest_rev.status == "in_review" else None),
                         "reviewed_by_name": reviewer_name,
-                        "reviewed_at": latest_rev.reviewed_at or latest_rev.created_at,
+                        "reviewed_at": (latest_rev.reviewed_at or latest_rev.created_at) if latest_rev.status != "pending" else None,
                     }
     return [
         _baseline_out(
@@ -446,11 +455,16 @@ async def prepare_baseline_review(
         raise problem(404, "Not Found", "Switch tidak ditemukan.")
 
     # 1. Check for existing active review
+    custom_starter_name = None
+    if audit_user_id is None and audit_extra and audit_extra.get("key"):
+        custom_starter_name = f"key:{audit_extra['key']}"
+
     active = await repo.get_active_review_for_switch(switch_id)
     if active is not None:
         if active.status == "pending":
             active.status = "in_review"
             active.started_by = audit_user_id
+            active.started_by_name = custom_starter_name
             active.started_at = utc_now()
             await session.commit()
         return PrepareReviewOut(
@@ -490,6 +504,7 @@ async def prepare_baseline_review(
     )
     review.status = "in_review"
     review.started_by = audit_user_id
+    review.started_by_name = custom_starter_name
     review.started_at = utc_now()
     await session.commit()
 
@@ -523,13 +538,13 @@ async def _review_out(session: AsyncSession, row, include_notes: bool = False) -
     except ValueError:
         summary = {}
 
-    reviewed_by_name = None
-    if row.reviewed_by is not None:
+    reviewed_by_name = getattr(row, "reviewed_by_name", None)
+    if not reviewed_by_name and row.reviewed_by is not None:
         reviewer = await repo.get_user_by_id(row.reviewed_by)
         reviewed_by_name = reviewer.username if reviewer else f"user-{row.reviewed_by}"
 
-    started_by_name = None
-    if row.started_by is not None:
+    started_by_name = getattr(row, "started_by_name", None)
+    if not started_by_name and row.started_by is not None:
         starter = await repo.get_user_by_id(row.started_by)
         started_by_name = starter.username if starter else f"user-{row.started_by}"
 
@@ -610,13 +625,16 @@ async def review_diff(
 async def start_review(
     review_id: int,
     request: Request,
+    payload: ReviewStartPayload | None = None,
     session: AsyncSession = Depends(get_db),
     runtime=Depends(get_runtime),
     actor=Depends(require_role_or_key("admin", "operator", scope="reviews:write")),
 ) -> ReviewOut:
     """Claim a pending review: status -> in_review with reviewer + timestamp."""
     audit_user_id, audit_extra = audit_identity(actor)
-    starter_name = getattr(actor, "username", None) or (f"key:{audit_extra['key']}" if audit_extra else f"user-{audit_user_id}")
+    custom_starter_name = payload.starter_name if payload else None
+    if not custom_starter_name and audit_user_id is None and audit_extra and audit_extra.get("key"):
+        custom_starter_name = f"key:{audit_extra['key']}"
     repo = Repository(session)
     review = await repo.get_review(review_id)
     if review is None:
@@ -624,7 +642,11 @@ async def start_review(
     if review.status != "pending":
         raise problem(409, "Conflict", f"Review is already {review.status}")
     review = await repo.update_review(
-        review_id, status="in_review", started_by=audit_user_id, started_at=utc_now()
+        review_id,
+        status="in_review",
+        started_by=audit_user_id,
+        started_by_name=custom_starter_name,
+        started_at=utc_now(),
     )
     await session.commit()
     await runtime.audit_writer.record(
@@ -718,11 +740,14 @@ async def update_review_status(
     if review is None:
         raise problem(404, "Not Found", "Review not found")
     audit_user_id, audit_extra = audit_identity(actor)
-    reviewer_name = getattr(actor, "username", None) or (f"key:{audit_extra['key']}" if audit_extra else f"user-{audit_user_id}")
+    custom_reviewer_name = payload.reviewer_name
+    if not custom_reviewer_name and audit_user_id is None and audit_extra and audit_extra.get("key"):
+        custom_reviewer_name = f"key:{audit_extra['key']}"
     review = await repo.update_review(
         review_id,
         status=payload.status,
         reviewed_by=audit_user_id,
+        reviewed_by_name=custom_reviewer_name,
         comment=payload.comment,
     )
     if payload.status == "approved" and payload.reset_baseline_cycle:
@@ -746,13 +771,20 @@ async def update_review_status(
         paths = resolve_paths(runtime.settings)
         cfg = load_runtime_settings(paths.data_dir / "runtime_settings.json").notify
         if runtime.notify is not None and cfg.enabled and cfg.email_enabled and cfg.email_review_events:
+            email_reviewer_name = custom_reviewer_name
+            if not email_reviewer_name and audit_user_id is not None:
+                u = await repo.get_user_by_id(audit_user_id)
+                email_reviewer_name = u.username if u else f"user-{audit_user_id}"
+            if not email_reviewer_name:
+                email_reviewer_name = getattr(actor, "username", None) or "operator"
+
             sw = await repo.get_switch(review.switch_id)
             content = email_events.review_decision_email(
                 sw.name if sw else f"#{review.switch_id}",
                 review.id,
                 payload.status,
                 payload.comment,
-                reviewer_name,
+                email_reviewer_name,
                 f"{cfg.app_public_url.rstrip('/')}/config-review",
             )
             await runtime.notify.email(
@@ -792,7 +824,9 @@ async def promote_review_to_baseline(
     5. Write comprehensive audit record with Change Request reference.
     """
     audit_user_id, audit_extra = audit_identity(actor)
-    reviewer_name = getattr(actor, "username", None) or (f"key:{audit_extra['key']}" if audit_extra else f"user-{audit_user_id}")
+    custom_reviewer_name = payload.reviewer_name
+    if not custom_reviewer_name and audit_user_id is None and audit_extra and audit_extra.get("key"):
+        custom_reviewer_name = f"key:{audit_extra['key']}"
     repo = Repository(session)
     review = await repo.get_review(review_id)
     if review is None:
@@ -812,6 +846,7 @@ async def promote_review_to_baseline(
         review_id,
         status="approved",
         reviewed_by=audit_user_id,
+        reviewed_by_name=custom_reviewer_name,
         comment=approval_comment,
     )
 
@@ -912,6 +947,32 @@ async def review_rollback_script(
     sw_name = sw.name if sw else f"switch-{review.switch_id}"
     script = generate_rollback_script(review.raw_diff, switch_name=sw_name)
     return Response(script, media_type="text/plain; charset=utf-8")
+
+
+@router.delete("/reviews/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_review(
+    review_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+    runtime=Depends(get_runtime),
+    actor=Depends(require_role_or_key("admin", "operator", scope="reviews:write")),
+) -> Response:
+    """Delete a config review record and its associated audit note thread."""
+    audit_user_id, audit_extra = audit_identity(actor)
+    repo = Repository(session)
+    deleted = await repo.delete_review(review_id)
+    if not deleted:
+        raise problem(404, "Not Found", "Review not found")
+    await session.commit()
+    await runtime.audit_writer.record(
+        user_id=audit_user_id,
+        action="review.deleted",
+        target_type="review",
+        target_id=str(review_id),
+        ip=request.client.host if request.client else None,
+        detail=audit_extra,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/reviews/compliance")

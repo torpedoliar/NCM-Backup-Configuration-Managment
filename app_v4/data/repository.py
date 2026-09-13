@@ -679,6 +679,16 @@ class Repository:
         result = await self.session.get(ConfigReview, review_id)
         return result
 
+    async def delete_review(self, review_id: int) -> bool:
+        review = await self.get_review(review_id)
+        if review is None:
+            return False
+        await self.session.execute(
+            delete(ReviewNote).where(ReviewNote.review_id == review_id)
+        )
+        await self.session.delete(review)
+        return True
+
     async def get_latest_review_for_switch(self, switch_id: int) -> ConfigReview | None:
         result = await self.session.execute(
             select(ConfigReview)
@@ -708,17 +718,24 @@ class Repository:
         comment: str | None = None,
         started_by: int | None = None,
         started_at: datetime | None = None,
+        reviewed_by_name: str | None = None,
+        started_by_name: str | None = None,
     ) -> ConfigReview | None:
         review = await self.get_review(review_id)
         if review is None:
             return None
         if status is not None:
             review.status = status
-            review.reviewed_by = reviewed_by
+            if reviewed_by is not None:
+                review.reviewed_by = reviewed_by
+            if reviewed_by_name is not None:
+                review.reviewed_by_name = reviewed_by_name
             review.reviewed_at = utc_now()
         if started_by is not None:
             review.started_by = started_by
             review.started_at = started_at or utc_now()
+        if started_by_name is not None:
+            review.started_by_name = started_by_name
         if comment is not None:
             review.comment = comment
         await self.session.flush()

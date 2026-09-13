@@ -719,6 +719,21 @@ export function useSendReviewReminder() {
   });
 }
 
+export function useDeleteReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/reviews/${id}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+      qc.invalidateQueries({ queryKey: ['reviews', 'compliance'] });
+      qc.invalidateQueries({ queryKey: ['baselines'] });
+      qc.invalidateQueries({ queryKey: ['system', 'metrics'] });
+    },
+  });
+}
+
 export function useCompliance() {
   return useQuery({
     queryKey: ['reviews', 'compliance'],

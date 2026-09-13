@@ -5,6 +5,7 @@ import {
   fetchReviewRollbackScript,
   useAddReviewNote,
   useCompliance,
+  useDeleteReview,
   useNotifySettings,
   usePromoteReviewToBaseline,
   useReviews,
@@ -335,6 +336,7 @@ export function ConfigReviewPage() {
   const promote = usePromoteReviewToBaseline();
   const runCycle = useRunFleetReviewCycle();
   const sendReminder = useSendReviewReminder();
+  const deleteReview = useDeleteReview();
 
   const [selected, setSelected] = useState<number | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
@@ -593,13 +595,31 @@ export function ConfigReviewPage() {
                   </span>
                 </td>
                 <td>
-                  {r.reviewed_by_name ? (
-                    <span style={{ fontWeight: 600, color: 'var(--amber, #f59e0b)' }} title={`Reviewer ID: ${r.reviewed_by}`}>
-                      {r.reviewed_by_name}
-                    </span>
-                  ) : r.started_by_name ? (
-                    <span style={{ color: 'var(--muted, #94a3b8)', fontStyle: 'italic', fontSize: '11px' }} title={`Started by ID: ${r.started_by}`}>
-                      in review: {r.started_by_name}
+                  {r.status === 'approved' ? (
+                    <div>
+                      <span style={{ fontWeight: 600, color: 'var(--amber, #f59e0b)' }} title={`Reviewer ID: ${r.reviewed_by}`}>
+                        {r.reviewed_by_name ?? 'operator'}
+                      </span>
+                      {r.reviewed_at ? (
+                        <div style={{ fontSize: '11px', color: 'var(--muted, #94a3b8)', marginTop: '2px' }}>
+                          {formatTzDateTime(r.reviewed_at)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : r.status === 'flagged' || r.status === 'dismissed' ? (
+                    <div>
+                      <span style={{ fontWeight: 600, color: '#f87171' }} title={`Reviewer ID: ${r.reviewed_by}`}>
+                        {r.reviewed_by_name ?? 'operator'}
+                      </span>
+                      {r.reviewed_at ? (
+                        <div style={{ fontSize: '11px', color: 'var(--muted, #94a3b8)', marginTop: '2px' }}>
+                          {formatTzDateTime(r.reviewed_at)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : r.status === 'in_review' ? (
+                    <span style={{ color: '#60a5fa', fontStyle: 'italic', fontSize: '11px' }} title={`Started by ID: ${r.started_by}`}>
+                      in review: {r.started_by_name ?? 'operator'}
                     </span>
                   ) : (
                     <span style={{ color: 'var(--muted, #94a3b8)' }}>-</span>
@@ -644,6 +664,23 @@ export function ConfigReviewPage() {
                   ) : (
                     <span className="marker">{r.comment ? 'has comment' : ''}</span>
                   )}
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Hapus tiket review #${r.id} (${r.switch_name ?? 'Switch'})? Tindakan ini tidak dapat dibatalkan.`)) {
+                        deleteReview.mutate(r.id, {
+                          onSuccess: () => {
+                            if (selected === r.id) setSelected(null);
+                          },
+                          onError: (err: unknown) => setActionError(humanizeError(err)),
+                        });
+                      }
+                    }}
+                    disabled={deleteReview.isPending}
+                    style={{ color: '#f87171', marginLeft: '6px', fontSize: '11px' }}
+                    title="Hapus riwayat review ini satu-per-satu"
+                  >
+                    🗑 Hapus
+                  </button>
                 </td>
               </tr>
             ))}
@@ -660,12 +697,14 @@ export function ConfigReviewPage() {
               <div style={{ fontSize: '12px', color: 'var(--muted, #94a3b8)', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                 <span>Golden Baseline: <strong>#{selectedReview?.baseline_backup_id ?? selectedReview?.baseline_id ?? '?'}</strong></span>
                 <span>Detected Backup: <strong>#{selectedReview?.backup_id}</strong></span>
-                {selectedReview?.reviewed_by_name ? (
-                  <span>Reviewer: <strong style={{ color: 'var(--amber)' }}>{selectedReview.reviewed_by_name}</strong> ({formatTzDateTime(selectedReview.reviewed_at)})</span>
-                ) : selectedReview?.started_by_name ? (
-                  <span>In Review by: <strong style={{ color: '#60a5fa' }}>{selectedReview.started_by_name}</strong> ({formatTzDateTime(selectedReview.started_at)})</span>
+                {selectedReview?.status === 'approved' ? (
+                  <span>Disetujui oleh: <strong style={{ color: 'var(--amber)' }}>{selectedReview.reviewed_by_name ?? 'operator'}</strong> {selectedReview.reviewed_at ? `(${formatTzDateTime(selectedReview.reviewed_at)})` : ''}</span>
+                ) : selectedReview?.status === 'flagged' ? (
+                  <span>Ditandai oleh: <strong style={{ color: '#f87171' }}>{selectedReview.reviewed_by_name ?? 'operator'}</strong> {selectedReview.reviewed_at ? `(${formatTzDateTime(selectedReview.reviewed_at)})` : ''}</span>
+                ) : selectedReview?.status === 'in_review' ? (
+                  <span>In Review by: <strong style={{ color: '#60a5fa' }}>{selectedReview.started_by_name ?? 'operator'}</strong> {selectedReview.started_at ? `(${formatTzDateTime(selectedReview.started_at)})` : ''}</span>
                 ) : (
-                  <span>Status: <strong style={{ color: 'var(--amber)' }}>{selectedReview?.status.toUpperCase()}</strong></span>
+                  <span>Status: <strong style={{ color: 'var(--amber)' }}>PENDING</strong></span>
                 )}
                 {selectedReview?.comment ? (
                   <span>Catatan: <em>{selectedReview.comment}</em></span>
