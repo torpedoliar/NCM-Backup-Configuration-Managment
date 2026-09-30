@@ -25,7 +25,7 @@ export function SettingsAboutSection() {
       <dl className="settings-list">
         <div><dt>Application</dt><dd>NCM v4 Ops Terminal</dd></div>
         <div><dt>Version</dt><dd>{status?.version ?? '—'}</dd></div>
-        <div><dt>Updated</dt><dd>2026-08-18</dd></div>
+        <div><dt>Updated</dt><dd>2026-09-30</dd></div>
         <div><dt>Switches under management</dt><dd>{metrics?.switches ?? '—'}</dd></div>
         <div><dt>Total backups</dt><dd>{metrics?.backups ?? '—'}</dd></div>
         <div><dt>Scheduled jobs</dt><dd>{metrics?.jobs ?? '—'}</dd></div>

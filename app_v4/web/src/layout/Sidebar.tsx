@@ -55,7 +55,7 @@ export function Sidebar() {
       <div className="brand-block">
         <div className="brand-title">NCM</div>
         <div className="brand-subtitle">NETWORK CONFIG MGR</div>
-        <div className="version-tag"><span className="version-dot" />V4.6.0 / PROD</div>
+        <div className="version-tag"><span className="version-dot" />V4.7.0 / PROD</div>
       </div>
 
       <div className="nav-sections">
