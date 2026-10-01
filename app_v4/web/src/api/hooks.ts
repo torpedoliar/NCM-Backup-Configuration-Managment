@@ -54,6 +54,7 @@ export function useSystemMetrics() {
     queryFn: async () => (await api.get<SystemMetrics>('/system/metrics')).data,
     staleTime: 15 * SECOND,
     refetchInterval: 30 * SECOND,
+    refetchIntervalInBackground: false,
   });
 }
 

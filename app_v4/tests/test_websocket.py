@@ -25,6 +25,9 @@ async def test_websocket_sends_ready_event(test_settings, session_factory):
 
     with client.websocket_connect(f"/ws?token={token}") as websocket:
         data = websocket.receive_json()
+        assert len(runtime.event_hub._clients) == 1
 
     assert data["type"] == "connected"
     assert data["payload"] == {"user": "viewer", "role": "viewer"}
+    assert len(runtime.event_hub._clients) == 0
+

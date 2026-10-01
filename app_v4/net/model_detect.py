@@ -10,6 +10,10 @@ _PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bAruba\s+([A-Z0-9-]+)", re.IGNORECASE),
     re.compile(r"\bCatalyst\s+([A-Z0-9]+)", re.IGNORECASE),
     re.compile(r"\bJuniper\s+([A-Z0-9.-]+)", re.IGNORECASE),
+    re.compile(r"\bRouterBOARD\s+([A-Z0-9.-]+)", re.IGNORECASE),
+    re.compile(r"\bMikroTik\s+([A-Z0-9.-]+)", re.IGNORECASE),
+    re.compile(r"\bRuijie\s+([A-Z0-9.-]+)", re.IGNORECASE),
+    re.compile(r"\b(CCR[0-9]+[A-Z0-9-]*|CRS[0-9]+[A-Z0-9-]*|RB[0-9]+[A-Z0-9-]*|hEX[A-Z0-9-]*|RG-[A-Z0-9-]+)\b", re.IGNORECASE),
     re.compile(r"\b(N1548P|GS-?[0-9]+|DES-?[0-9]+|SL-?[0-9]+|XS-?[0-9]+)\b", re.IGNORECASE),
 ]
 

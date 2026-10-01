@@ -429,9 +429,9 @@ function CompliancePanel({
           disabled={isTriggering}
           className="btn-primary"
           style={{
-            background: 'rgba(255, 184, 0, 0.15)',
-            borderColor: 'var(--amber)',
-            color: 'var(--amber)',
+            background: 'rgba(255, 184, 0, 0.22)',
+            borderColor: '#ffb800',
+            color: '#ffd166',
             fontWeight: 'bold',
           }}
           title="Bandingkan seluruh switch ke baseline sekarang, reset siklus periode, dan kirim email hasil review"
@@ -762,7 +762,12 @@ export function ConfigReviewPage() {
                       <button
                         onClick={() => openPromoteModal(r.id)}
                         className="btn-primary"
-                        style={{ color: 'var(--amber)', fontWeight: 'bold' }}
+                        style={{
+                          background: 'rgba(255, 184, 0, 0.22)',
+                          borderColor: '#ffb800',
+                          color: '#ffd166',
+                          fontWeight: 'bold',
+                        }}
                         title="Approve and promote this backup as the new golden baseline"
                       >
                         ★ Promote
@@ -853,7 +858,12 @@ export function ConfigReviewPage() {
                     <>
                       <button
                         onClick={() => openPromoteModal(selected)}
-                        style={{ color: 'var(--amber)', fontWeight: 'bold' }}
+                        style={{
+                          background: 'rgba(255, 184, 0, 0.22)',
+                          borderColor: '#ffb800',
+                          color: '#ffd166',
+                          fontWeight: 'bold',
+                        }}
                         title="Setujui dan jadikan konfigurasi backup terbaru ini sebagai Golden Baseline baru"
                       >
                         ★ Approve &amp; Promote to Baseline

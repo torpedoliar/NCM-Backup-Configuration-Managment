@@ -2,10 +2,10 @@ from app_v4.desktop.setup.service_config import ServiceSetupConfig
 from app_v4.desktop.setup.wizard import SetupWizard
 
 
-def test_service_setup_config_defaults_to_loopback():
+def test_service_setup_config_defaults_to_all_interfaces():
     config = ServiceSetupConfig(master_passphrase="test-password-not-real", admin_username="admin", admin_password="passphrase")
 
-    assert config.bind_host == "127.0.0.1"
+    assert config.bind_host == "0.0.0.0"
     assert config.bind_port == 8443
 
 

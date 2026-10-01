@@ -16,10 +16,11 @@ import { humanizeError } from '../lib/errors';
 import { CredentialCombo } from '../components/CredentialCombo';
 import type { CredentialRecord, SwitchRecord } from '../api/types';
 
-const PROTOCOLS = ['ssh', 'telnet', 'http', 'https', 'websmart', 'websmart-v2'] as const;
+const PROTOCOLS = ['ssh', 'telnet', 'mikrotik', 'http', 'https', 'websmart', 'websmart-v2'] as const;
 const DEFAULT_PORT: Record<string, number> = {
   ssh: 22,
   telnet: 23,
+  mikrotik: 22,
   http: 80,
   https: 443,
   websmart: 80,

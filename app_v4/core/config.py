@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="NCM_V4_", extra="ignore")
 
     base_dir: Path = Field(default_factory=_default_base_dir)
-    service_host: str = "127.0.0.1"
+    service_host: str = "0.0.0.0"
     service_port: int = 8443
     jwt_access_minutes: int = 15
     jwt_refresh_days: int = 7

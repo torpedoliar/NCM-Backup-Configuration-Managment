@@ -31,6 +31,7 @@ const downloadBackupMock = vi.fn();
 
 vi.mock('../api/hooks', () => ({
   useSwitches: () => ({ data: [{ id: 1, name: 'SW-A', ip: '10.0.0.1', host: '10.0.0.1', protocol: 'ssh', port: 22, credential_id: 1, is_active: true }] }),
+  useBaselines: () => ({ data: [] }),
   usePagedBackups: (filters: unknown, opts: { offset: number; limit: number }) => filteredFactory(filters as never, opts),
   useDeleteBackup: () => ({ mutate: deleteMutate, isPending: false }),
   fetchBackupContent: vi.fn(async () => 'config text'),

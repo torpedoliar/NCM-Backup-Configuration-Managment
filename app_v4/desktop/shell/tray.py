@@ -33,6 +33,21 @@ def _build_icon() -> QIcon:
     return QIcon(pix)
 
 
+def _trim_process_memory() -> None:
+    """Release unused working set back to OS on Windows."""
+    import sys
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            psapi = ctypes.windll.psapi
+            psapi.EmptyWorkingSet.argtypes = [wintypes.HANDLE]
+            psapi.EmptyWorkingSet.restype = wintypes.BOOL
+            psapi.EmptyWorkingSet(ctypes.windll.kernel32.GetCurrentProcess())
+        except Exception:
+            pass
+
+
 class TrayController(QObject):
     """Owns the QSystemTrayIcon; close-to-tray + true exit menu."""
 
@@ -84,6 +99,7 @@ class TrayController(QObject):
             # Intercept the close: hide to tray, keep the backend alive.
             event.ignore()
             self._window.hide()
+            _trim_process_memory()
             self.tray.show()
             if not getattr(self, "_notified_once", False):
                 self.tray.showMessage(

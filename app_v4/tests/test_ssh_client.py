@@ -55,6 +55,19 @@ async def test_ssh_client_enters_enable_mode_through_interactive_shell():
 
 
 @pytest.mark.asyncio
+async def test_ssh_client_ruijie_enable_prompt_waits_for_password():
+    # Simulates Ruijie CLI: starts at 'Ruijie>', sends 'enable', waits for 'Password:'
+    # without breaking early on '>' prompt indicator.
+    client = AsyncSshClient("switch", 22, "admin", "test-password-not-real", "ruijie-secret")
+    client.conn = NonInteractiveConn()
+    client.process = FakeProcess(["Ruijie>enable\n\nPassword:", "Ruijie#"])
+
+    assert await client.enter_enable_mode(["#", ">"]) is True
+
+    assert client.process.stdin.writes == ["enable\n", "ruijie-secret\n"]
+
+
+@pytest.mark.asyncio
 async def test_ssh_client_disables_paging_through_interactive_shell():
     client = AsyncSshClient("switch", 22, "admin", "test-password-not-real")
     client.conn = NonInteractiveConn()

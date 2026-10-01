@@ -3,6 +3,7 @@ import {
   downloadBackup,
   downloadBackupReport,
   fetchBackupContent,
+  useBaselines,
   useDeleteBackup,
   usePagedBackups,
   useSwitches,
@@ -32,6 +33,8 @@ export function HistoryPage() {
   const [copied, setCopied] = useState(false);
 
   const { data: switches = [] } = useSwitches();
+  const { data: baselines = [] } = useBaselines();
+  const goldenBackupIds = new Set(baselines.map((bl) => bl.backup_id).filter(Boolean));
   const paged = usePagedBackups(filters, { offset: page * BACKUPS_PER_PAGE, limit: BACKUPS_PER_PAGE });
   const rows = paged.data?.rows ?? [];
   const total = paged.data?.total ?? 0;
@@ -167,6 +170,15 @@ export function HistoryPage() {
                 <td title={`Nomor urut backup switch ini · nomor global job #${b.id}`}>
                   <strong>{b.switch_seq ?? '—'}</strong>
                   <span className="marker"> · g#{b.id}</span>
+                  {goldenBackupIds.has(b.id) && (
+                    <span
+                      className="badge state-warn"
+                      style={{ marginLeft: '6px', fontWeight: 'bold' }}
+                      title="Backup ini sedang aktif sebagai Golden Baseline"
+                    >
+                      ★ GOLDEN BASELINE
+                    </span>
+                  )}
                 </td>
                 <td>{formatTzDateTime(b.created_at)}</td>
                 <td>{switchName}</td>

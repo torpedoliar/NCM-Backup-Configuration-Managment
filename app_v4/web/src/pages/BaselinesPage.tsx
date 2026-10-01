@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
 import {
+  downloadBackup,
   downloadComplianceReport,
   useBackups,
   useBaselines,
@@ -312,6 +313,14 @@ export function BaselinesPage() {
                     >
                       {prepareReview.isPending ? 'Membuka…' : 'Review'}
                     </button>
+                    {b.backup_id ? (
+                      <button
+                        onClick={() => downloadBackup(b.backup_id!)}
+                        title="Unduh file konfigurasi golden baseline ini"
+                      >
+                        Download
+                      </button>
+                    ) : null}
                     <button
                       onClick={() => {
                         if (window.confirm(`Delete baseline #${b.id}?`)) remove.mutate(b.id);

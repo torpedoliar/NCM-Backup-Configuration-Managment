@@ -64,7 +64,10 @@ def has_terminal_prompt(
 def is_password_prompt(text: str) -> bool:
     """Return whether the current tail is a password-entry prompt."""
     line = _last_non_empty_line(text).strip().casefold()
-    return line.endswith(("password:", "passwd:", "passcode:", "pass:"))
+    if line.endswith(("password:", "passwd:", "passcode:", "pass:")):
+        return True
+    cleaned = line.rstrip(" :")
+    return cleaned.endswith(("password", "passwd", "passcode", "pass"))
 
 
 def _matches_configured_indicator(line: str, indicator: str) -> bool:

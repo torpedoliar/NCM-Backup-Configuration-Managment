@@ -10,7 +10,7 @@ class ServiceSetupConfig:
     admin_username: str
     admin_password: str
     install_path: Path | None = None
-    bind_host: str = "127.0.0.1"
+    bind_host: str = "0.0.0.0"
     bind_port: int = 8443
     lan_bind_enabled: bool = False
     cert_pfx_path: Path | None = None

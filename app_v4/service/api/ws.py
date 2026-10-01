@@ -25,5 +25,7 @@ async def websocket_events(websocket: WebSocket) -> None:
         await runtime.event_hub.send(websocket, "connected", {"user": claims.username, "role": claims.role})
         while True:
             await websocket.receive_text()
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
         runtime.event_hub.disconnect(websocket)

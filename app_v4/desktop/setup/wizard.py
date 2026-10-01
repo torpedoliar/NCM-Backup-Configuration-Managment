@@ -65,7 +65,7 @@ class ServicePage(_ValidatingPage):
         self.setTitle("Service")
         self.setSubTitle("Where the local backend will listen.")
         layout = QFormLayout(self)
-        self.bind_host = QLineEdit("127.0.0.1")
+        self.bind_host = QLineEdit("0.0.0.0")
         self.bind_port = QLineEdit("8443")
         self.warning_label = QLabel("")
         self.warning_label.setStyleSheet("color: #ffb800;")
@@ -147,6 +147,6 @@ class SetupWizard(QWizard):
             master_passphrase=self.welcome_page.master_passphrase.text(),
             admin_username=self.admin_page.username.text().strip() or "admin",
             admin_password=self.admin_page.password.text(),
-            bind_host=self.service_page.bind_host.text().strip() or "127.0.0.1",
+            bind_host=self.service_page.bind_host.text().strip() or "0.0.0.0",
             bind_port=bind_port,
         )

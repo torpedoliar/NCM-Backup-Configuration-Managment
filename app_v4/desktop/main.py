@@ -111,7 +111,7 @@ def run_serve(
         )
 
     settings_file = base_dir / "data" / "service.json"
-    persisted = load_settings(settings_file) or ServiceSettings(bind_host="127.0.0.1", bind_port=8443)
+    persisted = load_settings(settings_file) or ServiceSettings(bind_host="0.0.0.0", bind_port=8443)
     host = mode.host or persisted.bind_host
     port = mode.port or persisted.bind_port
 
@@ -257,7 +257,7 @@ def _resolve_bind_settings(
         candidate = ServiceSettings(bind_host=setup_config.bind_host, bind_port=setup_config.bind_port)
     else:
         candidate = load_service_settings(settings_file) or ServiceSettings(
-            bind_host="127.0.0.1", bind_port=8443
+            bind_host="0.0.0.0", bind_port=8443
         )
 
     while True:

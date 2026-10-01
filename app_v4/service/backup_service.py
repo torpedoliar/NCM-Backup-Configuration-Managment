@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 from datetime import datetime
 from pathlib import Path
@@ -181,6 +182,11 @@ class BackupService:
                         previous_text = previous_path.read_text(encoding="utf-8")
 
         file_path = self._save_config_file(switch_name, run_result.config_text, changed)
+        if getattr(run_result, "binary_bytes", None):
+            with contextlib.suppress(Exception):
+                bin_path = file_path.parent / f"{file_path.stem}.backup"
+                bin_path.write_bytes(run_result.binary_bytes)
+
         if changed and previous_text is not None:
             diff_text = self.diff_service.unified_diff(previous_text, run_result.config_text, "Previous", "Current")
             diff_stats = self.diff_service.get_diff_stats(previous_text, run_result.config_text)

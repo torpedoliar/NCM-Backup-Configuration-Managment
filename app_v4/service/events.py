@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -46,14 +47,20 @@ class EventHub:
         self._clients.discard(websocket)
 
     async def send(self, websocket: WebSocket, event_type: str, payload: dict[str, Any]) -> None:
-        await websocket.send_json(EventMessage.create(event_type, payload).__dict__)
+        try:
+            await asyncio.wait_for(
+                websocket.send_json(EventMessage.create(event_type, payload).__dict__),
+                timeout=2.0,
+            )
+        except Exception:
+            self.disconnect(websocket)
 
     async def broadcast(self, event: EventMessage) -> None:
         dead: list[WebSocket] = []
         message = event.__dict__
         for websocket in list(self._clients):
             try:
-                await websocket.send_json(message)
+                await asyncio.wait_for(websocket.send_json(message), timeout=2.0)
             except Exception:
                 dead.append(websocket)
         for websocket in dead:

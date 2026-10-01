@@ -6,6 +6,7 @@ from typing import Callable, Protocol
 
 from app_v4.core.config import Settings
 from app_v4.core.network_config import load_network_config
+from app_v4.net.mikrotik_client import AsyncMikrotikClient
 from app_v4.net.ssh_client import AsyncSshClient
 from app_v4.net.telnet_client import AsyncTelnetClient
 from app_v4.net.websmart_client import AsyncWebSmartClient
@@ -25,6 +26,8 @@ class BackupRunResult:
     config_text: str
     message: str
     error_code: str | None = None
+    binary_bytes: bytes | None = None
+    binary_filename: str | None = None
 
 
 class BackupRunner:
@@ -43,7 +46,7 @@ class BackupRunner:
         enable_password: str = "",
     ) -> BackupRunResult:
         protocol = protocol.lower()
-        allowed_protocols = {"ssh", "telnet", "http", "https", "websmart", "websmart-v2"}
+        allowed_protocols = {"ssh", "telnet", "http", "https", "websmart", "websmart-v2", "mikrotik", "routeros"}
         if protocol not in allowed_protocols:
             return BackupRunResult(False, "", f"Unsupported protocol: {protocol}", "UNKNOWN")
 
@@ -62,7 +65,15 @@ class BackupRunner:
                 config_text = self._normalize_output(config_text)
                 if not config_text.strip():
                     raise ValueError("Retrieved configuration is empty")
-                return BackupRunResult(True, config_text, "Backup completed successfully")
+                binary_bytes = getattr(client, "binary_bytes", None)
+                binary_filename = "system.backup" if binary_bytes else None
+                return BackupRunResult(
+                    True,
+                    config_text,
+                    "Backup completed successfully",
+                    binary_bytes=binary_bytes,
+                    binary_filename=binary_filename,
+                )
             except Exception as exc:
                 last_error = str(exc)
                 last_code = self._categorize_error(exc)
@@ -102,6 +113,10 @@ class BackupRunner:
                 password=password,
                 enable_password=enable_password,
                 **common,
+            )
+        if protocol in ("mikrotik", "routeros"):
+            return AsyncMikrotikClient(
+                host, port, username, password, enable_password, **common
             )
         if protocol == "ssh":
             return AsyncSshClient(

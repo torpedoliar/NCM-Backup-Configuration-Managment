@@ -9,7 +9,7 @@ from app_v4.core.paths import resolve_paths
 def test_settings_defaults_to_local_backend_bind(tmp_path: Path):
     settings = Settings(base_dir=tmp_path)
 
-    assert settings.service_host == "127.0.0.1"
+    assert settings.service_host == "0.0.0.0"
     assert settings.service_port == 8443
     assert settings.database_url.endswith("/data/app.db")
 

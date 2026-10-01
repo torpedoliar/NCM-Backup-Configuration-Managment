@@ -59,16 +59,16 @@ class AsyncSshClient:
         self.prompt_indicators = prompts or ["#", ">"]
         self._write("enable\n")
         output = await self._read_until(
-            ["password", "#", ">"],
-            timeout=min(5.0, self.read_timeout),
+            ["password", "passcode", "#"],
+            timeout=min(6.0, self.read_timeout),
         )
         self._remember_bare_prompt(output)
-        if is_password_prompt(output):
+        if is_password_prompt(output) or "password" in output.lower():
             if self.enable_password:
                 self._write(self.enable_password + "\n")
                 output = await self._read_until(
-                    ["#", ">"],
-                    timeout=min(5.0, self.read_timeout),
+                    ["#"],
+                    timeout=min(6.0, self.read_timeout),
                 )
                 self._remember_bare_prompt(output)
         return True
@@ -148,9 +148,10 @@ class AsyncSshClient:
             if isinstance(chunk, bytes):
                 chunk = chunk.decode("utf-8", errors="replace")
             output += chunk
-            if any(token.lower() in {"#", ">"} for token in tokens) and has_terminal_prompt(
+            matched_prompts = [token for token in tokens if token in {"#", ">"}]
+            if matched_prompts and has_terminal_prompt(
                 output,
-                self.prompt_indicators,
+                matched_prompts,
                 True,
             ):
                 return output
