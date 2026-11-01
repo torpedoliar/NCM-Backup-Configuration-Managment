@@ -24,6 +24,7 @@
 
 ## Contents
 
+- [Screenshots](#screenshots)
 - [Why NCM v4](#why-ncm-v4)
 - [Features](#features)
 - [Supported devices](#supported-devices)
@@ -37,6 +38,19 @@
 - [Troubleshooting](#troubleshooting)
 - [Documentation](#documentation)
 - [License](#license)
+
+## Screenshots
+
+![Operations dashboard](docs/screenshots/dashboard.png)
+
+*Operations dashboard*
+
+| | |
+|:---:|:---:|
+| ![Config review and ISO 27001 A.8.9 compliance overview](docs/screenshots/config-review.png)<br/>Config review and ISO 27001 A.8.9 compliance overview | ![Switch inventory](docs/screenshots/switches.png)<br/>Switch inventory |
+| ![Golden baselines and review cycle](docs/screenshots/baselines.png)<br/>Golden baselines and review cycle | ![Sign-in](docs/screenshots/login.png)<br/>Sign-in |
+
+Captured from the web interface with demo switches and backups.
 
 ## Why NCM v4
 

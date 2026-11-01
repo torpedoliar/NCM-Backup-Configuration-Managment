@@ -24,6 +24,7 @@
 
 ## Daftar isi
 
+- [Tangkapan layar](#tangkapan-layar)
 - [Kenapa NCM v4](#kenapa-ncm-v4)
 - [Fitur](#fitur)
 - [Perangkat yang didukung](#perangkat-yang-didukung)
@@ -37,6 +38,19 @@
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Dokumentasi](#dokumentasi)
 - [Lisensi](#lisensi)
+
+## Tangkapan layar
+
+![Dashboard operasional](docs/screenshots/dashboard.png)
+
+*Dashboard operasional*
+
+| | |
+|:---:|:---:|
+| ![Review konfigurasi dan ringkasan kepatuhan ISO 27001 A.8.9](docs/screenshots/config-review.png)<br/>Review konfigurasi dan ringkasan kepatuhan ISO 27001 A.8.9 | ![Inventaris switch](docs/screenshots/switches.png)<br/>Inventaris switch |
+| ![Golden baseline dan siklus review](docs/screenshots/baselines.png)<br/>Golden baseline dan siklus review | ![Halaman login](docs/screenshots/login.png)<br/>Halaman login |
+
+Diambil dari antarmuka web dengan data switch dan backup demo.
 
 ## Kenapa NCM v4
 
