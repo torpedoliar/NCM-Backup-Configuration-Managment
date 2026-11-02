@@ -326,6 +326,9 @@ export interface ReviewNote {
   created_at: string;
 }
 
+/** Review provenance: per-backup drift record vs periodic attestation. */
+export type ReviewOrigin = 'drift' | 'cycle' | 'manual';
+
 export interface ConfigReview {
   id: number;
   switch_id: number;
@@ -343,6 +346,8 @@ export interface ConfigReview {
   comment: string | null;
   diff_summary: Record<string, unknown>;
   created_at: string;
+  /** "drift" = per-backup change record, "cycle"/"manual" = attestation ticket. */
+  origin?: ReviewOrigin;
   notes: ReviewNote[];
 }
 
@@ -350,6 +355,8 @@ export interface ReviewFilters {
   status?: ConfigReviewStatus | '';
   switch_id?: number;
   include_notes?: boolean;
+  origin?: ReviewOrigin;
+  exclude_origin?: ReviewOrigin;
 }
 
 export interface ComplianceSummary {

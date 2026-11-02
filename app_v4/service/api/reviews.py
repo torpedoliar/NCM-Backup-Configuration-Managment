@@ -53,6 +53,9 @@ class ReviewOut(BaseModel):
     baseline_id: int | None
     baseline_backup_id: int | None = None
     status: str
+    # "drift" = per-backup change record, "cycle" = periodic attestation run,
+    # "manual" = on-demand baseline review.
+    origin: str = "drift"
     reviewed_by: int | None
     reviewed_by_name: str | None = None
     reviewed_at: datetime | None
@@ -148,7 +151,9 @@ async def list_baselines(
                     if sw.model:
                         model_by_id[row.switch_id] = sw.model
             if row.switch_id not in review_info_by_switch:
-                latest_rev = await repo.get_latest_review_for_switch(row.switch_id)
+                latest_rev = await repo.get_latest_review_for_switch(
+                    row.switch_id, exclude_origin="drift"
+                )
                 if latest_rev is not None:
                     reviewer_name = getattr(latest_rev, "reviewed_by_name", None)
                     if not reviewer_name and latest_rev.reviewed_by is not None:
@@ -459,7 +464,7 @@ async def prepare_baseline_review(
     if audit_user_id is None and audit_extra and audit_extra.get("key"):
         custom_starter_name = f"key:{audit_extra['key']}"
 
-    active = await repo.get_active_review_for_switch(switch_id)
+    active = await repo.get_active_review_for_switch(switch_id, exclude_origin="drift")
     if active is not None:
         if active.status == "pending":
             active.status = "in_review"
@@ -501,6 +506,7 @@ async def prepare_baseline_review(
         baseline_id=baseline.id,
         raw_diff=raw_diff if is_drift else "",
         diff_summary=json.dumps(summary),
+        origin="manual",
     )
     review.status = "in_review"
     review.started_by = audit_user_id
@@ -578,6 +584,7 @@ async def _review_out(session: AsyncSession, row, include_notes: bool = False) -
         baseline_id=row.baseline_id,
         baseline_backup_id=baseline_backup_id,
         status=row.status,
+        origin=getattr(row, "origin", "drift") or "drift",
         reviewed_by=row.reviewed_by,
         reviewed_by_name=reviewed_by_name,
         reviewed_at=to_aware_utc(row.reviewed_at),
@@ -595,6 +602,8 @@ async def _review_out(session: AsyncSession, row, include_notes: bool = False) -
 async def list_reviews(
     status_filter: str | None = Query(default=None, alias="status"),
     switch_id: int | None = None,
+    origin: str | None = Query(default=None, pattern="^(drift|cycle|manual)$"),
+    exclude_origin: str | None = Query(default=None, pattern="^(drift|cycle|manual)$"),
     include_notes: bool = Query(default=False),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -604,7 +613,14 @@ async def list_reviews(
     if status_filter is not None and status_filter not in REVIEW_STATUSES:
         raise problem(422, "Unprocessable Entity", f"invalid status: {status_filter}")
     repo = Repository(session)
-    rows = await repo.list_reviews(status=status_filter, switch_id=switch_id, limit=limit, offset=offset)
+    rows = await repo.list_reviews(
+        status=status_filter,
+        switch_id=switch_id,
+        origin=origin,
+        exclude_origin=exclude_origin,
+        limit=limit,
+        offset=offset,
+    )
     return [await _review_out(session, row, include_notes=include_notes) for row in rows]
 
 
@@ -1111,6 +1127,7 @@ async def run_fleet_cycle_review(
                 content_text=target_text,
                 baseline_text=golden_text,
                 baseline_id=bl.id,
+                origin="cycle",
             )
             is_drifted = outcome.drifted
             rev_id = outcome.review_id

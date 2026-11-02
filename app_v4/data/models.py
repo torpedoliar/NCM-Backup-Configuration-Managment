@@ -184,6 +184,13 @@ class ConfigReview(Base):
     backup_id: Mapped[int] = mapped_column(ForeignKey("backups.id"), nullable=False, index=True)
     baseline_id: Mapped[Optional[int]] = mapped_column(ForeignKey("config_baselines.id"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
+    # Where this review came from:
+    #   "drift"  -> auto-opened because a backup differed from the baseline
+    #               (a change-history record, surfaced under "Riwayat Perubahan")
+    #   "cycle"  -> periodic ISO/IEC 27001 A.8.9 attestation run
+    #   "manual" -> on-demand review prepared from a baseline
+    # Only "cycle"/"manual" rows are attestation tickets shown in Config Review.
+    origin: Mapped[str] = mapped_column(String(16), nullable=False, default="drift", index=True)
     reviewed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     reviewed_by_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

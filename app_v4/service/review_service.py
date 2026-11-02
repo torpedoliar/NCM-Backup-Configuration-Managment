@@ -173,11 +173,16 @@ class ReviewService:
         content_text: str,
         baseline_text: str | None,
         baseline_id: int | None,
+        origin: str = "drift",
     ) -> DriftOutcome:
         """Create a pending review when the new config differs from the baseline.
 
         ``baseline_text``/``baseline_id`` come from the caller (backup_service),
         which already resolved the applicable baseline for this switch.
+
+        ``origin`` classifies the evidence row: "drift" for the automatic
+        per-backup change record, "cycle" for the periodic attestation run,
+        "manual" for an on-demand baseline review.
         """
         try:
             if baseline_text is None:
@@ -194,6 +199,7 @@ class ReviewService:
                     baseline_id=baseline_id,
                     raw_diff=raw_diff,
                     diff_summary=json.dumps(summary),
+                    origin=origin,
                 )
                 await session.commit()
             if self.notifier is not None:
@@ -318,7 +324,9 @@ class ReviewService:
                 ):
                     stale.append(sw.name)
                     reminder_due.append(sw.name)
-            counts = await repo.count_reviews_by_status()
+            # Counts feed the Config Review panel, so per-backup drift records
+            # ("Riwayat Perubahan") must not inflate them.
+            counts = await repo.count_reviews_by_status(exclude_origin="drift")
             return {
                 "switches_total": total,
                 "switches_with_baseline": total - len(missing),
@@ -355,9 +363,15 @@ class ReviewService:
                         if reminder_due:
                             baseline_state = "stale"
                 latest = await repo.get_latest_backup(sw.id)
-                reviews = await repo.list_reviews(switch_id=sw.id, limit=1)
+                reviews = await repo.list_reviews(
+                    switch_id=sw.id, exclude_origin="drift", limit=1
+                )
                 last_review = reviews[0] if reviews else None
-                pending_count = len(await repo.list_reviews(status="pending", switch_id=sw.id, limit=200))
+                pending_count = len(
+                    await repo.list_reviews(
+                        status="pending", switch_id=sw.id, exclude_origin="drift", limit=200
+                    )
+                )
                 rows.append(
                     {
                         "switch": sw.name,
@@ -382,7 +396,9 @@ class ReviewService:
         """Gather the reminder data into a plain dict (template variables)."""
         async with self.session_factory() as session:
             repo = Repository(session)
-            pending = await repo.list_reviews(status="pending", limit=50)
+            pending = await repo.list_reviews(
+                status="pending", exclude_origin="drift", limit=50
+            )
             switches_missing = await repo.list_switches_missing_baseline()
             compliance = await self.compliance_summary()
 

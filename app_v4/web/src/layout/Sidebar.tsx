@@ -19,6 +19,7 @@ export function Sidebar() {
       items: [
         { href: '/', text: 'Dashboard', icon: '▣' },
         { href: '/history', text: 'Backup History', count: count(metrics?.backups), icon: '◉' },
+        { href: '/change-history', text: 'Change History', icon: '⟳' },
         { href: '/diff', text: 'Diff Viewer', icon: '⇆' },
         { href: '/decode', text: 'Decode', icon: '⌗' },
       ],

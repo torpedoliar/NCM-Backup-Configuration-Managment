@@ -444,7 +444,11 @@ function CompliancePanel({
 }
 
 export function ConfigReviewPage() {
-  const [filters, setFilters] = useState<ReviewFilters>({ include_notes: true });
+  // Attestation tickets only: per-backup drift records live in Change History.
+  const [filters, setFilters] = useState<ReviewFilters>({
+    include_notes: true,
+    exclude_origin: 'drift',
+  });
   const { data: reviews = [] } = useReviews(filters);
   const update = useReviewStatus();
   const start = useStartReview();

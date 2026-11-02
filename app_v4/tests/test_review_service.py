@@ -100,6 +100,8 @@ async def test_review_status_transitions(test_settings, session_factory):
         review = await repo.create_review(
             switch_id=sw.id, backup_id=backup.id, baseline_id=None,
             raw_diff="a", diff_summary="{}",
+            # Attestation ticket: reminder digests only list cycle/manual reviews.
+            origin="cycle",
         )
         await session.commit()
         review_id = review.id
@@ -277,6 +279,8 @@ async def test_reminder_with_custom_html_template(test_settings, session_factory
         await repo.create_review(
             switch_id=sw.id, backup_id=1, baseline_id=None,
             raw_diff="-a\n+b", diff_summary="{}",
+            # Reminder digests list attestation tickets only.
+            origin="cycle",
         )
         await session.commit()
 

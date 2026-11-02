@@ -132,6 +132,8 @@ async def test_review_workflow(test_settings, session_factory):
             switch_id=switch_id, backup_id=backup.id, baseline_id=baseline_id,
             raw_diff="--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new",
             diff_summary=json.dumps({"vlans_added": [100], "vlans_removed": []}),
+            # Attestation ticket: only cycle/manual reviews feed the compliance panel.
+            origin="cycle",
         )
         await session.commit()
         review_id = review.id

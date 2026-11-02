@@ -16,6 +16,7 @@ const UsersPage = lazy(() => import('./pages/UsersPage').then((m) => ({ default:
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const AuditPage = lazy(() => import('./pages/AuditPage').then((m) => ({ default: m.AuditPage })));
 const ConfigReviewPage = lazy(() => import('./pages/ConfigReviewPage').then((m) => ({ default: m.ConfigReviewPage })));
+const ChangeHistoryPage = lazy(() => import('./pages/ChangeHistoryPage').then((m) => ({ default: m.ChangeHistoryPage })));
 const BaselinesPage = lazy(() => import('./pages/BaselinesPage').then((m) => ({ default: m.BaselinesPage })));
 
 function PageFallback() {
@@ -38,6 +39,7 @@ export function App() {
               <Route path="/decode" component={DecodePage} />
               <Route path="/schedules" component={SchedulesPage} />
               <Route path="/config-review" component={ConfigReviewPage} />
+              <Route path="/change-history" component={ChangeHistoryPage} />
               <Route path="/baselines" component={BaselinesPage} />
               <Route path="/users" component={UsersPage} />
               <Route path="/settings" component={SettingsPage} />

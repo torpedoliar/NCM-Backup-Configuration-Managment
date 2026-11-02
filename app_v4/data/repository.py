@@ -643,12 +643,14 @@ class Repository:
         baseline_id: int | None,
         raw_diff: str,
         diff_summary: str,
+        origin: str = "drift",
     ) -> ConfigReview:
         review = ConfigReview(
             switch_id=switch_id,
             backup_id=backup_id,
             baseline_id=baseline_id,
             status="pending",
+            origin=origin,
             raw_diff=raw_diff,
             diff_summary=diff_summary,
         )
@@ -660,6 +662,8 @@ class Repository:
         self,
         status: str | None = None,
         switch_id: int | None = None,
+        origin: str | None = None,
+        exclude_origin: str | None = None,
         limit: int = 200,
         offset: int = 0,
     ) -> list[ConfigReview]:
@@ -668,6 +672,10 @@ class Repository:
             stmt = stmt.where(ConfigReview.status == status)
         if switch_id is not None:
             stmt = stmt.where(ConfigReview.switch_id == switch_id)
+        if origin is not None:
+            stmt = stmt.where(ConfigReview.origin == origin)
+        if exclude_origin is not None:
+            stmt = stmt.where(ConfigReview.origin != exclude_origin)
         if offset:
             stmt = stmt.offset(offset)
         if limit is not None:
@@ -689,17 +697,23 @@ class Repository:
         await self.session.delete(review)
         return True
 
-    async def get_latest_review_for_switch(self, switch_id: int) -> ConfigReview | None:
-        result = await self.session.execute(
+    async def get_latest_review_for_switch(
+        self, switch_id: int, exclude_origin: str | None = None
+    ) -> ConfigReview | None:
+        stmt = (
             select(ConfigReview)
             .where(ConfigReview.switch_id == switch_id)
             .order_by(ConfigReview.created_at.desc())
             .limit(1)
         )
-        return result.scalar_one_or_none()
+        if exclude_origin is not None:
+            stmt = stmt.where(ConfigReview.origin != exclude_origin)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def get_active_review_for_switch(self, switch_id: int) -> ConfigReview | None:
-        result = await self.session.execute(
+    async def get_active_review_for_switch(
+        self, switch_id: int, exclude_origin: str | None = None
+    ) -> ConfigReview | None:
+        stmt = (
             select(ConfigReview)
             .where(
                 ConfigReview.switch_id == switch_id,
@@ -708,7 +722,9 @@ class Repository:
             .order_by(ConfigReview.created_at.desc())
             .limit(1)
         )
-        return result.scalar_one_or_none()
+        if exclude_origin is not None:
+            stmt = stmt.where(ConfigReview.origin != exclude_origin)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def update_review(
         self,
@@ -741,12 +757,17 @@ class Repository:
         await self.session.flush()
         return review
 
-    async def count_reviews_by_status(self) -> dict[str, int]:
-        rows = (
-            await self.session.execute(
-                select(ConfigReview.status, func.count(ConfigReview.id)).group_by(ConfigReview.status)
-            )
-        ).all()
+    async def count_reviews_by_status(
+        self, origin: str | None = None, exclude_origin: str | None = None
+    ) -> dict[str, int]:
+        stmt = select(ConfigReview.status, func.count(ConfigReview.id)).group_by(
+            ConfigReview.status
+        )
+        if origin is not None:
+            stmt = stmt.where(ConfigReview.origin == origin)
+        if exclude_origin is not None:
+            stmt = stmt.where(ConfigReview.origin != exclude_origin)
+        rows = (await self.session.execute(stmt)).all()
         return {status: int(count) for status, count in rows}
 
     async def list_review_notes(self, review_id: int) -> list[ReviewNote]:
@@ -851,8 +872,13 @@ class Repository:
                     .where(Backup.success.is_(False))
                     .scalar_subquery()
                     .label("failures_total"),
+                    # Config Review badge: attestation tickets only. Per-backup
+                    # drift records live in Change History and would drown it.
                     select(func.count(ConfigReview.id))
-                    .where(ConfigReview.status == "pending")
+                    .where(
+                        ConfigReview.status == "pending",
+                        ConfigReview.origin != "drift",
+                    )
                     .scalar_subquery()
                     .label("pending_reviews"),
                 )
