@@ -34,7 +34,9 @@ def test_quit_action_stops_backend_and_quits(qtbot):
     controller._app.quit = MagicMock()
 
     controller.action_quit.trigger()
-    qtbot.wait(10)
+    # Teardown runs on a worker thread so the GUI never blocks; wait for it.
+    qtbot.waitUntil(lambda: stop_backend.called, timeout=5000)
+    qtbot.waitUntil(lambda: controller._app.quit.called, timeout=5000)
 
     stop_backend.assert_called_once()
     controller._app.quit.assert_called_once()

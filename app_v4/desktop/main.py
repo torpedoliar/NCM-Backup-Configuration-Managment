@@ -28,6 +28,7 @@ from app_v4.desktop.service_settings import (
 from app_v4.desktop.setup.service_config import ServiceSetupConfig
 from app_v4.desktop.setup.wizard import SetupWizard
 from app_v4.desktop.shell.main_window import MainWindow
+from app_v4.desktop.single_instance import SingleInstanceServer, activate_running_instance
 from app_v4.desktop.theme import load_theme_qss
 
 
@@ -283,6 +284,12 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setStyleSheet(load_theme_qss())
 
+    # Second launch: surface the instance already living in the tray instead of
+    # starting another backend against the same database/port.
+    if activate_running_instance():
+        return 0
+    instance_server = SingleInstanceServer(app)
+
     base_dir = _resource_base_dir()
     from app_v4.core.logging import configure_file_logger
     configure_file_logger(base_dir / "logs")
@@ -327,6 +334,7 @@ def main() -> int:
         from app_v4.desktop.shell.tray import TrayController
 
         tray = TrayController(window, app, get_stop_backend=backend.stop)
+        instance_server.activated.connect(tray.show_window)
         tray.show()
         window.show()
         return app.exec()

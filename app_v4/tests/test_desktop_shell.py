@@ -52,6 +52,6 @@ def test_tray_controller_hides_window_on_close_and_restores_on_show(qtbot):
     assert close_event.isAccepted() is False
     assert window.isVisible() is False
 
-    tray._show_window()
+    tray.show_window()
     assert window.isVisible() is True
 
